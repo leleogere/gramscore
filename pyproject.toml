@@ -1,11 +1,11 @@
 [project]
-name = "project-name"
+name = "gramscore"
 version = "0.0.1"
 description = "Describe Your Cool Project"
 authors = [
-    { name = "Author Name", email = "author@e.mail" }
+    { name = "Léo Géré", email = "leleogere@gmail.com" }
 ]
-urls = { "Homepage" = "https://github.com/user/project" }
+urls = { "Homepage" = "https://github.com/leleogere/gramscore" }
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
@@ -17,6 +17,11 @@ dependencies = [
     "rich>=13.0.0",
     "rootutils",
     "wandb",
+    "sentencepiece",
+    "transformers",
+    "peft",
+    "bitsandbytes",
+    "accelerate",
 ]
 
 [project.optional-dependencies]

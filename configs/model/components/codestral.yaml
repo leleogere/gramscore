@@ -1,3 +1,6 @@
-_target_: src.models.components.codestral_model.Codestral
+_target_: src.models.components.codestral.Codestral
+
 model_path: "mistralai/Codestral-22B-v0.1"
-bnp_config: quantizer
+
+defaults:
+  - quantizer@quantizer_config: 4_bits
