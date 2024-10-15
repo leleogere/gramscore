@@ -1,0 +1,5 @@
+_target_: src.data.components.asap_dataset.AsapDataset
+data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/nasap-dataset

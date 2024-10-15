@@ -1,0 +1,15 @@
+# @package _global_
+
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  - data: nasap
+  - paths: local
+
+new_dataset_path: ${paths.data_dir}/nasap-dataset_chunks=${num_measures_per_chunk}_overlap=${overlap}
+num_measures_per_chunk: 32
+overlap: true
+skip_already_split: true
+n_jobs: 10
+progress: true
