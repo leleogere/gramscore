@@ -1,11 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
-import lightning as L
 import rootutils
-import torch
-from lightning import Callback, LightningDataModule, LightningModule, Trainer
-from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
 from data.components.asap_dataset import AsapDataset
@@ -28,15 +24,11 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
 
-from src.utils import (
-    RankedLogger,
-    task_wrapper,
-)
+from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-@task_wrapper
 def split(cfg: DictConfig) -> None:
     """Split ASAP dataset in chunks.
 
