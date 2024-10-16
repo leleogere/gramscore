@@ -174,8 +174,13 @@ class AsapDataset(ScorePerformanceDataset):
         )
 
         with tqdm(total=len(entries_by_score), disable=not progress, unit="score") as pbar:
-            for _ in results:
+            for i, _ in enumerate(results):
+                if i % 10 == 0:
+                    logger.info(f"Processed {i}/{len(entries_by_score)} scores")
                 pbar.update(1)
+            # Last update
+            if i % 10 != 0:
+                logger.info(f"Processed {i}/{len(entries_by_score)} scores")
 
         # TODO: manage metadata.csv
         # return AsapDataset(new_dataset_path)
