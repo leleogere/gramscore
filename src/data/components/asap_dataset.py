@@ -179,7 +179,7 @@ class AsapDataset(ScorePerformanceDataset):
             for entries in entries_by_score
         )
 
-        with tqdm(total=len(self.entries), unit="B", unit_scale=True, disable=not progress) as pbar:
+        with tqdm(total=len(self.entries), disable=not progress) as pbar:
             for _ in results:
                 pbar.update(1)
 
