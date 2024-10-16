@@ -202,6 +202,7 @@ def split_partitura_score_and_performances(
     aligned_performances: list[tuple[pt.performance.PerformedPart, list[dict[str, str]]]],
     num_measures_per_chunk: int,
     overlap: bool = True,
+    min_matched_notes_ratio: float = 0.8,
 ) -> list[dict[str, Any]]:
     """
     Split a partitura score and performances into chunks.
@@ -210,6 +211,7 @@ def split_partitura_score_and_performances(
     :param aligned_performances: A list of tuples containing the aligned performances and their alignments (as Partitura PerformedPart and partitura alignment format).
     :param num_measures_per_chunk: The number of measures per chunk.
     :param overlap: If True, the chunks will overlap using a sliding window.
+    :param min_matched_notes_ratio: The minimum ratio of matched notes to keep a performance.
 
     :return: A list of dictionaries containing the new chunks with the score and performances, with the following schema:
     ```
@@ -248,10 +250,14 @@ def split_partitura_score_and_performances(
     ]
 
     # Filted for badly aligned performances
-    drop_indices = [i for i, aligner in enumerate(aligners) if aligner.ratio_matched_notes < 0.9]
+    drop_indices = [
+        i
+        for i, aligner in enumerate(aligners)
+        if aligner.ratio_matched_notes < min_matched_notes_ratio
+    ]
     if drop_indices:
         logger.warning(
-            f"Dropping {len(drop_indices)} performances with a note matched ratio below 90%."
+            f"Dropping {len(drop_indices)} performances with a note matched ratio below {min_matched_notes_ratio}."
         )
         aligned_performances = [
             p for i, p in enumerate(aligned_performances) if i not in drop_indices

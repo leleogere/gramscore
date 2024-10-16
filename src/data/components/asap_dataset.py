@@ -69,6 +69,7 @@ class AsapDataset(ScorePerformanceDataset):
         new_dataset_path: Path,
         num_measures_per_chunk: int,
         overlap: bool = True,
+        min_matched_notes_ratio: float = 0.8,
         skip_already_split: bool = False,
         n_jobs: int = 1,
         progress: bool = True,
@@ -79,13 +80,12 @@ class AsapDataset(ScorePerformanceDataset):
         :param new_dataset_path: The path to save the new dataset to.
         :param num_measures_per_chunk: The number of measures per chunk.
         :param overlap: Whether to overlap the chunks (use a sliding window).
+        :param min_matched_notes_ratio: The minimum ratio of matched notes between the score and the performance to consider the alignment valid.
         :param skip_already_split: Whether to skip scores that have already been split.
         :param progress: Whether to show a progress bar.
         :param n_jobs: The number of jobs to run in parallel.
         :return: The new dataset.
         """
-        sizes = [entry.xml_score.stat().st_size for entry in self.entries]
-        total_size = sum(sizes)
 
         def _split_single_score_and_performances(entries: list[ScorePerformanceEntry]) -> bool:
             """
@@ -134,6 +134,7 @@ class AsapDataset(ScorePerformanceDataset):
                     aligned_performances=performances_and_alignments,
                     num_measures_per_chunk=num_measures_per_chunk,
                     overlap=overlap,
+                    min_matched_notes_ratio=min_matched_notes_ratio,
                 )
             except Exception as e:
                 logger.error(f"Error splitting {score_path}: {e}")
