@@ -1,0 +1,5 @@
+_target_: src.models.components.adapted_lm.AdaptedLM
+
+defaults:
+  - lm_components/base_lm@lm: codestral
+  - lm_components/peft@peft_config: lora
