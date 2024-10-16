@@ -1,4 +1,5 @@
 import hydra
+from dotenv import load_dotenv
 from loguru import logger
 from omegaconf import DictConfig
 
@@ -32,6 +33,7 @@ def main(cfg: DictConfig) -> None:
 
     :param cfg: DictConfig configuration composed by Hydra.
     """
+    load_dotenv()
     split(cfg)
 
 
