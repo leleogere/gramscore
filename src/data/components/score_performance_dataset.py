@@ -1,8 +1,6 @@
-import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from typing import Self
 
 import music21 as m21
 import symusic

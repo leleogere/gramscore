@@ -1,18 +1,14 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import partitura as pt
-import partitura.score
 import partitura.performance
+import partitura.score
 import partitura.utils.music
-
-from utils.pylogger import RankedLogger
-
-logger = RankedLogger(__name__)
+from loguru import logger
 
 
 def split_partitura_score(
@@ -412,29 +408,6 @@ def split_partitura_score_and_performances(
                     new_pnote["note_on"] = new_note_on
 
                 new_pnote["note_off"] = new_note_off
-
-                # # Checking start
-                # new_note_on = new_pnote["note_on"] - current_perf_chunk["performance_start"]
-                # if new_note_on < 0:
-                #     logger.warning(
-                #         f"Note {new_pnote["id"]} seem to start before chunk {i} "
-                #         f"({new_pnote["note_on"]} < {current_perf_chunk["performance_start"]}). "
-                #         f"Clipping start to 0."
-                #     )
-                #     new_pnote["note_on"] = 0
-                # else:
-                #     new_pnote["note_on"] = new_note_on
-                # # Checking end
-                # new_note_off = new_pnote["note_off"] - current_perf_chunk["performance_start"]
-                # if new_note_off < new_pnote["note_on"]:
-                #     logger.warning(
-                #         f"Note {new_pnote["id"]} seem to end before it starts in chunk {i} "
-                #         f"({new_note_off} < {new_pnote["note_on"]}). "
-                #         f"Skipping note."
-                #     )
-                #     continue
-                # else:
-                #     new_pnote["note_off"] = new_note_off
 
                 # Add the note
                 current_perf_chunk["performance"].notes.append(new_pnote)

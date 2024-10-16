@@ -8,9 +8,7 @@ a somewhat usable interface.
 import subprocess
 import os
 
-from utils import pylogger
-
-log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+from loguru import logger
 
 # Compute the directory of the script
 DIRECTORY = os.path.dirname(os.path.realpath(__file__))
@@ -36,7 +34,7 @@ def _convert(input: str, direction: str) -> str:
     )
     output, err = p.communicate(input)
     if err:
-        log.warning(err)
+        logger.warning(err)
     return output
 
 

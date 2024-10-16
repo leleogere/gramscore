@@ -1,25 +1,22 @@
 from __future__ import annotations
 
+import csv
 import itertools
+import traceback
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import joblib
+import partitura as pt
+from loguru import logger
 from tqdm import tqdm
 
 from data.components.score_performance_dataset import ScorePerformanceAsTextDataset
 from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
-import csv
-import partitura as pt
-
 from data.split_utils import split_partitura_score_and_performances
 from utils.constants import SUCCESS_FILENAME
-
-from utils.pylogger import RankedLogger
-
-logger = RankedLogger(__name__)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -137,11 +134,7 @@ class AsapDataset(ScorePerformanceDataset):
                     min_matched_notes_ratio=min_matched_notes_ratio,
                 )
             except Exception as e:
-                logger.error(f"Error splitting {score_path}: {e}")
-                # log traceback too
-                import traceback
-
-                logger.error(traceback.format_exc())
+                logger.error(f"Error splitting {score_path}: {e}\n{traceback.format_exc()}")
                 return False
 
             # Save the split to disk

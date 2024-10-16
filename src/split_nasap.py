@@ -1,32 +1,8 @@
-from typing import Any, Dict, List, Optional, Tuple
-
 import hydra
-import rootutils
+from loguru import logger
 from omegaconf import DictConfig
 
 from data.components.asap_dataset import AsapDataset
-
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-# ------------------------------------------------------------------------------------ #
-# the setup_root above is equivalent to:
-# - adding project root dir to PYTHONPATH
-#       (so you don't need to force user to install project as a package)
-#       (necessary before importing any local modules e.g. `from src import utils`)
-# - setting up PROJECT_ROOT environment variable
-#       (which is used as a base for paths in "configs/paths/default.yaml")
-#       (this way all filepaths are the same no matter where you run the code)
-# - loading environment variables from ".env" in root dir
-#
-# you can remove it if you:
-# 1. either install project as a package or move entry files to project root dir
-# 2. set `root_dir` to "." in "configs/paths/default.yaml"
-#
-# more info: https://github.com/ashleve/rootutils
-# ------------------------------------------------------------------------------------ #
-
-from src.utils import RankedLogger
-
-log = RankedLogger(__name__, rank_zero_only=True)
 
 
 def split(cfg: DictConfig) -> None:
@@ -37,7 +13,7 @@ def split(cfg: DictConfig) -> None:
 
     :param cfg: A DictConfig configuration composed by Hydra.
     """
-    log.info(f"Instantiating dataset <{cfg.data._target_}>")
+    logger.info(f"Instantiating dataset <{cfg.data._target_}>")
     ds: AsapDataset = hydra.utils.instantiate(cfg.data)
 
     ds.split_asap_dataset(
