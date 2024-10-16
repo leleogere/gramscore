@@ -21,6 +21,7 @@ def split(cfg: DictConfig) -> None:
         new_dataset_path=cfg.new_dataset_path,
         num_measures_per_chunk=cfg.num_measures_per_chunk,
         overlap=cfg.overlap,
+        min_matched_notes_ratio=cfg.min_matched_notes_ratio,
         skip_already_split=cfg.skip_already_split,
         n_jobs=cfg.n_jobs,
         progress=cfg.progress,
