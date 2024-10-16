@@ -175,13 +175,13 @@ class AsapDataset(ScorePerformanceDataset):
             )
         ]
         results = joblib.Parallel(n_jobs=n_jobs, return_as="generator")(
-            joblib.delayed(lambda e, s: (_split_single_score_and_performances(e), s))(entries, size)
-            for entries, size in zip(entries_by_score, sizes)
+            joblib.delayed(_split_single_score_and_performances)(entries)
+            for entries in entries_by_score
         )
 
-        with tqdm(total=total_size, unit="B", unit_scale=True, disable=not progress) as pbar:
-            for _, size in results:
-                pbar.update(size)
+        with tqdm(total=len(self.entries), unit="B", unit_scale=True, disable=not progress) as pbar:
+            for _ in results:
+                pbar.update(1)
 
         # TODO: manage metadata.csv
         # return AsapDataset(new_dataset_path)
