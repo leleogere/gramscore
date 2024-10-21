@@ -20,7 +20,7 @@ dependencies = [
     "peft",
     "bitsandbytes",
     "accelerate",
-    "partitura @ git+https://github.com/leleogere/partitura.git@main_patched",  # custom version, merge PRs 384, 387, 390, 392
+    "partitura @ git+https://github.com/leleogere/partitura.git@main_patched",  # custom version, see issues/PR 384, 387, 389, 390, 392
 ]
 
 [project.optional-dependencies]
