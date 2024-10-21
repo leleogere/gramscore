@@ -98,6 +98,7 @@ class AsapDataset(ScorePerformanceDataset):
             # Do not recompute if the score has already been split (and the flag is set)
             success_file = out_dir / SUCCESS_FILENAME
             if skip_already_split and success_file.exists():
+                logger.debug(f"Skipping {score_path} (already split)")
                 return True
             else:
                 success_file.unlink(missing_ok=True)
