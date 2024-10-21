@@ -105,8 +105,8 @@ class AsapDataset(ScorePerformanceDataset):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     score = pt.load_musicxml(score_path)
-                assert len(score.parts) == 1
-                score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
+                    assert len(score.parts) == 1
+                    score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
             except Exception as e:
                 logger.error(f"Error loading {score_path}: {e}")
                 return False

@@ -285,7 +285,9 @@ def split_partitura_score_and_performances(
         # Create a new ScoreVariant
         sv = pt.score.ScoreVariant(score)
         sv.add_segment(start_measure.start, end_measure.end)
-        new_score_chunk = sv.create_variant_part()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            new_score_chunk = sv.create_variant_part()
 
         # Fix the quarter lengths of the new chunk (see PR #385 of partitura)
         new_score_chunk.set_quarter_duration(0, score.quarter_duration_map(start_measure.start.t))
