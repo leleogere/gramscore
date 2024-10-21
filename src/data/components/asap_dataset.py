@@ -99,6 +99,8 @@ class AsapDataset(ScorePerformanceDataset):
             success_file = out_dir / SUCCESS_FILENAME
             if skip_already_split and success_file.exists():
                 return True
+            else:
+                success_file.unlink(missing_ok=True)
 
             # Load the score
             try:
