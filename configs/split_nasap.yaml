@@ -7,7 +7,10 @@ defaults:
   - data: nasap
   - paths: default
 
-new_dataset_path: ${paths.data_dir}/nasap-dataset_chunks=${num_measures_per_chunk}_overlap=${overlap}_min-ratio=${min_matched_notes_ratio}
+new_dataset_path:
+  _target_: pathlib.Path
+  _args_:
+    - ${paths.data_dir}/nasap-dataset_chunks=${num_measures_per_chunk}_overlap=${overlap}_min-ratio=${min_matched_notes_ratio}
 num_measures_per_chunk: 32
 overlap: true
 min_matched_notes_ratio: 0.8
