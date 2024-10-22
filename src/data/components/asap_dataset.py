@@ -192,7 +192,7 @@ class AsapDataset(ScorePerformanceDataset):
                 key=lambda entry: entry.xml_score,
             )
         ]
-        results: Generator[tuple[tuple[bool, Path], ScorePerformanceEntry]] = joblib.Parallel(
+        results: Generator[tuple[tuple[bool, Path], list[ScorePerformanceEntry]]] = joblib.Parallel(
             n_jobs=n_jobs, return_as="generator"
         )(
             joblib.delayed(lambda e: (_split_single_score_and_performances(e), e))(ent)
@@ -202,15 +202,16 @@ class AsapDataset(ScorePerformanceDataset):
         metadata: list[dict] = []
         with tqdm(total=len(entries_by_score), disable=not progress, unit="score") as pbar:
             for i, ((success, out_dir), ent) in enumerate(results):
+                ent0 = ent[0]
                 if success:
                     for chunk_dir in sorted(out_dir.iterdir()):
-                        score_path = chunk_dir / ent.xml_score.stem
+                        score_path = chunk_dir / ent0.xml_score.stem
                         performance_paths = list(chunk_dir.glob("*.mid"))
                         metadata.extend(
                             [
                                 {
-                                    "composer": ent.composer,
-                                    "title": ent.title,
+                                    "composer": ent0.composer,
+                                    "title": ent0.title,
                                     "folder": score_path.relative_to(new_dataset_path).parent,
                                     "xml_score": score_path.relative_to(new_dataset_path),
                                     "midi_performance": performance_path.relative_to(
@@ -237,10 +238,10 @@ class AsapDataset(ScorePerformanceDataset):
             )
             writer.writeheader()
             writer.writerows(metadata)
-        
+
         # Save the success file
         success_file.touch(exist_ok=True)
-        
+
         return AsapDataset(new_dataset_path)
 
 
