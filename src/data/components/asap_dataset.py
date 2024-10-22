@@ -52,12 +52,14 @@ class AsapDataset(ScorePerformanceDataset):
             reader = csv.DictReader(f)
             return [
                 ScorePerformanceEntry(
+                    # fmt: off
                     composer=entry["composer"],
                     title=entry["title"],
                     xml_score=data_dir / Path(entry["xml_score"]),
-                    midi_score=data_dir / Path(entry["midi_score"]),
+                    midi_score=data_dir / Path(entry["midi_score"]) if "midi_score" in entry else None,
                     midi_performance=data_dir / Path(entry["midi_performance"]),
-                    midi_score_annotations=data_dir / Path(entry["midi_score_annotations"]),
+                    midi_score_annotations=data_dir / Path(entry["midi_score_annotations"]) if "midi_score_annotations" in entry else None,
+                    # fmt: on
                 )
                 for entry in reader
             ]
