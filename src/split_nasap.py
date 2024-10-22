@@ -18,7 +18,7 @@ def split(cfg: DictConfig) -> None:
     ds: AsapDataset = hydra.utils.instantiate(cfg.data)
 
     ds.split_asap_dataset(
-        new_dataset_path=cfg.new_dataset_path,
+        new_dataset_path=Path(cfg.new_dataset_path),
         num_measures_per_chunk=cfg.num_measures_per_chunk,
         overlap=cfg.overlap,
         min_matched_notes_ratio=cfg.min_matched_notes_ratio,
