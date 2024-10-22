@@ -135,6 +135,7 @@ class AsapDataset(ScorePerformanceDataset):
                     num_measures_per_chunk=num_measures_per_chunk,
                     overlap=overlap,
                     min_matched_notes_ratio=min_matched_notes_ratio,
+                    score_name_for_logging=str(score_path.relative_to(self.data_dir)),
                 )
             except Exception as e:
                 logger.error(f"Error splitting {score_path}: {e}\n{traceback.format_exc()}")

@@ -12,76 +12,6 @@ import partitura.utils.music
 from loguru import logger
 
 
-def split_partitura_score(
-    part: pt.score.Part,
-    num_measures_per_chunk: int,
-    overlap: bool = True,
-) -> list[pt.score.Part]:
-
-    num_measures = len(part.measures)
-
-    if num_measures_per_chunk > num_measures:
-        logger.warning(
-            "The number of measures per chunk must is greater than the total number of measures."
-            "The resulting score will be shorter."
-        )
-        num_measures = num_measures_per_chunk
-
-    chunks = []
-
-    if overlap:
-        step = 1
-    else:
-        step = num_measures_per_chunk
-        if num_measures % num_measures_per_chunk != 0:
-            logger.warning(
-                f"Last chunk will only have {num_measures % num_measures_per_chunk} measures."
-            )
-
-    # Create all chunks
-    for start_measure_idx in range(0, num_measures - num_measures_per_chunk + 1, step):
-        # Get the start and end measures of the chunk
-        end_measure_idx = min(start_measure_idx + num_measures_per_chunk, num_measures)
-        start_measure = part.measures[start_measure_idx]
-        end_measure = part.measures[end_measure_idx - 1]
-        # print(f"Chunk {start_measure_idx}-{end_measure_idx}")
-
-        # Create a new ScoreVariant
-        sv = pt.score.ScoreVariant(part)
-        sv.add_segment(start_measure.start, end_measure.end)
-        new_chunk = sv.create_variant_part()
-
-        # Fix the quarter lengths of the new chunk (see PR #385 of partitura)
-        new_chunk.set_quarter_duration(0, part.quarter_duration_map(start_measure.start.t))
-
-        # Store the new chunk
-        chunks.append(
-            {
-                "part": new_chunk,
-                "original_start": start_measure.start.t,
-            }
-        )
-
-    # Add eventual missing contextual information on all chunks
-    for chunk in chunks:
-        # For each contextual information, get it from the context, check against the first measure
-        # of the chunk and add it if missing, and then add it to the chunk if needed.
-        for contextual_getter, contextual_adder in [
-            (
-                get_time_signature_map_object_wrapper(part.time_signature_map),
-                add_time_signature_if_missing,
-            ),
-            (
-                get_key_signature_map_object_wrapper(part.key_signature_map),
-                add_key_signature_if_missing,
-            ),
-            (get_clef_map_object_wrapper(part.clef_map), add_clefs_if_missing),
-        ]:
-            contextual_adder(chunk["part"], contextual_getter(chunk["original_start"]))
-
-    return [chunk["part"] for chunk in chunks]
-
-
 @dataclass
 class PerformanceAligner:
     score: pt.score.Part
@@ -200,6 +130,7 @@ def split_partitura_score_and_performances(
     num_measures_per_chunk: int,
     overlap: bool = True,
     min_matched_notes_ratio: float = 0.8,
+    score_name_for_logging: str = None,
 ) -> list[dict[str, Any]]:
     """
     Split a partitura score and performances into chunks.
@@ -209,6 +140,7 @@ def split_partitura_score_and_performances(
     :param num_measures_per_chunk: The number of measures per chunk.
     :param overlap: If True, the chunks will overlap using a sliding window.
     :param min_matched_notes_ratio: The minimum ratio of matched notes to keep a performance.
+    :param score_name_for_logging: The name of the score to use for logging.
 
     :return: A list of dictionaries containing the new chunks with the score and performances, with the following schema:
     ```
@@ -228,17 +160,25 @@ def split_partitura_score_and_performances(
         ]
     ```
     """
+    if score_name_for_logging is None:
+        score_name_for_logging = ""
+    else:
+        score_name_for_logging = f"{score_name_for_logging} - "
+
     num_measures = len(score.measures)
 
     if num_measures_per_chunk > num_measures:
         logger.warning(
-            "The number of measures per chunk must is greater than the total number of measures."
+            score_name_for_logging
+            + "The number of measures per chunk must is greater than the total number of measures."
             "The resulting score will be shorter."
         )
 
     # All performances must have different IDs
     ids = [p.id for p, _ in aligned_performances]
-    assert len(set(ids)) == len(ids), "All performances must have a distinct ID"
+    assert len(set(ids)) == len(ids), (
+        score_name_for_logging + "All performances must have a distinct ID"
+    )
 
     # Get the aligner tool for each performance
     aligners = [
@@ -254,14 +194,18 @@ def split_partitura_score_and_performances(
     ]
     if drop_indices:
         logger.warning(
-            f"Dropping {len(drop_indices)} performances with a note matched ratio below {min_matched_notes_ratio}."
+            score_name_for_logging
+            + f"Dropping {len(drop_indices)} performances with a note matched ratio below "
+            f"{min_matched_notes_ratio}."
         )
         aligned_performances = [
             p for i, p in enumerate(aligned_performances) if i not in drop_indices
         ]
         aligners = [a for i, a in enumerate(aligners) if i not in drop_indices]
         if not aligned_performances:
-            logger.warning("All performances were dropped. Aborting split.")
+            logger.warning(
+                score_name_for_logging + "All performances were dropped. Aborting split."
+            )
             return []
 
     chunks = []
@@ -272,7 +216,8 @@ def split_partitura_score_and_performances(
         step = num_measures_per_chunk
         if num_measures % num_measures_per_chunk != 0:
             logger.warning(
-                f"Last chunk will only have {num_measures % num_measures_per_chunk} measures."
+                score_name_for_logging
+                + f"Last chunk will only have {num_measures % num_measures_per_chunk} measures."
             )
 
     # Create all chunks
@@ -305,7 +250,9 @@ def split_partitura_score_and_performances(
 
             if not pnotes:
                 logger.warning(
-                    f"No notes matched for performance {performance.id} on measures {start_measure_idx}-{end_measure_idx}."
+                    score_name_for_logging
+                    + f"No notes matched for performance {performance.id} on measures "
+                    f"{start_measure_idx}-{end_measure_idx}."
                 )
                 continue
 
@@ -392,7 +339,8 @@ def split_partitura_score_and_performances(
                 new_note_off = new_pnote["note_off"] - current_perf_chunk["performance_start"]
                 if new_pnote["note_off"] < current_perf_chunk["performance_start"]:
                     logger.warning(
-                        f"Note {new_pnote["id"]} seems to end before chunk {i} "
+                        score_name_for_logging
+                        + f"Note {new_pnote["id"]} seems to end before chunk {i} "
                         f"({new_pnote["note_off"]} < {current_perf_chunk["performance_start"]}). "
                         f"Skipping note."
                     )
@@ -402,7 +350,8 @@ def split_partitura_score_and_performances(
                 new_note_on = new_pnote["note_on"] - current_perf_chunk["performance_start"]
                 if new_note_on < 0:
                     logger.warning(
-                        f"Note {new_pnote["id"]} seems to start before chunk {i} "
+                        score_name_for_logging
+                        + f"Note {new_pnote["id"]} seems to start before chunk {i} "
                         f"({new_pnote["note_on"]} < {current_perf_chunk["performance_start"]}). "
                         f"Clipping start to 0."
                     )
