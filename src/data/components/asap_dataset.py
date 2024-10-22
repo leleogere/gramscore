@@ -195,7 +195,7 @@ class AsapDataset(ScorePerformanceDataset):
         results: Generator[tuple[tuple[bool, Path], ScorePerformanceEntry]] = joblib.Parallel(
             n_jobs=n_jobs, return_as="generator"
         )(
-            joblib.delayed(lambda e: (_split_single_score_and_performances, e))(ent)
+            joblib.delayed(lambda e: (_split_single_score_and_performances(e), e))(ent)
             for ent in entries_by_score
         )
 
