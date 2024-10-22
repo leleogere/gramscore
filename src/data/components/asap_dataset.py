@@ -4,6 +4,7 @@ import csv
 import itertools
 import traceback
 import warnings
+from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -83,12 +84,20 @@ class AsapDataset(ScorePerformanceDataset):
         :param n_jobs: The number of jobs to run in parallel.
         :return: The new dataset.
         """
+        success_file = new_dataset_path / SUCCESS_FILENAME
+        if skip_already_split and success_file.exists():
+            logger.info(f"Dataset already split at {new_dataset_path}")
+            return AsapDataset(new_dataset_path)
+        else:
+            success_file.unlink(missing_ok=True)
 
-        def _split_single_score_and_performances(entries: list[ScorePerformanceEntry]) -> bool:
+        def _split_single_score_and_performances(
+            entries: list[ScorePerformanceEntry],
+        ) -> tuple[bool, Path]:
             """
             Function used to parallelize the splitting of the dataset. The entries must all have
-            the same score (but different performances). Returns a boolean indicating whether the
-            score was successfully split.
+            the same score (but different performances). Return a boolean indicating whether the
+            splitting was successful, as well as the output directory of the split.
             """
             score_path = entries[0].xml_score
             assert all(entry.xml_score == score_path for entry in entries)
@@ -99,7 +108,7 @@ class AsapDataset(ScorePerformanceDataset):
             success_file = out_dir / SUCCESS_FILENAME
             if skip_already_split and success_file.exists():
                 logger.debug(f"Skipping {score_path} (already split)")
-                return True
+                return True, out_dir
             else:
                 success_file.unlink(missing_ok=True)
 
@@ -112,7 +121,7 @@ class AsapDataset(ScorePerformanceDataset):
                     score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
             except Exception as e:
                 logger.error(f"Error loading {score_path}: {e}")
-                return False
+                return False, out_dir
 
             # Load the aligned performances
             performances_and_alignments = []
@@ -139,7 +148,7 @@ class AsapDataset(ScorePerformanceDataset):
                 )
             except Exception as e:
                 logger.error(f"Error splitting {score_path}: {e}\n{traceback.format_exc()}")
-                return False
+                return False, out_dir
 
             # Save the split to disk
             for i, chunk in enumerate(chunks, start=1):
@@ -158,12 +167,23 @@ class AsapDataset(ScorePerformanceDataset):
                         performance["performance"],
                         chunk_dir / f"{performance["performance"].id}.mid",
                     )
+                    pt.save_match(
+                        alignment=performance["alignment"],
+                        performance_data=performance["performance"],
+                        score_data=chunk["score"],
+                        out=chunk_dir / f"{performance["performance"].id}.match",
+                        mpq=performance["performance"].mpq,
+                        ppq=performance["performance"].ppq,
+                        assume_unfolded=True,
+                    )
 
             # Create a success file (only if there are chunks)
             if len(chunks) > 0:
                 success_file.touch()
+            else:
+                return False, out_dir
 
-            return True
+            return True, out_dir
 
         entries_by_score = [
             list(elements)
@@ -172,13 +192,34 @@ class AsapDataset(ScorePerformanceDataset):
                 key=lambda entry: entry.xml_score,
             )
         ]
-        results = joblib.Parallel(n_jobs=n_jobs, return_as="generator")(
-            joblib.delayed(_split_single_score_and_performances)(entries)
-            for entries in entries_by_score
+        results: Generator[tuple[tuple[bool, Path], ScorePerformanceEntry]] = joblib.Parallel(
+            n_jobs=n_jobs, return_as="generator"
+        )(
+            joblib.delayed(lambda e: (_split_single_score_and_performances, e))(ent)
+            for ent in entries_by_score
         )
 
+        metadata: list[dict] = []
         with tqdm(total=len(entries_by_score), disable=not progress, unit="score") as pbar:
-            for i, _ in enumerate(results):
+            for i, ((success, out_dir), ent) in enumerate(results):
+                if success:
+                    for chunk_dir in sorted(out_dir.iterdir()):
+                        score_path = chunk_dir / ent.xml_score.stem
+                        performance_paths = list(chunk_dir.glob("*.mid"))
+                        metadata.extend(
+                            [
+                                {
+                                    "composer": ent.composer,
+                                    "title": ent.title,
+                                    "folder": score_path.relative_to(new_dataset_path).parent,
+                                    "xml_score": score_path.relative_to(new_dataset_path),
+                                    "midi_performance": performance_path.relative_to(
+                                        new_dataset_path
+                                    ),
+                                }
+                                for performance_path in performance_paths
+                            ]
+                        )
                 if i % 10 == 0:
                     logger.info(f"Processed {i}/{len(entries_by_score)} scores")
                 pbar.update(1)
@@ -186,8 +227,21 @@ class AsapDataset(ScorePerformanceDataset):
             if i % 10 != 0:
                 logger.info(f"Processed {i}/{len(entries_by_score)} scores")
 
-        # TODO: manage metadata.csv
-        # return AsapDataset(new_dataset_path)
+        # Save the metadata
+        metadata_path = new_dataset_path / "metadata.csv"
+        with open(metadata_path, "w") as f:
+            writer = csv.DictWriter(
+                f,
+                metadata[0].keys(),
+                delimiter=",",
+            )
+            writer.writeheader()
+            writer.writerows(metadata)
+        
+        # Save the success file
+        success_file.touch(exist_ok=True)
+        
+        return AsapDataset(new_dataset_path)
 
 
 class AsapAsTextDataset(ScorePerformanceAsTextDataset):

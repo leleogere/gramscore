@@ -151,6 +151,7 @@ def split_partitura_score_and_performances(
                     {
                         "performance": pt.performance.PerformedPart,  # The performance chunk
                         "performance_start": float,                   # The start time of the performance chunk (used for offsets)
+                        "alignment": list[dict[str, str]],            # The alignment of the performance (as partitura alignment format)
                     }
                     for each performance
                 ]
@@ -186,7 +187,7 @@ def split_partitura_score_and_performances(
         for performance, alignment in aligned_performances
     ]
 
-    # Filted for badly aligned performances
+    # Filter for badly aligned performances
     drop_indices = [
         i
         for i, aligner in enumerate(aligners)
@@ -243,8 +244,9 @@ def split_partitura_score_and_performances(
         for (performance, _), aligner in zip(aligned_performances, aligners):
             # Get the notes
             pnotes: list[pt.performance.PerformedNote] = []
-            for snote in new_score_chunk.notes:
-                pnote = aligner.sid_to_pnote(snote.id)
+            chunk_sids = [snote.id for snote in new_score_chunk.notes]
+            for sid in chunk_sids:
+                pnote = aligner.sid_to_pnote(sid)
                 if pnote is not None:  # Skip unmatched notes, will be added back later
                     pnotes.append(pnote.copy())  # Shallow copy should be ok?
 
@@ -282,6 +284,11 @@ def split_partitura_score_and_performances(
                         mpq=performance.mpq,
                     ),
                     "performance_start": p_start,
+                    "alignment": [
+                        a
+                        for a in aligner.alignment
+                        if "score_id" in a and a["score_id"] in chunk_sids
+                    ],
                 }
             )
 
@@ -363,6 +370,9 @@ def split_partitura_score_and_performances(
 
                 # Add the note
                 current_perf_chunk["performance"].notes.append(new_pnote)
+                current_perf_chunk["alignment"].append(
+                    {"label": "insertion", "performance_id": new_pnote["id"]}
+                )
 
     return chunks
 
