@@ -16,7 +16,7 @@ from tqdm import tqdm
 from data.components.score_performance_dataset import ScorePerformanceAsTextDataset
 from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
-from data.split_utils import split_partitura_score_and_performances
+from data.components.split_utils import split_partitura_score_and_performances
 from utils.constants import SUCCESS_FILENAME
 
 if TYPE_CHECKING:

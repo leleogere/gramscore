@@ -532,9 +532,13 @@ if __name__ == '__main__':
     path = Path(
         # "/home/gerel/Documents/datasets/nasap-dataset/Beethoven/Piano_Sonatas/29-4/xml_score.musicxml"
         # "/home/gerel/Documents/datasets/nasap-dataset/Beethoven/Piano_Sonatas/7-3/xml_score.musicxml"
-        "/home/gerel/Documents/datasets/nasap-dataset/Bach/Fugue/bwv_888/xml_score.musicxml"
+        # "/home/gerel/Documents/datasets/nasap-dataset/Bach/Fugue/bwv_888/xml_score.musicxml"
+        "/home/gerel/Documents/datasets/nasap-dataset/Schubert/Wanderer_fantasie/xml_score.musicxml"
+        # "/home/gerel/Documents/datasets/nasap-dataset/Chopin/Etudes_op_10/12/xml_score.musicxml"
     )
+    # print("READING SCORE")
     score = pt.score.unfold_part_maximal(pt.load_musicxml(path).parts[0], ignore_leaps=False)
+    # print("SCORE READ")
 
     performances_and_alignments = []
     for file in path.parent.glob("*.match"):
@@ -543,7 +547,9 @@ if __name__ == '__main__':
         performance.id = file.stem
         performances_and_alignments.append((performance, alignment))
 
+    # print("SPLITTING SCORE")
     chunks = split_partitura_score_and_performances(score, performances_and_alignments, n)
+    # print("SCORE SPLIT")
 
     tmp_dir = (
         Path("/tmp/unary_tests")
