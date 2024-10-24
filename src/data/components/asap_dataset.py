@@ -207,6 +207,7 @@ class AsapDataset(ScorePerformanceDataset):
                 logger.debug(f"Skipping {score_path} (already chunked)")
                 return True, out_dir
             else:
+                logger.debug(f"Chunking {score_path}")
                 success_file.unlink(missing_ok=True)
 
             # Load the score

@@ -19,7 +19,7 @@ class PerformanceAligner:
     alignment: list[dict[str, str]]
 
     def __post_init__(self):
-        logger.debug(f"Creating PerformanceAligner for {self.performance.id}")
+        logger.trace(f"Creating PerformanceAligner for {self.performance.id}")
         self._sid_to_pid = {}
         self._pid_to_sid = {}
         self._sid_unmatched = []
@@ -37,12 +37,6 @@ class PerformanceAligner:
                     self._pid_unmatched.append(a["performance_id"])
                 case _:
                     raise ValueError(f"Unknown label {a["label"]}")
-        # print(
-        #     f"{self.num_matched_notes} matched notes | "
-        #     f"{self.num_unmatched_score_notes} unmatched score notes | "
-        #     f"{self.num_unmatched_performance_notes} unmatched performance notes | "
-        #     f"{self.ratio_matched_notes:.2%} matched ratio"
-        # )
         self._pid_to_pnote = {pnote["id"]: pnote for pnote in self.performance.notes}
         self._ptime_to_stime, self._stime_to_ptime = (
             pt.musicanalysis.performance_codec.get_time_maps_from_alignment(
