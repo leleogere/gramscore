@@ -134,7 +134,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        # Load and split datasets only if not loaded already
+        # Load and chunk datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
             splits = ["train", "validation", "test"]
             sets: dict[str, AsapDataset | ScorePerformanceDataset] = {
@@ -147,12 +147,12 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                         f"Chunking {split} dataset into {self.hparams.chunking_num_measures} "
                         f"measures in {self.hparams.chunking_path}"
                     )
-                    sets[split] = split_set.split_nasap_dataset(
+                    sets[split] = split_set.chunk_nasap_dataset(
                         new_dataset_path=self.hparams.chunking_path / split,
                         num_measures_per_chunk=self.hparams.chunking_num_measures,
                         overlap=self.hparams.chunking_overlap,
                         min_matched_notes_ratio=0.0,
-                        skip_already_split=self.hparams.chunking_cache,
+                        skip_already_chunked=self.hparams.chunking_cache,
                         n_jobs=self.hparams.chunking_n_jobs,
                         progress=False,
                     )

@@ -124,7 +124,7 @@ class PerformanceAligner:
         return self.num_matched_notes / len(self.alignment)
 
 
-def split_partitura_score_and_performances(
+def chunk_partitura_score_and_performances(
     score: pt.score.Part,
     aligned_performances: list[tuple[pt.performance.PerformedPart, list[dict[str, str]]]],
     num_measures_per_chunk: int,
@@ -133,9 +133,9 @@ def split_partitura_score_and_performances(
     score_name_for_logging: str = None,
 ) -> list[dict[str, Any]]:
     """
-    Split a partitura score and performances into chunks.
+    Chunk a partitura score and performances into chunks.
 
-    :param score: The partitura score to split (as Partitura Part).
+    :param score: The partitura score to chunk (as Partitura Part).
     :param aligned_performances: A list of tuples containing the aligned performances and their alignments (as Partitura PerformedPart and partitura alignment format).
     :param num_measures_per_chunk: The number of measures per chunk.
     :param overlap: If True, the chunks will overlap using a sliding window.
@@ -207,7 +207,7 @@ def split_partitura_score_and_performances(
         aligners = [a for i, a in enumerate(aligners) if i not in drop_indices]
         if not aligned_performances:
             logger.warning(
-                score_name_for_logging + "All performances were dropped. Aborting split."
+                score_name_for_logging + "All performances were dropped. Aborting chunking."
             )
             return []
 
@@ -551,9 +551,7 @@ if __name__ == '__main__':
         performance.id = file.stem
         performances_and_alignments.append((performance, alignment))
 
-    # print("SPLITTING SCORE")
-    chunks = split_partitura_score_and_performances(score, performances_and_alignments, n)
-    # print("SCORE SPLIT")
+    chunks = chunk_partitura_score_and_performances(score, performances_and_alignments, n)
 
     tmp_dir = (
         Path("/tmp/unary_tests")

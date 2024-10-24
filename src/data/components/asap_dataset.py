@@ -18,7 +18,7 @@ from tqdm import tqdm
 from data.components.score_performance_dataset import ScorePerformanceAsTextDataset
 from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
-from data.components.split_utils import split_partitura_score_and_performances
+from data.components.chunking_utils import chunk_partitura_score_and_performances
 from utils.constants import SKIP
 from utils.constants import SUCCESS_FILENAME
 from utils.constants import TEST_PIECE_IDS
@@ -145,32 +145,32 @@ class AsapDataset(ScorePerformanceDataset):
 
         return entries
 
-    def split_nasap_dataset(
+    def chunk_nasap_dataset(
         self,
         new_dataset_path: Path,
         num_measures_per_chunk: int,
         overlap: bool = True,
         min_matched_notes_ratio: float = 0.8,
-        skip_already_split: bool = False,
+        skip_already_chunked: bool = False,
         n_jobs: int = 1,
         progress: bool = True,
     ) -> ScorePerformanceDataset:
         """
-        Split an ASAP dataset into chunks of a given number of measures and save the new dataset to a new directory.
+        Chunk an ASAP dataset into chunks of a given number of measures and save the new dataset to a new directory.
 
         :param new_dataset_path: The path to save the new dataset to.
         :param num_measures_per_chunk: The number of measures per chunk.
         :param overlap: Whether to overlap the chunks (use a sliding window).
         :param min_matched_notes_ratio: The minimum ratio of matched notes between the score and the performance to consider the alignment valid.
-        :param skip_already_split: Whether to skip scores that have already been split.
+        :param skip_already_chunked: Whether to skip scores that have already been chunked.
         :param progress: Whether to show a progress bar.
         :param n_jobs: The number of jobs to run in parallel.
         :return: The new dataset.
         """
-        # If already successfully split and skip is allowed, return the dataset
+        # If already successfully chunked and skip is allowed, return the dataset
         success_file = new_dataset_path / SUCCESS_FILENAME
-        if skip_already_split and success_file.exists():
-            logger.info(f"Dataset already split at {new_dataset_path}")
+        if skip_already_chunked and success_file.exists():
+            logger.info(f"Dataset already chunked at {new_dataset_path}")
             with open(new_dataset_path / "metadata.csv", "r") as f:
                 reader = csv.DictReader(f)
                 metadata = [
@@ -188,23 +188,23 @@ class AsapDataset(ScorePerformanceDataset):
         else:
             success_file.unlink(missing_ok=True)
 
-        def _split_single_score_and_performances(
+        def _chunk_single_score_and_performances(
             entries: list[ScorePerformanceEntry],
         ) -> tuple[bool, Path]:
             """
-            Function used to parallelize the splitting of the dataset. The entries must all have
+            Function used to parallelize the chunking of the dataset. The entries must all have
             the same score (but different performances). Return a boolean indicating whether the
-            splitting was successful, as well as the output directory of the split.
+            chunking was successful, as well as the output directory of the chunk.
             """
             score_path = entries[0].xml_score
             assert all(entry.xml_score == score_path for entry in entries)
 
             out_dir = new_dataset_path / score_path.relative_to(self.data_dir).parent
 
-            # Do not recompute if the score has already been split (and the flag is set)
+            # Do not recompute if the score has already been chunked (and the flag is set)
             success_file = out_dir / SUCCESS_FILENAME
-            if skip_already_split and success_file.exists():
-                logger.debug(f"Skipping {score_path} (already split)")
+            if skip_already_chunked and success_file.exists():
+                logger.debug(f"Skipping {score_path} (already chunked)")
                 return True, out_dir
             else:
                 success_file.unlink(missing_ok=True)
@@ -233,9 +233,9 @@ class AsapDataset(ScorePerformanceDataset):
                 except Exception as e:
                     logger.error(f"Error loading {alignment_path}: {e}")
 
-            # Split the score
+            # Chunk the score
             try:
-                chunks = split_partitura_score_and_performances(
+                chunks = chunk_partitura_score_and_performances(
                     score=score,
                     aligned_performances=performances_and_alignments,
                     num_measures_per_chunk=num_measures_per_chunk,
@@ -244,10 +244,10 @@ class AsapDataset(ScorePerformanceDataset):
                     score_name_for_logging=str(score_path.relative_to(self.data_dir)),
                 )
             except Exception as e:
-                logger.error(f"Error splitting {score_path}: {e}\n{traceback.format_exc()}")
+                logger.error(f"Error chunking {score_path}: {e}\n{traceback.format_exc()}")
                 return False, out_dir
 
-            # Save the split to disk
+            # Save the chunks to disk
             for i, chunk in enumerate(chunks, start=1):
                 m_start, m_end = (
                     (i, i + num_measures_per_chunk - 1)
@@ -296,7 +296,7 @@ class AsapDataset(ScorePerformanceDataset):
         results: Generator[tuple[tuple[bool, Path], list[ScorePerformanceEntry]]] = joblib.Parallel(
             n_jobs=n_jobs, return_as="generator"
         )(
-            joblib.delayed(lambda e: (_split_single_score_and_performances(e), e))(ent)
+            joblib.delayed(lambda e: (_chunk_single_score_and_performances(e), e))(ent)
             for ent in entries_by_score
         )
 
@@ -365,11 +365,11 @@ class AsapAsTextDataset(ScorePerformanceAsTextDataset):
 
 if __name__ == '__main__':
     ds = AsapDataset(Path("/tmp/asap-dataset"), "test")
-    ds.split_nasap_dataset(
-        new_dataset_path=Path("/tmp/split_test_asap"),
+    ds.chunk_nasap_dataset(
+        new_dataset_path=Path("/tmp/chunk_test_asap"),
         num_measures_per_chunk=8,
         overlap=True,
-        skip_already_split=True,
+        skip_already_chunked=True,
         n_jobs=-1,
         progress=True,
     )

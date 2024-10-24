@@ -11,6 +11,6 @@ new_dataset_path: ${paths.data_dir}/nasap-dataset_chunks=${num_measures_per_chun
 num_measures_per_chunk: 32
 overlap: true
 min_matched_notes_ratio: 0.8
-skip_already_split: true
+skip_already_chunked: true
 n_jobs: 10
 progress: true
