@@ -61,6 +61,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         chunking_path: Path | None = None,
         chunking_num_measures: int = 32,
         chunking_overlap: bool = True,
+        chunking_min_matched_notes_ratio: float = 0.7,
         chunking_cache: bool = True,
         chunking_n_jobs: int = 1,
         batch_size: int = 64,
@@ -72,6 +73,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         :param chunking_path: The path to the chunked dataset. If `None`, the dataset won't be chunked.
         :param chunking_num_measures: The chunk size, in measures.
         :param chunking_overlap: Whether to overlap chunks with a sliding window.
+        :param chunking_min_matched_notes_ratio: The minimum ratio of matched notes to consider a chunk valid.
         :param chunking_cache: Whether to use a previously cached chunked dataset.
         :param chunking_n_jobs: The number of jobs to use for chunking.
         :param batch_size: The batch size.
@@ -151,7 +153,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                         new_dataset_path=self.hparams.chunking_path / split,
                         num_measures_per_chunk=self.hparams.chunking_num_measures,
                         overlap=self.hparams.chunking_overlap,
-                        min_matched_notes_ratio=0.0,
+                        min_matched_notes_ratio=self.hparams.chunking_min_matched_notes_ratio,
                         skip_already_chunked=self.hparams.chunking_cache,
                         n_jobs=self.hparams.chunking_n_jobs,
                         progress=False,
