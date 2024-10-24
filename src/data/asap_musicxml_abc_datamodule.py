@@ -62,6 +62,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         chunking_num_measures: int = 32,
         chunking_overlap: bool = True,
         chunking_cache: bool = True,
+        chunking_n_jobs: int = 1,
         batch_size: int = 64,
     ) -> None:
         """Initialize a `AsapLMDataModule`
@@ -72,6 +73,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         :param chunking_num_measures: The chunk size, in measures.
         :param chunking_overlap: Whether to overlap chunks with a sliding window.
         :param chunking_cache: Whether to use a previously cached chunked dataset.
+        :param chunking_n_jobs: The number of jobs to use for chunking.
         :param batch_size: The batch size.
         """
         super().__init__()
@@ -151,6 +153,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                         overlap=self.hparams.chunking_overlap,
                         min_matched_notes_ratio=0.0,
                         skip_already_split=self.hparams.chunking_cache,
+                        n_jobs=self.hparams.chunking_n_jobs,
                         progress=False,
                     )
             self.data_train = sets["train"]
