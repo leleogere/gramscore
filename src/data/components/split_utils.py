@@ -156,6 +156,8 @@ def split_partitura_score_and_performances(
                     for each performance
                 ]
                 "score_start": float,    # The start time of the score chunk (used for offsets)
+                "first_measure_number": int,  # First measure in the chunk
+                "last_measure_number": int,   # Last measure in the chunk (included)
             }
             for each chunk
         ]
@@ -298,6 +300,8 @@ def split_partitura_score_and_performances(
                 "score": new_score_chunk,
                 "performances": perf_chunks,
                 "score_start": start_measure.start.t,
+                "first_measure_number": start_measure.number,
+                "last_measure_number": end_measure.number,
             }
         )
 

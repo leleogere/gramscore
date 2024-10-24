@@ -18,6 +18,7 @@ class ScorePerformanceEntry:
     midi_score: Path = None
     composer: str = None
     title: str = None
+    split: str = None
 
     def get_score_as_musicxml(self) -> str:
         """
@@ -79,7 +80,9 @@ class ScorePerformanceDataset(Dataset):
 
 class ScorePerformanceAsTextDataset(ScorePerformanceDataset):
     def __init__(
-        self, entries: list[ScorePerformanceEntry], tokenizer: PreTrainedTokenizerBase
+        self,
+        entries: list[ScorePerformanceEntry],
+        tokenizer: PreTrainedTokenizerBase,
     ) -> None:
         """Initialize a dataset of pairs of MusicXML scores and MIDI performances, but in a textual
         representation suited for language models.
@@ -123,5 +126,5 @@ class ScorePerformanceAsTextDataset(ScorePerformanceDataset):
             "midi_performance_as_text": midi_as_text,
             "abc_score_as_text": entry.get_score_as_abc(),
             "tokenized_conversation": tokenized_conversation["input_ids"],
-            "assistant_mask": tokenized_conversation["assistant_masks"],
+            "assistant_masks": tokenized_conversation["assistant_masks"],
         }

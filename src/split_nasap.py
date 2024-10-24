@@ -19,7 +19,7 @@ def split(cfg: DictConfig) -> None:
     logger.info(f"Instantiating dataset <{cfg.data._target_}>")
     ds: AsapDataset = hydra.utils.instantiate(cfg.data)
 
-    ds.split_asap_dataset(
+    ds.split_nasap_dataset(
         new_dataset_path=Path(cfg.new_dataset_path),
         num_measures_per_chunk=cfg.num_measures_per_chunk,
         overlap=cfg.overlap,
