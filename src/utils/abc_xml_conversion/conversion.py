@@ -5,37 +5,65 @@ This file does not comply to the project's code style and good practices, I did 
 a somewhat usable interface.
 """
 
-import subprocess
 import os
+import subprocess
+from pathlib import Path
 
+from lightning_utilities import StrEnum
 from loguru import logger
+
+
+class ConversionDirection(StrEnum):
+    XML2ABC = "xml2abc"
+    ABC2XML = "abc2xml"
+
 
 # Compute the directory of the script
 DIRECTORY = os.path.dirname(os.path.realpath(__file__))
 
 
-def _convert(input: str, direction: str) -> str:
+def _convert_file(path: Path, direction: ConversionDirection) -> str:
     """
-    Convert MusicXML to ABC or the opposite.
+    Convert a MusicXML file to an ABC string or the other way around.
 
-    :param input: The XML/ABC string.
+    :param path: Path to the XML/ABC file.
     :param direction: The direction of the conversion. Either "xml2abc" or "abc2xml".
     :return: The ABC/XML string.
     """
-    assert direction in ["xml2abc", "abc2xml"], f"Invalid direction: {direction}"
-    option_stdin = "-i" if direction == "xml2abc" else "-"
-    p = subprocess.Popen(
-        ["python", f"{direction}.py", option_stdin],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    assert direction in ConversionDirection, f"Invalid direction: {direction}"
+    p = subprocess.run(
+        ["python", f"{direction}.py", str(path.absolute())],
         text=True,
+        capture_output=True,
         cwd=DIRECTORY,
     )
-    output, err = p.communicate(input)
-    if err:
-        logger.warning(err)
-    return output
+    if p.stderr:
+        logger.warning(p.stderr)
+    return p.stdout
+
+
+def _convert(input_: str, direction: ConversionDirection) -> str:
+    """
+    Convert a MusicXML string to an ABC string or the other way around.
+
+    :param input_: The XML/ABC string.
+    :param direction: The direction of the conversion. Either "xml2abc" or "abc2xml".
+    :return: The ABC/XML string.
+    """
+    assert direction in ConversionDirection, f"Invalid direction: {direction}"
+    option_stdin = "-i" if direction == "xml2abc" else "-"
+
+    # Does not work with the dataloader, the program receive the stdin empty, why ???
+    # Workaround, let the program directly read the file
+    p = subprocess.run(
+        ["python", f"{direction}.py", option_stdin],
+        text=True,
+        capture_output=True,
+        cwd=DIRECTORY,
+    )
+    if p.stderr:
+        logger.warning(p.stderr)
+    return p.stdout
 
 
 def xml2abc(xml: str) -> str:
@@ -45,7 +73,7 @@ def xml2abc(xml: str) -> str:
     :param xml: The XML string.
     :return: The ABC string.
     """
-    return _convert(xml, "xml2abc")
+    return _convert(xml, ConversionDirection.XML2ABC)
 
 
 def abc2xml(abc: str) -> str:
@@ -55,16 +83,20 @@ def abc2xml(abc: str) -> str:
     :param abc: The ABC string.
     :return: The XML string.
     """
-    return _convert(abc, "abc2xml")
+    return _convert(abc, ConversionDirection.ABC2XML)
+
+
+def xmlfile2abc(path: Path) -> str:
+    return _convert_file(path, ConversionDirection.XML2ABC)
+
+
+def abcfile2xml(path: Path) -> str:
+    return _convert_file(path, ConversionDirection.ABC2XML)
 
 
 if __name__ == '__main__':
-    with open(
-        "/home/gerel/Documents/datasets/asap-dataset/Chopin/Etudes_op_10/12/xml_score.musicxml", "r"
-    ) as f:
-        xml = f.read()
-    abc = xml2abc(xml)
+    abc = xmlfile2abc(Path("data/nasap/Beethoven/Piano_Sonatas/7-1/xml_score.musicxml"))
     print(abc)
-    print("#" * 80)
+    # print("#" * 80)
     xml = abc2xml(abc)
-    print(xml)
+    # print(xml)
