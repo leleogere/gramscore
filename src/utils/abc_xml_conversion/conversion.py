@@ -32,7 +32,7 @@ def _convert_file(path: Path, direction: ConversionDirection) -> str:
     """
     assert direction in ConversionDirection, f"Invalid direction: {direction}"
     p = subprocess.run(
-        ["python", f"{direction}.py", str(path.absolute())],
+        ["python", f"{direction.value}.py", str(path.absolute())],
         text=True,
         capture_output=True,
         cwd=DIRECTORY,
@@ -56,7 +56,8 @@ def _convert(input_: str, direction: ConversionDirection) -> str:
     # Does not work with the dataloader, the program receive the stdin empty, why ???
     # Workaround, let the program directly read the file
     p = subprocess.run(
-        ["python", f"{direction}.py", option_stdin],
+        ["python", f"{direction.value}.py", option_stdin],
+        input=input_,
         text=True,
         capture_output=True,
         cwd=DIRECTORY,
