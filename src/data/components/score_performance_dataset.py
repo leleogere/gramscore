@@ -31,8 +31,7 @@ class ScorePerformanceEntry:
         """
         Return the MusicXML file converted into ABC format.
         """
-        xml = self.get_score_as_musicxml()
-        abc = conversion.xml2abc(xml)
+        abc = conversion.xmlfile2abc(self.xml_score)
         return abc
 
     def get_score_as_music21(self):
