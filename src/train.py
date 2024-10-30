@@ -14,6 +14,11 @@ def train(cfg: DictConfig) -> None:
 
     :param cfg: A DictConfig configuration composed by Hydra.
     """
+    logger.info(f"Instantiating logger {cfg.logger._target_}")
+    training_logger = hydra.utils.instantiate(cfg.logger)
+    training_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
+    logger.info(f"Logger {training_logger} ready!")
+
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
     logger.info(f"Instantiating datamodule {cfg.data._target_}")
@@ -22,11 +27,6 @@ def train(cfg: DictConfig) -> None:
     datamodule.prepare_data()
     datamodule.setup()
     logger.info(f"Datamodule {datamodule} ready!")
-
-    logger.info(f"Instantiating logger {cfg.logger._target_}")
-    training_logger = hydra.utils.instantiate(cfg.logger)
-    training_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
-    logger.info(f"Logger {training_logger} ready!")
 
     logger.info(f"Instantiating model {cfg.model._target_}")
     model = hydra.utils.instantiate(cfg.model)
