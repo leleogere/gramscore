@@ -563,3 +563,26 @@ if __name__ == '__main__':
                 performance["performance"],
                 chunk_dir / f"{performance["performance"].id}.mid",
             )
+
+
+@dataclass
+class ChunkingConfig:
+    """
+    Config for chunking a dataset.
+
+    :param new_dataset_path: The path to save the new dataset to.
+    :param num_measures_per_chunk: The number of measures per chunk.
+    :param overlap: Whether to overlap the chunks (use a sliding window).
+    :param min_matched_notes_ratio: The minimum ratio of matched notes between the score and the performance to consider the alignment valid.
+    :param skip_already_chunked: Whether to skip scores that have already been chunked.
+    :param progress: Whether to show a progress bar.
+    :param n_jobs: The number of jobs to run in parallel.
+    """
+
+    new_dataset_path: Path
+    num_measures_per_chunk: int
+    overlap: bool = True
+    min_matched_notes_ratio: float = 0.8
+    skip_already_chunked: bool = False
+    n_jobs: int = 1
+    progress: bool = True

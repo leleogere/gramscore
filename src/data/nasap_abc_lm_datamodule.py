@@ -11,6 +11,7 @@ from loguru import logger
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+from data.components.chunking_utils import ChunkingConfig
 from data.components.patched_tokenizer import PatchedTokenizer
 from data.components.score_performance_dataset import AsapDataset
 from data.components.score_performance_dataset import ScorePerformanceDataset
@@ -20,62 +21,22 @@ from utils.constants import SUCCESS_FILENAME
 
 
 class AsapABCLanguageModelDataModule(LightningDataModule):
-    """`LightningDataModule` for the ASAP dataset, formatted to be used with a LLM.
-    The dataset returns a dictionary with the following keys:
-        - `midi_performance`: A text sequence of events in the MIDI performance.
-        - `abc_score`: The corresponding ABC sequence.
-
-    A `LightningDataModule` implements 7 key methods:
-
-    ```python
-        def prepare_data(self):
-        # Things to do on 1 GPU/TPU (not on every GPU/TPU in DDP).
-        # Download data, pre-process, split, save to disk, etc...
-
-        def setup(self, stage):
-        # Things to do on every process in DDP.
-        # Load data, set variables, etc...
-
-        def train_dataloader(self):
-        # return train dataloader
-
-        def val_dataloader(self):
-        # return validation dataloader
-
-        def test_dataloader(self):
-        # return test dataloader
-
-        def predict_dataloader(self):
-        # return predict dataloader
-
-        def teardown(self, stage):
-        # Called on every process in DDP.
-        # Clean up after fit or test.
-    ```
+    """
+    LightningDataModule for the (n)-ASAP dataset, formatted to be used with a LLM.
     """
 
     def __init__(
         self,
         data_dir: Path,
         tokenizer: str,
-        chunking_path: Path | None = None,
-        chunking_num_measures: int = 32,
-        chunking_overlap: bool = True,
-        chunking_min_matched_notes_ratio: float = 0.7,
-        chunking_cache: bool = True,
-        chunking_n_jobs: int = 1,
+        chunking_config: ChunkingConfig | None = None,
         batch_size: int = 64,
     ) -> None:
         """Initialize a `AsapLMDataModule`
 
         :param data_dir: The data directory.
         :param tokenizer: Name or path of the tokenizer to use.
-        :param chunking_path: The path to the chunked dataset. If `None`, the dataset won't be chunked.
-        :param chunking_num_measures: The chunk size, in measures.
-        :param chunking_overlap: Whether to overlap chunks with a sliding window.
-        :param chunking_min_matched_notes_ratio: The minimum ratio of matched notes to consider a chunk valid.
-        :param chunking_cache: Whether to use a previously cached chunked dataset.
-        :param chunking_n_jobs: The number of jobs to use for chunking.
+        :param chunking_config: The chunking configuration.
         :param batch_size: The batch size.
         """
         super().__init__()
@@ -150,20 +111,13 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             }
             for split, split_set in sets.items():
                 logger.info(f"Loaded {len(split_set)} {split} samples")
-                if self.hparams.chunking_path is not None:
+                if self.hparams.chunking_config is not None:
                     logger.info(
-                        f"Chunking {split} dataset into {self.hparams.chunking_num_measures} "
-                        f"measures in {self.hparams.chunking_path}"
+                        f"Chunking {split} dataset into "
+                        f"{self.hparams.chunking_config.num_measures_per_chunk} measures in "
+                        f"{self.hparams.chunking_config.new_dataset_path}"
                     )
-                    sets[split] = split_set.chunk_nasap_dataset(
-                        new_dataset_path=self.hparams.chunking_path / split,
-                        num_measures_per_chunk=self.hparams.chunking_num_measures,
-                        overlap=self.hparams.chunking_overlap,
-                        min_matched_notes_ratio=self.hparams.chunking_min_matched_notes_ratio,
-                        skip_already_chunked=self.hparams.chunking_cache,
-                        n_jobs=self.hparams.chunking_n_jobs,
-                        progress=False,
-                    )
+                    sets[split] = split_set.chunk_nasap_dataset(self.hparams.chunking_config)
             self.data_train = sets["train"]
             self.data_val = sets["validation"]
             self.data_test = sets["test"]

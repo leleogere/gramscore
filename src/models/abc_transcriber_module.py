@@ -8,10 +8,23 @@ from torch import nn
 
 
 class ABCTranscriberModule(L.LightningModule):
-    def __init__(self, language_model: nn.Module, tokenizer: transformers.PreTrainedTokenizerBase):
+    def __init__(
+        self,
+        language_model: nn.Module,
+        tokenizer: transformers.PreTrainedTokenizerBase,
+        optimizer: torch.optim.Optimizer,
+    ):
         super().__init__()
+
+        self.save_hyperparameters(
+            ignore=[
+                "tokenizer",  # causes issues with hydra as already saved by datamodule
+                "language_model",  # already saved at checkpoints
+            ]
+        )
         self.language_model = language_model
         self.tokenizer = tokenizer
+        self.optimizer = optimizer
 
     def training_step(self, batch: dict[str, torch.Tensor]):
         """
@@ -29,7 +42,6 @@ class ABCTranscriberModule(L.LightningModule):
         assistant_masks = batch["assistant_masks"]
         logits = self.language_model(input_ids).logits  # (batch_size, seq_len, vocab_size)
         input_ids[torch.logical_not(assistant_masks)] = 50256  # self.tokenizer.unk_token_id
-        logger.debug(f"{logits.shape = }")
         loss = litgpt.utils.chunked_cross_entropy(
             logits=logits[:, :-1],
             targets=input_ids[:, 1:],
@@ -52,10 +64,16 @@ class ABCTranscriberModule(L.LightningModule):
         # TODO: convert back to ABC, then MusicXML, then to image with verovio and log images
         return loss
 
+    def test_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
+        raise NotImplementedError
+
+    def configure_optimizers(self):
+        return self.optimizer(self.language_model.parameters())
+
 
 if __name__ == '__main__':
     import os
-    from data.asap_musicxml_abc_datamodule import AsapABCLanguageModelDataModule
+    from data.nasap_abc_lm_datamodule import AsapABCLanguageModelDataModule
     from pathlib import Path
     import hydra
     from loguru import logger

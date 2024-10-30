@@ -21,6 +21,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 
+from data.components.chunking_utils import ChunkingConfig
 from data.components.chunking_utils import chunk_partitura_score_and_performances
 from utils.abc_xml_conversion import conversion
 from utils.constants import SKIP
@@ -116,7 +117,6 @@ class ScorePerformanceDataset(Dataset):
         :return: The sample at the given index.
         """
         entry = self.entries[idx]
-        print(entry)
         match self.modality:
 
             # Text representation of music, suitable for language models
@@ -312,28 +312,21 @@ class AsapDataset(ScorePerformanceDataset):
 
         return entries
 
-    def chunk_nasap_dataset(
-        self,
-        new_dataset_path: Path,
-        num_measures_per_chunk: int,
-        overlap: bool = True,
-        min_matched_notes_ratio: float = 0.8,
-        skip_already_chunked: bool = False,
-        n_jobs: int = 1,
-        progress: bool = True,
-    ) -> ScorePerformanceDataset:
+    def chunk_nasap_dataset(self, chunking_config: ChunkingConfig) -> ScorePerformanceDataset:
         """
         Chunk an ASAP dataset into chunks of a given number of measures and save the new dataset to a new directory.
 
-        :param new_dataset_path: The path to save the new dataset to.
-        :param num_measures_per_chunk: The number of measures per chunk.
-        :param overlap: Whether to overlap the chunks (use a sliding window).
-        :param min_matched_notes_ratio: The minimum ratio of matched notes between the score and the performance to consider the alignment valid.
-        :param skip_already_chunked: Whether to skip scores that have already been chunked.
-        :param progress: Whether to show a progress bar.
-        :param n_jobs: The number of jobs to run in parallel.
+        :param chunking_config: The configuration for chunking the dataset.
         :return: The new dataset.
         """
+        new_dataset_path = chunking_config.new_dataset_path
+        num_measures_per_chunk = chunking_config.num_measures_per_chunk
+        overlap = chunking_config.overlap
+        min_matched_notes_ratio = chunking_config.min_matched_notes_ratio
+        skip_already_chunked = chunking_config.skip_already_chunked
+        n_jobs = chunking_config.n_jobs
+        progress = chunking_config.progress
+
         # If already successfully chunked and skip is allowed, return the dataset
         success_file = new_dataset_path / SUCCESS_FILENAME
         if skip_already_chunked and success_file.exists():
@@ -350,7 +343,11 @@ class AsapDataset(ScorePerformanceDataset):
                     )
                     for entry in reader
                 ]
-            return ScorePerformanceDataset(metadata)
+            return ScorePerformanceDataset(
+                metadata,
+                modality=self.modality,
+                text_tokenizer=self.text_tokenizer,
+            )
         # Otherwise remove an eventual success file (like if we want to recompute) and continue
         else:
             success_file.unlink(missing_ok=True)

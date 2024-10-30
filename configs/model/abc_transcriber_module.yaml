@@ -3,3 +3,4 @@ _target_: src.models.abc_transcriber_module.ABCTranscriberModule
 defaults:
   - language_model: adapted_language_model
   - language_model/tokenizer@tokenizer: patched_tokenizer
+  - optimizer: adamw
