@@ -461,6 +461,7 @@ class AsapDataset(ScorePerformanceDataset):
         results: Generator[tuple[tuple[bool, Path], list[ScorePerformanceEntry]]] = joblib.Parallel(
             n_jobs=n_jobs,
             return_as="generator",
+            prefer="threads",
         )(
             joblib.delayed(lambda e: (_chunk_single_score_and_performances(e), e))(ent)
             for ent in entries_by_score
