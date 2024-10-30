@@ -38,7 +38,7 @@ def _convert_file(path: Path, direction: ConversionDirection) -> str:
         cwd=DIRECTORY,
     )
     if p.stderr:
-        logger.warning(p.stderr)
+        logger.trace(p.stderr)
     return p.stdout
 
 
@@ -55,7 +55,7 @@ def _convert(input_: str, direction: ConversionDirection) -> str:
 
     # Does not work with the dataloader, the program receive the stdin empty, why ???
     # Workaround, let the program directly read the file
-    p = subprocess.run(
+    p = subprocess.warningrun(
         ["python", f"{direction.value}.py", option_stdin],
         input=input_,
         text=True,
@@ -63,7 +63,7 @@ def _convert(input_: str, direction: ConversionDirection) -> str:
         cwd=DIRECTORY,
     )
     if p.stderr:
-        logger.warning(p.stderr)
+        logger.trace(p.stderr)
     return p.stdout
 
 

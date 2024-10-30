@@ -1,21 +1,21 @@
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+from typing import Dict
+from typing import Optional
 
 import git
 import torch
-import transformers
 from lightning import LightningDataModule
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from torchvision.datasets import MNIST
-from torchvision.transforms import transforms
 from loguru import logger
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
 
-from data.components.asap_dataset import AsapDataset
 from data.components.patched_tokenizer import PatchedTokenizer
+from data.components.score_performance_dataset import AsapDataset
 from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
+from data.components.score_performance_dataset import Modality
 from utils.constants import SUCCESS_FILENAME
 
 
@@ -140,7 +140,13 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             splits = ["train", "validation", "test"]
             sets: dict[str, AsapDataset | ScorePerformanceDataset] = {
-                split: AsapDataset(self.hparams.data_dir, split=split) for split in splits
+                split: AsapDataset(
+                    self.hparams.data_dir,
+                    split=split,
+                    modality=Modality.TEXT,
+                    text_tokenizer=self.tokenizer,
+                )
+                for split in splits
             }
             for split, split_set in sets.items():
                 logger.info(f"Loaded {len(split_set)} {split} samples")
@@ -171,7 +177,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             dataset=self.data_train,
             batch_size=self.batch_size_per_device,
             shuffle=True,
-            collate_fn=self.collate_fn,
+            collate_fn=self.data_train.collate_fn,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -183,7 +189,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             dataset=self.data_val,
             batch_size=self.batch_size_per_device,
             shuffle=False,
-            collate_fn=self.collate_fn,
+            collate_fn=self.data_val.collate_fn,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -195,61 +201,8 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             dataset=self.data_test,
             batch_size=self.batch_size_per_device,
             shuffle=False,
-            collate_fn=self.collate_fn,
+            collate_fn=self.data_test.collate_fn,
         )
-
-    def collate_fn(self, batch: list[ScorePerformanceEntry]) -> Dict[str, torch.Tensor]:
-        """
-        Collate function to convert a batch of ScorePerformanceEntry objects into a dictionary of
-        tokenized conversations.
-
-        :param batch: A batch of ScorePerformanceEntry objects.
-        :return: A dictionary of tokenized conversations with structure:
-            {
-                "input_ids": tensor of shape (batch_size, max_length)
-                "attention_mask": tensor of shape (batch_size, max_length)
-                "assistant_masks": tensor of shape (batch_size, max_length) with 1's where the assistant tokens are
-            }
-        """
-        text_midis = torch.vmap(AsapABCLanguageModelDataModule.performance_to_text)(batch)
-        text_scores = torch.vmap(AsapABCLanguageModelDataModule.score_to_text)(batch)
-        conversations = [
-            [
-                dict(role="user", content=text_midi),
-                dict(role="assistant", content=text_score),
-            ]
-            for text_midi, text_score in zip(text_midis, text_scores)
-        ]
-        tokenized_conversations: dict[str, torch.Tensor] = self.tokenizer.apply_chat_template(
-            conversations,
-            return_assistant_tokens_mask=True,
-            return_dict=True,
-            return_tensors="pt",
-            padding=True,
-        )
-        return tokenized_conversations
-
-    @staticmethod
-    def performance_to_text(entry: ScorePerformanceEntry) -> str:
-        return "\n".join(
-            [
-                f"Note(pitch={note.pitch}, start={round(note.start, 3)}, duration={round(note.duration, 3)})"
-                for note in entry.get_midi_performance_as_symusic(ttype="second").tracks[0].notes
-            ]
-        )
-
-    @staticmethod
-    def score_to_text(entry: ScorePerformanceEntry) -> str:
-        return entry.get_score_as_abc()
-
-    def teardown(self, stage: Optional[str] = None) -> None:
-        """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
-        `trainer.test()`, and `trainer.predict()`.
-
-        :param stage: The stage being torn down. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
-            Defaults to ``None``.
-        """
-        pass
 
     def state_dict(self) -> Dict[Any, Any]:
         """Called when saving a checkpoint. Implement to generate and save the datamodule state.
@@ -271,7 +224,10 @@ if __name__ == "__main__":
     data_module = AsapABCLanguageModelDataModule(
         data_dir=Path("./data/nasap"),
         tokenizer="mistralai/Codestral-22B-v0.1",
-        chunking_path=Path("./data/nasap_chunked"),
+        # chunking_path=Path("./data/nasap_chunked"),
     )
     data_module.prepare_data()
     data_module.setup()
+    for batch in data_module.train_dataloader():
+        print(batch)
+        break

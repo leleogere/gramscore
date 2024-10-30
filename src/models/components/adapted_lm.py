@@ -4,14 +4,14 @@ from transformers import PreTrainedModel
 
 
 class AdaptedLM(nn.Module):
-    def __init__(self, lm: PreTrainedModel, peft_config: peft.PeftConfig):
+    def __init__(self, base_lm: PreTrainedModel, peft_config: peft.PeftConfig):
         super().__init__()
-        self.lm = lm
+        self.base_lm = base_lm
         self.peft_config = peft_config
-        self.model = peft.get_peft_model(lm, peft_config)
+        self.adapted_model = peft.get_peft_model(base_lm, peft_config)
 
     def forward(self, x):
-        return self.model(x)
+        return self.adapted_model(x)
 
     # def __getattr__(self, item):
     #     if hasattr(self, item):

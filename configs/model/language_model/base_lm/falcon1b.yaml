@@ -1,0 +1,4 @@
+_target_: transformers.AutoModelForCausalLM.from_pretrained
+
+pretrained_model_name_or_path: "ericzzz/falcon-rw-1b-chat"
+device_map: "auto"
