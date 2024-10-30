@@ -18,20 +18,23 @@ def train(cfg: DictConfig) -> None:
 
     logger.info(f"Instantiating datamodule {cfg.data._target_}")
     datamodule = hydra.utils.instantiate(cfg.data)
-    logger.info(f"Instantiated datamodule {datamodule}")
+    logger.info(f"Preparing and setting up datamodule {datamodule}")
+    datamodule.prepare_data()
+    datamodule.setup()
+    logger.info(f"Datamodule {datamodule} ready!")
 
     logger.info(f"Instantiating logger {cfg.logger._target_}")
     training_logger = hydra.utils.instantiate(cfg.logger)
     training_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
-    logger.info(f"Instantiated logger {training_logger}")
+    logger.info(f"Logger {training_logger} ready!")
 
     logger.info(f"Instantiating model {cfg.model._target_}")
     model = hydra.utils.instantiate(cfg.model)
-    logger.info(f"Instantiated model {model}")
+    logger.info(f"Model {model} loaded!")
 
     logger.info(f"Instantiating trainer {cfg.trainer._target_}")
     trainer = hydra.utils.instantiate(cfg.trainer, logger=training_logger)
-    logger.info(f"Instantiated trainer {trainer}")
+    logger.info(f"Trainer {trainer} ready!")
 
     logger.info("Starting training")
     trainer.fit(model, datamodule)
