@@ -1,7 +1,7 @@
 new_dataset_path:
   _target_: pathlib.Path
   _args_:
-    - ${paths.data_dir}/nasap-dataset_chunks=${num_measures_per_chunk}_overlap=${overlap}_min-ratio=${min_matched_notes_ratio}
+    - ${paths.data_dir}/nasap-dataset_chunks=${data.chunking_config.num_measures_per_chunk}_overlap=${data.chunking_config.overlap}_min-ratio=${data.chunking_config.min_matched_notes_ratio}
 num_measures_per_chunk: 32
 overlap: True
 min_matched_notes_ratio: 0.6
