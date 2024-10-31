@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from typing import Any
+
 import hydra.utils
 import lightning as L
 import litgpt.utils
@@ -6,13 +9,15 @@ import transformers
 from loguru import logger
 from torch import nn
 
+from data.components.chunking_utils import ChunkingConfig
+
 
 class ABCTranscriberModule(L.LightningModule):
     def __init__(
         self,
         language_model: nn.Module,
         tokenizer: transformers.PreTrainedTokenizerBase,
-        optimizer: torch.optim.Optimizer,
+        optimizer: Callable[[Any], torch.optim.Optimizer],
     ):
         super().__init__()
 
@@ -92,7 +97,12 @@ if __name__ == '__main__':
         # tokenizer="mistralai/Codestral-22B-v0.1",
         # tokenizer="HuggingFaceTB/SmolLM-135M-Instruct",
         tokenizer=config.model.language_model.base_lm.pretrained_model_name_or_path,
-        # chunking_path=Path("./data/nasap_chunked"),
+        chunking_config=ChunkingConfig(
+            new_dataset_path=Path("/tmp/chunked_nasap"),
+            num_measures_per_chunk=32,
+            n_jobs=4,
+            progress=True,
+        ),
         batch_size=2,
     )
     data_module.prepare_data()

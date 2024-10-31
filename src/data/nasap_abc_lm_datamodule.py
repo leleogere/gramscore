@@ -1,8 +1,10 @@
+import copy
 import urllib.request
 from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import Optional
+import csv
 
 import git
 import torch
@@ -53,10 +55,13 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
 
         self.batch_size_per_device = batch_size
 
+        self.splits = ["train", "validation", "test"]
+
     def prepare_data(self) -> None:
         """
-        Download the datasets
+        Download and split the dataset
         """
+        # Download the dataset
         success_file = self.hparams.data_dir / SUCCESS_FILENAME
         if not success_file.exists():
             # NOT Clone the MIDI2ScoreTransformer modified ASAP dataset (commit 8cba199e15931975542010a7ea2ff94a6fc9cbee)
@@ -79,6 +84,28 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         else:
             logger.info("ASAP dataset already downloaded")
 
+        # Chunk the dataset
+        if self.hparams.chunking_config is not None:
+            sets: dict[str, AsapDataset | ScorePerformanceDataset] = {
+                split: AsapDataset(
+                    self.hparams.data_dir,
+                    split=split,
+                    modality=Modality.TEXT,
+                    text_tokenizer=self.tokenizer,
+                )
+                for split in self.splits
+            }
+            for split, split_set in sets.items():
+                logger.info(f"Loaded {len(split_set)} {split} samples")
+                logger.info(
+                    f"Chunking {split} dataset into "
+                    f"{self.hparams.chunking_config.num_measures_per_chunk}-measure chunks in "
+                    f"{self.hparams.chunking_config.new_dataset_path}"
+                )
+                config: ChunkingConfig = copy.copy(self.hparams.chunking_config)
+                config.new_dataset_path = self.hparams.data_dir / split
+                split_set.chunk_nasap_dataset(config)
+
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
@@ -97,27 +124,34 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        # Load and chunk datasets only if not loaded already
+        # Load the splits
         if not self.data_train and not self.data_val and not self.data_test:
-            splits = ["train", "validation", "test"]
-            sets: dict[str, AsapDataset | ScorePerformanceDataset] = {
-                split: AsapDataset(
-                    self.hparams.data_dir,
-                    split=split,
-                    modality=Modality.TEXT,
-                    text_tokenizer=self.tokenizer,
-                )
-                for split in splits
-            }
-            for split, split_set in sets.items():
-                logger.info(f"Loaded {len(split_set)} {split} samples")
-                if self.hparams.chunking_config is not None:
-                    logger.info(
-                        f"Chunking {split} dataset into "
-                        f"{self.hparams.chunking_config.num_measures_per_chunk} measures in "
-                        f"{self.hparams.chunking_config.new_dataset_path}"
+            sets = {}
+            if self.hparams.chunking_config is not None:
+                for split in self.splits:
+                    with open(
+                        self.hparams.chunking_config.new_dataset_path / split / "metadata.csv", "r"
+                    ) as f:
+                        reader = csv.DictReader(f)
+                        entries = [
+                            ScorePerformanceEntry(**{k: v for k, v in row.items() if k != "path"})
+                            for row in reader
+                        ]
+                    sets[split] = ScorePerformanceDataset(
+                        entries,
+                        modality=Modality.TEXT,
+                        text_tokenizer=self.tokenizer,
                     )
-                    sets[split] = split_set.chunk_nasap_dataset(self.hparams.chunking_config)
+            else:
+                sets = {
+                    split: AsapDataset(
+                        self.hparams.data_dir,
+                        split=split,
+                        modality=Modality.TEXT,
+                        text_tokenizer=self.tokenizer,
+                    )
+                    for split in self.splits
+                }
             self.data_train = sets["train"]
             self.data_val = sets["validation"]
             self.data_test = sets["test"]
@@ -178,7 +212,12 @@ if __name__ == "__main__":
     data_module = AsapABCLanguageModelDataModule(
         data_dir=Path("./data/nasap"),
         tokenizer="mistralai/Codestral-22B-v0.1",
-        # chunking_path=Path("./data/nasap_chunked"),
+        chunking_config=ChunkingConfig(
+            num_measures_per_chunk=4,
+            new_dataset_path=Path("./data/nasap_chunked"),
+            n_jobs=4,
+            progress=True,
+        ),
     )
     data_module.prepare_data()
     data_module.setup()

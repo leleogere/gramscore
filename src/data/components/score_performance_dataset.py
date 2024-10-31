@@ -461,7 +461,6 @@ class AsapDataset(ScorePerformanceDataset):
         results: Generator[tuple[tuple[bool, Path], list[ScorePerformanceEntry]]] = joblib.Parallel(
             n_jobs=n_jobs,
             return_as="generator",
-            prefer="threads",
         )(
             joblib.delayed(lambda e: (_chunk_single_score_and_performances(e), e))(ent)
             for ent in entries_by_score
@@ -523,12 +522,14 @@ if __name__ == '__main__':
     print(ds[0]["score"])
 
     res = ds.collate_fn([ds[0], ds[1], ds[2]])
-    breakpoint()
-    # ds.chunk_nasap_dataset(
-    #     new_dataset_path=Path("/tmp/chunk_test_asap"),
-    #     num_measures_per_chunk=8,
-    #     overlap=True,
-    #     skip_already_chunked=True,
-    #     n_jobs=-1,
-    #     progress=True,
-    # )
+    # breakpoint()
+    ds.chunk_nasap_dataset(
+        ChunkingConfig(
+            new_dataset_path=Path("/tmp/chunk_test_asap"),
+            num_measures_per_chunk=8,
+            overlap=True,
+            skip_already_chunked=True,
+            n_jobs=-1,
+            progress=True,
+        )
+    )
