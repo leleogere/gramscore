@@ -103,7 +103,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                     f"{self.hparams.chunking_config.new_dataset_path}"
                 )
                 config: ChunkingConfig = copy.copy(self.hparams.chunking_config)
-                config.new_dataset_path = self.hparams.data_dir / split
+                config.new_dataset_path = config.new_dataset_path / split
                 split_set.chunk_nasap_dataset(config)
 
     def setup(self, stage: Optional[str] = None) -> None:

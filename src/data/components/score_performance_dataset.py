@@ -327,10 +327,6 @@ class AsapDataset(ScorePerformanceDataset):
         n_jobs = chunking_config.n_jobs
         progress = chunking_config.progress
 
-        logger.debug("Chunking configuration:")
-        for key, value in chunking_config.__dict__.items():
-            logger.debug(f"{key}: {value}")
-
         # If already successfully chunked and skip is allowed, return the dataset
         success_file = new_dataset_path / SUCCESS_FILENAME
         if skip_already_chunked and success_file.exists():
@@ -368,11 +364,9 @@ class AsapDataset(ScorePerformanceDataset):
             assert all(entry.xml_score == score_path for entry in entries)
 
             out_dir = new_dataset_path / score_path.relative_to(self.data_dir).parent
-            logger.debug(f"Chunking {score_path} to {out_dir}")
 
             # Do not recompute if the score has already been chunked (and the flag is set)
             success_file_local = out_dir / SUCCESS_FILENAME
-            logger.debug(f"Success file: {success_file_local}")
             if skip_already_chunked and success_file_local.exists():
                 logger.debug(f"Skipping {score_path} (already chunked)")
                 return True, out_dir
