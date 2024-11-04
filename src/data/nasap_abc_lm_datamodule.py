@@ -134,7 +134,13 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                     ) as f:
                         reader = csv.DictReader(f)
                         entries = [
-                            ScorePerformanceEntry(**{k: v for k, v in row.items() if k != "path"})
+                            ScorePerformanceEntry(
+                                xml_score=Path(row["xml_score"]),
+                                midi_performance=Path(row["midi_performance"]),
+                                composer=row["composer"],
+                                title=row["title"],
+                                split=split,
+                            )
                             for row in reader
                         ]
                     sets[split] = ScorePerformanceDataset(
