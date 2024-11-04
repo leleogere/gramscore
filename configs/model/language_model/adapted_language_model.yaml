@@ -1,5 +1,5 @@
 _target_: src.models.components.adapted_lm.AdaptedLM
 
 defaults:
-  - base_lm: falcon1b
+  - base_lm: mistral7b
   - peft_config: lora
