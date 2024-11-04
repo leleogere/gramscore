@@ -270,23 +270,26 @@ def chunk_partitura_score_and_performances(
             for control in controls:
                 control["time"] -= p_start
 
-            perf_chunks.append(
-                {
-                    "performance": pt.performance.PerformedPart(
-                        notes=pnotes,
-                        controls=controls,
-                        id=performance.id,
-                        ppq=performance.ppq,
-                        mpq=performance.mpq,
-                    ),
-                    "performance_start": p_start,
-                    "alignment": [
-                        a
-                        for a in aligner.alignment
-                        if "score_id" in a and a["score_id"] in chunk_sids
-                    ],
-                }
-            )
+            perf_chunk = {
+                "performance": pt.performance.PerformedPart(
+                    notes=pnotes,
+                    controls=controls,
+                    id=performance.id,
+                    ppq=performance.ppq,
+                    mpq=performance.mpq,
+                ),
+                "performance_start": p_start,
+                "alignment": [
+                    a for a in aligner.alignment if "score_id" in a and a["score_id"] in chunk_sids
+                ],
+            }
+            if len(perf_chunk["alignment"]) == 0:
+                logger.warning(
+                    score_name_for_logging
+                    + f"Empty alignment for performance {performance.id} on measures "
+                    f"{start_measure_idx}-{end_measure_idx}."
+                )
+            perf_chunks.append(perf_chunk)
 
         # Store the new chunk
         chunks.append(
