@@ -429,15 +429,19 @@ class AsapDataset(ScorePerformanceDataset):
                         performance["performance"],
                         chunk_dir / f"{performance['performance'].id}.mid",
                     )
-                    pt.save_match(
-                        alignment=performance["alignment"],
-                        performance_data=performance["performance"],
-                        score_data=chunk["score"],
-                        out=chunk_dir / f"{performance['performance'].id}.match",
-                        mpq=performance["performance"].mpq,
-                        ppq=performance["performance"].ppq,
-                        assume_unfolded=True,
-                    )
+                    try:
+                        pt.save_match(
+                            alignment=performance["alignment"],
+                            performance_data=performance["performance"],
+                            score_data=chunk["score"],
+                            out=chunk_dir / f"{performance['performance'].id}.match",
+                            mpq=performance["performance"].mpq,
+                            ppq=performance["performance"].ppq,
+                            assume_unfolded=True,
+                        )
+                    except ValueError as e:
+                        logger.error(f"Error saving match: {e}")
+                        raise e
 
             # Create a success file (only if there are chunks)
             if len(chunks) > 0:
