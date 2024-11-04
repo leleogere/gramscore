@@ -1,11 +1,10 @@
-from pathlib import Path
-
 import hydra
 from dotenv import load_dotenv
 from loguru import logger
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
 
-from data.components.asap_dataset import AsapDataset
+from data.nasap_abc_lm_datamodule import AsapABCLanguageModelDataModule
 
 
 def chunk(cfg: DictConfig) -> None:
@@ -14,18 +13,14 @@ def chunk(cfg: DictConfig) -> None:
 
     :param cfg: A DictConfig configuration composed by Hydra.
     """
-    logger.info(f"Instantiating dataset <{cfg.data._target_}>")
-    ds: AsapDataset = hydra.utils.instantiate(cfg.data)
+    # Print config
+    print(OmegaConf.to_yaml(cfg))
 
-    ds.chunk_nasap_dataset(
-        new_dataset_path=Path(cfg.new_dataset_path),
-        num_measures_per_chunk=cfg.num_measures_per_chunk,
-        overlap=cfg.overlap,
-        min_matched_notes_ratio=cfg.min_matched_notes_ratio,
-        skip_already_chunked=cfg.skip_already_chunked,
-        n_jobs=cfg.n_jobs,
-        progress=cfg.progress,
-    )
+    logger.info(f"Instantiating dataset <{cfg.data._target_}>")
+    ds: AsapABCLanguageModelDataModule = hydra.utils.instantiate(cfg.data)
+
+    ds.prepare_data()
+    ds.setup()
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="chunk_nasap.yaml")
