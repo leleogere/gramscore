@@ -527,6 +527,29 @@ def get_clef_map_object_wrapper(
     return wrapper
 
 
+@dataclass
+class ChunkingConfig:
+    """
+    Config for chunking a dataset.
+
+    :param new_dataset_path: The path to save the new dataset to.
+    :param num_measures_per_chunk: The number of measures per chunk.
+    :param overlap: Whether to overlap the chunks (use a sliding window).
+    :param min_matched_notes_ratio: The minimum ratio of matched notes between the score and the performance to consider the alignment valid.
+    :param skip_already_chunked: Whether to skip scores that have already been chunked.
+    :param progress: Whether to show a progress bar.
+    :param n_jobs: The number of jobs to run in parallel.
+    """
+
+    new_dataset_path: Path
+    num_measures_per_chunk: int
+    overlap: bool = True
+    min_matched_notes_ratio: float = 0.8
+    skip_already_chunked: bool = False
+    n_jobs: int = 1
+    progress: bool = True
+
+
 if __name__ == '__main__':
     n = 8
 
@@ -534,8 +557,9 @@ if __name__ == '__main__':
         # "/home/gerel/Documents/datasets/nasap-dataset/Beethoven/Piano_Sonatas/29-4/xml_score.musicxml"
         # "/home/gerel/Documents/datasets/nasap-dataset/Beethoven/Piano_Sonatas/7-3/xml_score.musicxml"
         # "/home/gerel/Documents/datasets/nasap-dataset/Bach/Fugue/bwv_888/xml_score.musicxml"
-        "/home/gerel/Documents/datasets/nasap-dataset/Schubert/Wanderer_fantasie/xml_score.musicxml"
+        # "/home/gerel/Documents/datasets/nasap-dataset/Schubert/Wanderer_fantasie/xml_score.musicxml"
         # "/home/gerel/Documents/datasets/nasap-dataset/Chopin/Etudes_op_10/12/xml_score.musicxml"
+        "/home/gerel/Documents/datasets/nasap-dataset/Chopin/Ballades/3/xml_score.musicxml"
     )
     # print("READING SCORE")
     score = pt.score.unfold_part_maximal(pt.load_musicxml(path).parts[0], ignore_leaps=False)
@@ -566,26 +590,9 @@ if __name__ == '__main__':
                 performance["performance"],
                 chunk_dir / f"{performance["performance"].id}.mid",
             )
-
-
-@dataclass
-class ChunkingConfig:
-    """
-    Config for chunking a dataset.
-
-    :param new_dataset_path: The path to save the new dataset to.
-    :param num_measures_per_chunk: The number of measures per chunk.
-    :param overlap: Whether to overlap the chunks (use a sliding window).
-    :param min_matched_notes_ratio: The minimum ratio of matched notes between the score and the performance to consider the alignment valid.
-    :param skip_already_chunked: Whether to skip scores that have already been chunked.
-    :param progress: Whether to show a progress bar.
-    :param n_jobs: The number of jobs to run in parallel.
-    """
-
-    new_dataset_path: Path
-    num_measures_per_chunk: int
-    overlap: bool = True
-    min_matched_notes_ratio: float = 0.8
-    skip_already_chunked: bool = False
-    n_jobs: int = 1
-    progress: bool = True
+            # pt.save_match(
+            #     performance["alignment"],
+            #     performance["performance"],
+            #     chunk["score"],
+            #     chunk_dir / f"{performance["performance"].id}.match",
+            # )

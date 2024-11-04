@@ -441,9 +441,9 @@ class AsapDataset(ScorePerformanceDataset):
                         )
                     except ValueError as e:
                         logger.error(
-                            f"Error saving match of score {score_path} and performance {performance['performance'].id}: {e}"
+                            f"Error saving match file for score {score_path} and performance "
+                            f"{performance['performance'].id}: {e}"
                         )
-                        raise e
 
             # Create a success file (only if there are chunks)
             if len(chunks) > 0:
