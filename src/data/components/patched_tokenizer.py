@@ -18,7 +18,7 @@ class PatchedTokenizer(transformers.AutoTokenizer):
     @classmethod
     def from_pretrained(cls, *args, **kwargs):
         self = super().from_pretrained(*args, **kwargs)
-        if self.name_or_path == 'mistralai/Codestral-22B-v0.1':
+        if self.name_or_path.endswith('mistralai/Codestral-22B-v0.1'):  # TODO: better handle this
             if self.chat_template != INITIAL_TEMPLATE_CODESTRAL:
                 raise ValueError(
                     "The chat templates of this tokenizer does not correspond to the Codestral one. "
@@ -27,7 +27,7 @@ class PatchedTokenizer(transformers.AutoTokenizer):
                 )
             self.chat_template = PATCHED_TEMPLATE_CODESTRAL
             self.pad_token = self.unk_token
-        elif self.name_or_path == 'mistralai/Mistral-7B-Instruct-v0.3':
+        elif self.name_or_path.endswith('Mistral-7B-Instruct-v0.3'):
             if self.chat_template != INITIAL_TEMPLATE_MISTRAL7B:
                 raise ValueError(
                     "The chat templates of this tokenizer does not correspond to the Mistral 7B one. "
