@@ -23,9 +23,9 @@ def train(cfg: DictConfig) -> None:
 
     logger.info(f"Instantiating datamodule {cfg.data._target_}")
     datamodule = hydra.utils.instantiate(cfg.data)
-    logger.info(f"Preparing and setting up datamodule {datamodule}")
-    datamodule.prepare_data()
-    datamodule.setup()
+    # logger.info(f"Preparing and setting up datamodule {datamodule}")
+    # datamodule.prepare_data()
+    # datamodule.setup()
     logger.info(f"Datamodule {datamodule} ready!")
 
     logger.info(f"Instantiating model {cfg.model._target_}")
