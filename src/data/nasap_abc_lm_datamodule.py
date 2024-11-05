@@ -57,11 +57,15 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
 
         self.splits = ["train", "validation", "test"]
 
+        self._prepared = False
+
     def prepare_data(self) -> None:
         """
         Download and split the dataset
         """
         # Download the dataset
+        if self._prepared:
+            return
         success_file = self.hparams.data_dir / SUCCESS_FILENAME
         if not success_file.exists():
             # NOT Clone the MIDI2ScoreTransformer modified ASAP dataset (commit 8cba199e15931975542010a7ea2ff94a6fc9cbee)
@@ -105,6 +109,8 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
                 config: ChunkingConfig = copy.copy(self.hparams.chunking_config)
                 config.new_dataset_path = config.new_dataset_path / split
                 split_set.chunk_nasap_dataset(config)
+
+        self._prepared = True
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
