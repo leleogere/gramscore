@@ -4,7 +4,6 @@ from typing import Any
 import hydra.utils
 import lightning as L
 import litgpt.utils
-import numpy as np
 import torch
 import transformers
 from loguru import logger
@@ -76,12 +75,13 @@ class ABCTranscriberModule(L.LightningModule):
             for inout, ids in [("input", input_ids), ("output", output_ids)]:
                 abc = self.tokenizer.decode(ids[i])
                 xml = conversion.abc2xml(abc)
-                image = np.asarray(render_score(as_text=xml, input_type="xml"))
+                image = render_score(as_text=xml, input_type="xml")
                 self.logger.log_image(
                     f"val/{inout}_{i}",
-                    image,
+                    [image],
                     global_step=self.global_step,
                 )
+                self.logger.log_text(f"val/{inout}_{i}", abc, global_step=self.global_step)
         return loss
 
     def test_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
