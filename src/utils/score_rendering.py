@@ -26,7 +26,7 @@ def render_score(
     if as_text is None:
         tk.loadFile(str(path))
     else:
-        tk.loadData(as_text.encode())
+        tk.loadData(as_text)
 
     svg = tk.renderToSVG().replace(
         "overflow=\"inherit\"",
@@ -45,14 +45,27 @@ def render_score(
             return None
 
 
+# if __name__ == '__main__':
+#     output = render_score(
+#         Path(
+#             "/home/gerel/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset/Debussy/Images_Book_1/1_Reflets_dans_lEau/xml_score.musicxml"
+#         ),
+#         output_path=Path("/tmp/test.png"),
+#         # output_path=None,
+#     )
+#     if output is not None:
+#         output.show()
+#         time.sleep(1)
+
 if __name__ == '__main__':
-    output = render_score(
-        Path(
-            "/home/gerel/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset/Debussy/Images_Book_1/1_Reflets_dans_lEau/xml_score.musicxml"
-        ),
-        output_path=Path("/tmp/test.png"),
-        # output_path=None,
-    )
-    if output is not None:
-        output.show()
-        time.sleep(1)
+    with open(
+        "/home/gerel/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset/Debussy/Images_Book_1/1_Reflets_dans_lEau/xml_score.musicxml",
+        "r",
+    ) as f:
+        output = render_score(
+            as_text=f.read(),
+            output_path=None,
+        )
+        if output is not None:
+            output.show()
+            time.sleep(1)
