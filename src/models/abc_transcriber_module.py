@@ -81,7 +81,7 @@ class ABCTranscriberModule(L.LightningModule):
                     f"val/{inout}_{i}",
                     columns=["abc", "score"],
                     data=[[abc, wandb.Image(image)]],
-                    global_step=self.global_step,
+                    # global_step=self.global_step,
                 )
         return loss
 
