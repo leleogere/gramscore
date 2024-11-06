@@ -30,6 +30,9 @@ def _convert_file(path: Path, direction: ConversionDirection) -> str:
     :param direction: The direction of the conversion. Either "xml2abc" or "abc2xml".
     :return: The ABC/XML string.
     """
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
     assert direction in ConversionDirection, f"Invalid direction: {direction}"
     p = subprocess.run(
         ["python", f"{direction.value}.py", str(path.absolute())],
@@ -55,7 +58,7 @@ def _convert(input_: str, direction: ConversionDirection) -> str:
 
     # Does not work with the dataloader, the program receive the stdin empty, why ???
     # Workaround, let the program directly read the file
-    p = subprocess.warningrun(
+    p = subprocess.run(
         ["python", f"{direction.value}.py", option_stdin],
         input=input_,
         text=True,
@@ -98,6 +101,8 @@ def abcfile2xml(path: Path) -> str:
 if __name__ == '__main__':
     abc = xmlfile2abc(Path("data/nasap/Beethoven/Piano_Sonatas/7-1/xml_score.musicxml"))
     print(abc)
+    with open("/tmp/test.abc", "w") as f:
+        f.write(abc)
     # print("#" * 80)
     xml = abc2xml(abc)
     # print(xml)

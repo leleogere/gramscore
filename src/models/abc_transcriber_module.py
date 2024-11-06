@@ -10,6 +10,7 @@ from loguru import logger
 from torch import nn
 
 from data.components.chunking_utils import ChunkingConfig
+from utils.abc_xml_conversion import conversion
 from utils.score_rendering import render_score
 
 
@@ -71,20 +72,15 @@ class ABCTranscriberModule(L.LightningModule):
         self.log("val/loss", loss)
         # Decode back a few images to ABC, then render the score and log the image
         for i in range(min(5, input_ids.shape[0])):
-            input_abc = self.tokenizer.decode(input_ids[i])
-            output_abc = self.tokenizer.decode(output_ids[i])
-            input_image = render_score(as_text=input_abc)
-            output_image = render_score(as_text=output_abc)
-            self.logger.experiment.add_image(
-                f"val/input_{i}",
-                input_image,
-                global_step=self.global_step,
-            )
-            self.logger.experiment.add_image(
-                f"val/output_{i}",
-                output_image,
-                global_step=self.global_step,
-            )
+            for inout, ids in [("input", input_ids), ("output", output_ids)]:
+                abc = self.tokenizer.decode(ids[i])
+                xml = conversion.abc2xml(abc)
+                image = render_score(as_text=xml, input_type="xml")
+                self.logger.experiment.add_image(
+                    f"val/{inout}_{i}",
+                    image,
+                    global_step=self.global_step,
+                )
         return loss
 
     def test_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
