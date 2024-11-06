@@ -10,6 +10,7 @@ from loguru import logger
 from torch import nn
 
 from data.components.chunking_utils import ChunkingConfig
+from utils.score_rendering import render_score
 
 
 class ABCTranscriberModule(L.LightningModule):
@@ -46,11 +47,11 @@ class ABCTranscriberModule(L.LightningModule):
         input_ids = batch["input_ids"]
         assistant_masks = batch["assistant_masks"]
         logits = self.language_model(input_ids).logits  # (batch_size, seq_len, vocab_size)
-        input_ids[torch.logical_not(assistant_masks)] = 50256  # self.tokenizer.unk_token_id
+        input_ids[torch.logical_not(assistant_masks)] = self.tokenizer.unk_token_id
         loss = litgpt.utils.chunked_cross_entropy(
             logits=logits[:, :-1],
             targets=input_ids[:, 1:],
-            ignore_index=50256,  # self.tokenizer.unk_token_id,
+            ignore_index=self.tokenizer.unk_token_id,  # self.tokenizer.unk_token_id,
         )  # Maybe try something smarter to avoid passing the whole sequence through the model?
         self.log("train/loss", loss)
         return loss
@@ -58,15 +59,32 @@ class ABCTranscriberModule(L.LightningModule):
     def validation_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
         input_ids = batch["input_ids"]
         assistant_masks = batch["assistant_masks"]
-        logits = self.language_model(input_ids).logits
-        input_ids[torch.logical_not(assistant_masks)] = 50256
+        outputs = self.language_model(input_ids)
+        logits = outputs.logits
+        output_ids = logits.argmax(dim=-1)
+        input_ids[torch.logical_not(assistant_masks)] = self.tokenizer.unk_token_id
         loss = litgpt.utils.chunked_cross_entropy(
             logits=logits[:, :-1],
             targets=input_ids[:, 1:],
-            ignore_index=50256,
+            ignore_index=self.tokenizer.unk_token_id,
         )
         self.log("val/loss", loss)
-        # TODO: convert back to ABC, then MusicXML, then to image with verovio and log images
+        # Decode back a few images to ABC, then render the score and log the image
+        for i in range(min(5, input_ids.shape[0])):
+            input_abc = self.tokenizer.decode(input_ids[i])
+            output_abc = self.tokenizer.decode(output_ids[i])
+            input_image = render_score(as_text=input_abc)
+            output_image = render_score(as_text=output_abc)
+            self.logger.experiment.add_image(
+                f"val/input_{i}",
+                input_image,
+                global_step=self.global_step,
+            )
+            self.logger.experiment.add_image(
+                f"val/output_{i}",
+                output_image,
+                global_step=self.global_step,
+            )
         return loss
 
     def test_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
