@@ -76,7 +76,7 @@ class ABCTranscriberModule(L.LightningModule):
                 abc = self.tokenizer.decode(ids[i])
                 xml = conversion.abc2xml(abc)
                 image = render_score(as_text=xml, input_type="xml")
-                self.logger.experiment.add_image(
+                self.logger.log_image(
                     f"val/{inout}_{i}",
                     image,
                     global_step=self.global_step,
