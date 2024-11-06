@@ -479,7 +479,7 @@ class AsapDataset(ScorePerformanceDataset):
                 ent0 = ent[0]
                 if success:
                     for chunk_dir in sorted(out_dir.iterdir()):
-                        score_path = chunk_dir / ent0.xml_score.stem
+                        score_path = chunk_dir / ent0.xml_score
                         performance_paths = list(chunk_dir.glob("*.mid"))
                         metadata.extend(
                             [
