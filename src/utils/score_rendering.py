@@ -1,16 +1,10 @@
 import io
-import tempfile
 import time
 from pathlib import Path
 
 import verovio
-
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPM
-from cairosvg import svg2png
 from PIL import Image
-import wand.image
-import music21 as m21
+from cairosvg import svg2png
 
 
 def render_score(
