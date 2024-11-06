@@ -6,6 +6,7 @@ import lightning as L
 import litgpt.utils
 import torch
 import transformers
+import wandb
 from loguru import logger
 from torch import nn
 
@@ -76,12 +77,12 @@ class ABCTranscriberModule(L.LightningModule):
                 abc = self.tokenizer.decode(ids[i])
                 xml = conversion.abc2xml(abc)
                 image = render_score(as_text=xml, input_type="xml")
-                self.logger.log_image(
+                self.logger.log_table(
                     f"val/{inout}_{i}",
-                    [image],
+                    columns=["abc", "score"],
+                    data=[[abc, wandb.Image(image)]],
                     global_step=self.global_step,
                 )
-                self.logger.log_text(f"val/{inout}_{i}", abc, global_step=self.global_step)
         return loss
 
     def test_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
