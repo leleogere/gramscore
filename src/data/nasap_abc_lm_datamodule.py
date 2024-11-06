@@ -7,7 +7,6 @@ from typing import Optional
 import csv
 
 import git
-import torch
 from lightning import LightningDataModule
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -33,6 +32,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         tokenizer: str,
         chunking_config: ChunkingConfig | None = None,
         batch_size: int = 64,
+        num_workers: int = 1,
     ) -> None:
         """Initialize a `AsapLMDataModule`
 
@@ -40,6 +40,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         :param tokenizer: Name or path of the tokenizer to use.
         :param chunking_config: The chunking configuration.
         :param batch_size: The batch size.
+        :param num_workers: The number of workers to use for data loading.
         """
         super().__init__()
 
@@ -178,6 +179,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             shuffle=True,
             collate_fn=self.data_train.collate_fn,
+            num_workers=self.hparams.num_workers,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -190,6 +192,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             shuffle=False,
             collate_fn=self.data_val.collate_fn,
+            num_workers=self.hparams.num_workers,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -202,6 +205,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             shuffle=False,
             collate_fn=self.data_test.collate_fn,
+            num_workers=self.hparams.num_workers,
         )
 
     def state_dict(self) -> Dict[Any, Any]:
