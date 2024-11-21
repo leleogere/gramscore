@@ -6,8 +6,6 @@ from transformers import PreTrainedModel
 class AdaptedLM(nn.Module):
     def __init__(self, base_lm: PreTrainedModel, peft_config: peft.PeftConfig):
         super().__init__()
-        self.base_lm = base_lm
-        self.peft_config = peft_config
         self.adapted_model = peft.get_peft_model(base_lm, peft_config)
 
     def forward(self, x):

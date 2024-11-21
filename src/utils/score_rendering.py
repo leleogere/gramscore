@@ -62,8 +62,8 @@ if __name__ == '__main__':
     xml_path = Path(
         "/home/gerel/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset/Debussy/Images_Book_1/1_Reflets_dans_lEau/xml_score.musicxml",
     )
-    abc_path = Path("/tmp/test.abc")
-    # abc_path = Path("/tmp/test_corrupted.abc")
+    # abc_path = Path("/tmp/test.abc")
+    abc_path = Path("/tmp/test_corrupted.abc")
 
     # # Read from MusicXML path
     # output = render_score(xml_path)  # , output_path=Path("/tmp/test.png"))
@@ -79,10 +79,10 @@ if __name__ == '__main__':
     #         time.sleep(1)
 
     # Read from ABC path
-    output = render_score(abc_path, input_type="abc")  # , output_path=Path("/tmp/test.png"))
-    if output is not None:
-        output.show()
-        time.sleep(1)
+    # output = render_score(abc_path, input_type="abc")  # , output_path=Path("/tmp/test.png"))
+    # if output is not None:
+    #     output.show()
+    #     time.sleep(1)
 
     # # Read from ABC string
     # with open(abc_path, "r") as f:
