@@ -17,9 +17,9 @@ from utils.ansi_colors import Colors
 # Define custom chat template
 chat_template = """
 {%- if messages|length == 1 and messages[0]['type'] == 'input' %}
-    {{- '[INST]\n' + messages[0]['content'] + '[/INST]' }}
+    {{- '[INST]' + messages[0]['content'] + '[/INST]' }}
 {%- elif messages|length == 2 and messages[0]['type'] == 'input' and messages[1]['type'] == 'output' %}
-    {{- '[INST]\n' + messages[0]['content'] + '[/INST]\n' }}
+    {{- '[INST]' + messages[0]['content'] + '[/INST]' }}
     {%- generation %}
         {{- messages[1]['content'] + eos_token }}
     {%- endgeneration %}
@@ -46,7 +46,8 @@ for key, value in dataset["train"][0].items():
 model_id = "facebook/opt-350m"
 # model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 # model_id = "mistralai/Mistral-7B-v0.3"
-tokenizer = PatchedTokenizer.from_pretrained(model_id)
+# tokenizer = PatchedTokenizer.from_pretrained(model_id)
+tokenizer = PatchedTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
 max_context_length = transformers.AutoConfig.from_pretrained(model_id).max_position_embeddings
 
 if tokenizer.pad_token is None:
