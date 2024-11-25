@@ -138,7 +138,7 @@ def preprocess_function(samples):
     indices_to_drop = [
         i
         for i, mask in enumerate(tokenized["assistant_masks"])
-        if not any(mask[:max_context_length])
+        if not any(mask[:(max_context_length - 20)])  # Some margin
     ]
     if indices_to_drop:
         logger.warning(
