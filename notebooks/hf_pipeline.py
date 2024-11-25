@@ -159,69 +159,75 @@ for key, value in tokenized_dataset["train"][0].items():
 # %%
 trl.DataCollatorForCompletionOnlyLM
 
+#
+# # Collate data
+# class DataCollatorForCompletionOnlyLMPreComputed(transformers.DataCollatorForLanguageModeling):
+#     """
+#     Inspired by trl.DataCollatorForCompletionOnlyLM, but use pre-computed generation mask rather
+#     than searching the input for instruction/response templates.
+#     """
+#
+#     def __init__(self, *args, **kwargs):
+#         if "mlm" in kwargs:
+#             kwargs.pop("mlm")
+#             logger.warning(
+#                 "The `mlm` argument is not needed and will be ignored. "
+#                 "This data collator is not designed for masked language modeling."
+#             )
+#         super().__init__(*args, mlm=False, **kwargs)
+#
+#         self.ignore_index = -100
+#         # -100 seems to be hardcoded in some places of transformers for ignored tokens, e.g. in
+#         # transformers.DataCollatorForLanguageModeling.torch_call (inherited by this class)
+#
+#     def torch_call(self, examples: list[list[int] | Any | dict[str, Any]]) -> dict[str, Any]:
+#         def get_examples_attribute(attr: str | list[str]):
+#             if isinstance(attr, str):
+#                 return [e[attr] for e in examples]
+#             else:
+#                 return [{a: e[a] for a in attr} for e in examples]
+#
+#         input_ids = get_examples_attribute("input_ids")
+#         batch = super().torch_call(input_ids)
+#         batch_size, seq_length = batch["input_ids"].shape
+#
+#         # Manual management of assistant_masks as they are not correctly padded by the parent class
+#         assistant_masks = torch.nn.utils.rnn.pad_sequence(
+#             map(torch.BoolTensor, get_examples_attribute("assistant_masks")),
+#             batch_first=True,
+#             padding_value=False,
+#         )
+#
+#         # Some context length checks
+#         context_length_checker: torch.LongTensor = assistant_masks.sum(dim=1)
+#         assert context_length_checker.shape == (batch_size,)
+#         num_no_assistant = len(context_length_checker) - context_length_checker.count_nonzero()
+#         num_full_assistant = (context_length_checker == seq_length).count_nonzero()
+#         if num_no_assistant > 0:
+#             logger.warning(
+#                 f"{num_no_assistant} samples have no assistant tokens at all. "
+#                 f"If this happens too often, consider increasing the max_seq_length."
+#             )
+#         if num_full_assistant > 0:
+#             logger.warning(
+#                 f"{num_full_assistant} samples have the full sequence as assistant tokens. "
+#                 f"If this happens too often, consider increasing the max_seq_length."
+#             )
+#
+#         # Mask assistant tokens
+#         batch["labels"][~assistant_masks] = self.ignore_index
+#         return batch
 
-# Collate data
-class DataCollatorForCompletionOnlyLMPreComputed(transformers.DataCollatorForLanguageModeling):
-    """
-    Inspired by trl.DataCollatorForCompletionOnlyLM, but use pre-computed generation mask rather
-    than searching the input for instruction/response templates.
-    """
 
-    def __init__(self, *args, **kwargs):
-        if "mlm" in kwargs:
-            kwargs.pop("mlm")
-            logger.warning(
-                "The `mlm` argument is not needed and will be ignored. "
-                "This data collator is not designed for masked language modeling."
-            )
-        super().__init__(*args, mlm=False, **kwargs)
+# data_collator = DataCollatorForCompletionOnlyLMPreComputed(
+#     tokenizer=tokenizer,
+#     # pad_to_multiple_of=8,
+# )
 
-        self.ignore_index = -100
-        # -100 seems to be hardcoded in some places of transformers for ignored tokens, e.g. in
-        # transformers.DataCollatorForLanguageModeling.torch_call (inherited by this class)
-
-    def torch_call(self, examples: list[list[int] | Any | dict[str, Any]]) -> dict[str, Any]:
-        def get_examples_attribute(attr: str | list[str]):
-            if isinstance(attr, str):
-                return [e[attr] for e in examples]
-            else:
-                return [{a: e[a] for a in attr} for e in examples]
-
-        input_ids = get_examples_attribute("input_ids")
-        batch = super().torch_call(input_ids)
-        batch_size, seq_length = batch["input_ids"].shape
-
-        # Manual management of assistant_masks as they are not correctly padded by the parent class
-        assistant_masks = torch.nn.utils.rnn.pad_sequence(
-            map(torch.BoolTensor, get_examples_attribute("assistant_masks")),
-            batch_first=True,
-            padding_value=False,
-        )
-
-        # Some context length checks
-        context_length_checker: torch.LongTensor = assistant_masks.sum(dim=1)
-        assert context_length_checker.shape == (batch_size,)
-        num_no_assistant = len(context_length_checker) - context_length_checker.count_nonzero()
-        num_full_assistant = (context_length_checker == seq_length).count_nonzero()
-        if num_no_assistant > 0:
-            logger.warning(
-                f"{num_no_assistant} samples have no assistant tokens at all. "
-                f"If this happens too often, consider increasing the max_seq_length."
-            )
-        if num_full_assistant > 0:
-            logger.warning(
-                f"{num_full_assistant} samples have the full sequence as assistant tokens. "
-                f"If this happens too often, consider increasing the max_seq_length."
-            )
-
-        # Mask assistant tokens
-        batch["labels"][~assistant_masks] = self.ignore_index
-        return batch
-
-
-data_collator = DataCollatorForCompletionOnlyLMPreComputed(
+data_collator = trl.DataCollatorForCompletionOnlyLM(
     tokenizer=tokenizer,
-    # pad_to_multiple_of=8,
+    response_template="[/INST]",
+    instruction_template="[INST]",
 )
 
 # %%
@@ -233,7 +239,8 @@ for key, value in tokenized_dataset["train"][1000].items():
 batch = tokenized_dataset["train"].batch(2)[0]
 print(batch.keys())
 # print(torch.Tensor(batch["input_ids"]).shape)
-# collated = data_collator([batch])
+collated = data_collator([{"input_ids": torch.LongTensor(batch["input_ids"][0])}])
+print(collated)
 
 # %%
 # Load model (if not already loaded, only useful when cell is re-run)
@@ -307,7 +314,7 @@ if False:
 training_args = SFTConfig(
     max_seq_length=model.config.max_position_embeddings,
     output_dir="/tmp",
-    remove_unused_columns=False,
+    # remove_unused_columns=False,
     per_gpu_train_batch_size=8,
     per_gpu_eval_batch_size=8,
     num_train_epochs=10,
