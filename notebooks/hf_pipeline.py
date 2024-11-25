@@ -53,8 +53,8 @@ tokenizer = PatchedTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
 max_context_length = transformers.AutoConfig.from_pretrained(model_id).max_position_embeddings
 
 if tokenizer.pad_token is None:
-    print("No pad token, use EOS token as pad token")
-    tokenizer.pad_token = tokenizer.eos_token
+    print("No pad token, use BOS token as pad token")
+    tokenizer.pad_token = tokenizer.bos_token
 
 
 def print_pretty_templated_with_mask(
