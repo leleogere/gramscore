@@ -13,6 +13,8 @@ import transformers
 from data.components.patched_tokenizer import PatchedTokenizer
 from utils.ansi_colors import Colors
 
+transformers.set_seed(10)
+
 # %%
 # Define custom chat template
 chat_template = """
