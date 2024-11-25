@@ -47,6 +47,7 @@ model_id = "facebook/opt-350m"
 # model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 # model_id = "mistralai/Mistral-7B-v0.3"
 tokenizer = PatchedTokenizer.from_pretrained(model_id)
+max_context_length = transformers.AutoConfig.from_pretrained(model_id).max_position_embeddings
 
 if tokenizer.pad_token is None:
     print("No pad token, use EOS token as pad token")
@@ -124,6 +125,20 @@ def preprocess_function(samples):
     # tokenized["assistant_masks"] = torch.LongTensor(tokenized["assistant_masks"])
     # tokenized["output_starts"] = tokenized["assistant_masks"].argmax(dim=1)
     tokenized["assistant_masks"] = [list(map(bool, mask)) for mask in tokenized["assistant_masks"]]
+    indices_to_drop = [
+        i
+        for i, mask in enumerate(tokenized["assistant_masks"])
+        if not any(mask[:max_context_length])
+    ]
+    if indices_to_drop:
+        logger.warning(
+            f"{len(indices_to_drop)} samples of the batch have no assistant tokens at all withing "
+            f"the model's context length, dropping them. If this happens too often, consider "
+            f"reducing sequence lengths or using a model with a larger context."
+        )
+        for idx in reversed(indices_to_drop):  # reverse to avoid index shifting
+            for key in tokenized:
+                tokenized[key].pop(idx)
     return tokenized
 
 
@@ -233,9 +248,64 @@ if False:
         print(model(torch.LongTensor(batch["input_ids"])))
 
 # %%
+# Test longest sample
+if False:
+    longest_sample = max(dataset["train"], key=lambda x: len(x["answers.text"][0]))
+    sample_conversation = [
+        # fmt: off
+        {"type": "input", "content": longest_sample["title"]},
+        {"type": "output", "content": longest_sample["answers.text"][0]},
+        # fmt: on
+    ]
+    sample_conversation_tokenized = tokenizer.apply_chat_template(
+        sample_conversation,
+        tokenize=True,
+        return_dict=True,
+        return_assistant_tokens_mask=True,
+        return_tensors="pt",
+    )
+    sample_conversation_tokenized["input_ids"] = sample_conversation_tokenized["input_ids"]
+    print_pretty_templated_with_mask(tokenizer, sample_conversation)
+    print(len(sample_conversation_tokenized["input_ids"][0]))
+    print(model.config.max_position_embeddings)
+    # Raises an error if len(input) > max_position_embeddings
+    print(model(sample_conversation_tokenized["input_ids"]))
+
+if False:
+    with torch.no_grad():
+        input_ids = torch.ones((1, 2048), dtype=torch.long) * 2
+        # print(model(input_ids))
+        labels = torch.ones((1, 2048), dtype=torch.long) * 2
+        labels[:, :5] = -100
+        print(
+            torch.nn.functional.cross_entropy(
+                model(input_ids).logits.view(-1, model.config.vocab_size), labels.view(-1)
+            )
+        )
+        labels[:, :50] = -100
+        print(
+            torch.nn.functional.cross_entropy(
+                model(input_ids).logits.view(-1, model.config.vocab_size), labels.view(-1)
+            )
+        )
+        labels[:, :500] = -100
+        print(
+            torch.nn.functional.cross_entropy(
+                model(input_ids).logits.view(-1, model.config.vocab_size), labels.view(-1)
+            )
+        )
+        labels[:, :] = -100
+        print(
+            torch.nn.functional.cross_entropy(
+                model(input_ids).logits.view(-1, model.config.vocab_size), labels.view(-1)
+            )
+        )
+
+
+# %%
 # Prepare the training configuration
 training_args = SFTConfig(
-    max_seq_length=512,
+    max_seq_length=model.config.max_position_embeddings,
     output_dir="/tmp",
     remove_unused_columns=False,
     per_gpu_train_batch_size=8,
