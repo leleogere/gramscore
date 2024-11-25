@@ -129,22 +129,19 @@ def preprocess_function(samples):
         tokenize=True,
         return_dict=True,
         return_assistant_tokens_mask=True,
-        padding=False,
-        truncation=False,
+        padding=False,  # Padding is done by the data collator
+        truncation=True,
+        max_length=max_context_length,
     )
     tokenized["text_input"] = samples["title"]
     tokenized["text_output"] = [a[0] for a in samples["answers.text"]]
     # tokenized["assistant_masks"] = torch.LongTensor(tokenized["assistant_masks"])
     # tokenized["output_starts"] = tokenized["assistant_masks"].argmax(dim=1)
     tokenized["assistant_masks"] = [list(map(bool, mask)) for mask in tokenized["assistant_masks"]]
-    indices_to_drop = [
-        i
-        for i, mask in enumerate(tokenized["assistant_masks"])
-        if not any(mask[:(max_context_length - 20)])  # Some margin
-    ]
+    indices_to_drop = [i for i, mask in enumerate(tokenized["assistant_masks"]) if not any(mask)]
     if indices_to_drop:
         logger.warning(
-            f"{len(indices_to_drop)} samples of the batch have no assistant tokens at all withing "
+            f"{len(indices_to_drop)} samples of the batch have no output tokens at all withing "
             f"the model's context length, dropping them. If this happens too often, consider "
             f"reducing sequence lengths or using a model with a larger context."
         )
