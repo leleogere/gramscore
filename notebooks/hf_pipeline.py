@@ -17,9 +17,9 @@ from utils.ansi_colors import Colors
 # Define custom chat template
 chat_template = """
 {%- if messages|length == 1 and messages[0]['type'] == 'input' %}
-    {{- '[INST]' + messages[0]['content'] + '[/INST]' }}
+    {{- '[INST]\n' + messages[0]['content'] + '[/INST]' }}
 {%- elif messages|length == 2 and messages[0]['type'] == 'input' and messages[1]['type'] == 'output' %}
-    {{- '[INST]' + messages[0]['content'] + '[/INST]' }}
+    {{- '[INST]\n' + messages[0]['content'] + '[/INST]\n' }}
     {%- generation %}
         {{- messages[1]['content'] + eos_token }}
     {%- endgeneration %}
@@ -98,6 +98,15 @@ if True:
         # fmt: off
         {"type": "input", "content": "Note(p=14, t=0, d=234, v=12)\nNote(p=15, t=684, d=256, v=15)\nNote(p=14, t=750, d=528, v=45)"},
         {"type": "output", "content": "X:1\nT:Untitled\nM:4/4\nK:C\nC2 E2 G2 | C2 E2 G2 | C2 E2 G2 | C2 E2 G2 |"},
+        # fmt: on
+    ]
+    print_pretty_templated_with_mask(tokenizer, sample_conversation)
+
+if True:
+    sample_conversation = [
+        # fmt: off
+        {"type": "input", "content": "What does Big Data really do with our data?"},
+        {"type": "output", "content": """"Big Data" isn't an entity so it does nothing with our data. "Big Data" refers to the concept of using large amounts of data to draw conclusions or direct action. Some company might collect "Big Data" about their customers and then try to draw conclusions about their customer base, such as what products to carry or advertise. Similarly selling that data to other companies would be profitable, and buying such data could in turn help grow a business."""},
         # fmt: on
     ]
     print_pretty_templated_with_mask(tokenizer, sample_conversation)
@@ -237,10 +246,17 @@ for key, value in tokenized_dataset["train"][1000].items():
     value = value if not isinstance(value, list) else f"list[{len(value)}]"
     print(f"{key} {str(type(value))}: {value}")
 batch = tokenized_dataset["train"].batch(2)[0]
-print(batch.keys())
+# print(batch.keys())
 # print(torch.Tensor(batch["input_ids"]).shape)
 collated = data_collator([{"input_ids": torch.LongTensor(batch["input_ids"][0])}])
-print(collated)
+# print(collated)
+
+if False:
+    s = """[INST]What does Big Data really do with our data?[/INST]"Big Data" isn't an entity so it does nothing with our data. "Big Data" refers to the concept of using large amounts of data to draw conclusions or direct action. Some company might collect "Big Data" about their customers and then try to draw conclusions about their customer base, such as what products to carry or advertise. Similarly selling that data to other companies would be profitable, and buying such data could in turn help grow a business."""
+    st = tokenizer.encode(s, return_tensors="pt")
+    print(st)
+    print(tokenizer.tokenize(s))
+    print(data_collator(st))
 
 # %%
 # Load model (if not already loaded, only useful when cell is re-run)
