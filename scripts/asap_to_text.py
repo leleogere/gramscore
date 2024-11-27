@@ -12,6 +12,7 @@ SEPARATOR = "\n\n" + "#" * 60 + "\n" + "#" * 60 + "\n\n"
 NASAP_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset")
 SPLIT_NASAP_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6")
 TEXT_DATASET_PATH = SPLIT_NASAP_PATH.parent / (SPLIT_NASAP_PATH.name + "_TEXT")
+N_JOBS = 63
 # fmt: on
 
 # %% Instantiate datamodule
@@ -52,7 +53,7 @@ def save_item(
 for split in ["train", "val", "test"]:
     print(f"Saving {split} split...")
     dataset: ScorePerformanceDataset = getattr(asap_datamodule, f"data_{split}")
-    rows = joblib.Parallel(n_jobs=12, return_as="generator")(
+    rows = joblib.Parallel(n_jobs=N_JOBS, return_as="generator")(
         joblib.delayed(save_item)(metadata, item, split, TEXT_DATASET_PATH)
         for metadata, item in zip(dataset.entries, dataset)
     )
