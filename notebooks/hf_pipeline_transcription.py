@@ -24,7 +24,8 @@ TEXT_DATASET = (
 # %%
 # Load dataset
 dataset = datasets.DatasetDict()
-for split in ["train" , "validation", "test"]:
+for split in ["train", "validation", "test"]:
+    print(f"Loading {split} split...")
     dataset[split] = datasets.load_dataset(
         "text",
         data_dir=f"{TEXT_DATASET}/{split}",
