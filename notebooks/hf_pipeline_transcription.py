@@ -75,6 +75,8 @@ if tokenizer.chat_template is None:
 # %%
 # Prepare dataset
 SEPARATOR = "\n\n" + "#" * 60 + "\n" + "#" * 60 + "\n\n"
+
+
 def preprocess_function(samples):
     tokenized = tokenizer.apply_chat_template(
         [
@@ -110,7 +112,6 @@ def preprocess_function(samples):
 tokenized_dataset = dataset.map(
     preprocess_function,
     batched=True,
-    num_proc=1,
     remove_columns=dataset["train"].column_names,
 )
 
