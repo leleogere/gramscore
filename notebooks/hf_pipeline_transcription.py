@@ -135,7 +135,7 @@ training_args = SFTConfig(
 trainer = SFTTrainer(
     model_id,
     train_dataset=tokenized_dataset["train"],
-    # eval_dataset=tokenized_dataset["test"],
+    eval_dataset=tokenized_dataset["validation"],
     data_collator=data_collator,
     args=training_args,
     peft_config=peft.LoraConfig(
