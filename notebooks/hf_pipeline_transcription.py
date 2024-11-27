@@ -93,8 +93,6 @@ def preprocess_function(samples):
         truncation=True,
         max_length=max_context_length,
     )
-    tokenized["text_input"] = samples["performance"]
-    tokenized["text_output"] = samples["score"]
     tokenized["assistant_masks"] = [list(map(bool, mask)) for mask in tokenized["assistant_masks"]]
     indices_to_drop = [i for i, mask in enumerate(tokenized["assistant_masks"]) if not any(mask)]
     if indices_to_drop:
