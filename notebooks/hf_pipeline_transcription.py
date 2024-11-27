@@ -322,10 +322,11 @@ if False:
 
 # %%
 # Load model (if not already loaded, only useful when cell is re-run)
-try:
-    model
-except NameError:
-    model = transformers.AutoModelForCausalLM.from_pretrained(model_id)
+if False:
+    try:
+        model
+    except NameError:
+        model = transformers.AutoModelForCausalLM.from_pretrained(model_id)
 
 # %%
 if False:
@@ -390,7 +391,7 @@ if False:
 # %%
 # Prepare the training configuration
 training_args = SFTConfig(
-    max_seq_length=model.config.max_position_embeddings,
+    max_seq_length=max_context_length,
     output_dir="/tmp",
     # remove_unused_columns=False,
     per_device_train_batch_size=2,
