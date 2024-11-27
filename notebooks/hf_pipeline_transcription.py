@@ -381,8 +381,8 @@ trainer = SFTTrainer(
     data_collator=data_collator,
     args=training_args,
     peft_config=peft.LoraConfig(
-        r=8,
-        lora_alpha=32,
+        r=128,
+        lora_alpha=128,
         lora_dropout=0.1,
         inference_mode=False,
     ),
