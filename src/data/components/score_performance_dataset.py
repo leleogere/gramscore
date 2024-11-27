@@ -125,7 +125,7 @@ class ScorePerformanceDataset(Dataset):
                 midi = symusic.Score(entry.midi_performance, ttype="second")
                 midi_as_text = "\n".join(
                     [
-                        f"Note(pitch={note.pitch}, start={round(note.start, 3)}, duration={round(note.duration, 3)})"  # Velocity unused for now
+                        f"Note(pitch={note.pitch}, start={round(note.start * 100)}, duration={round(note.duration * 100)})"  # Velocity unused for now
                         for note in midi.tracks[0].notes
                     ]
                 )
