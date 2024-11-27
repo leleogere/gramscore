@@ -70,9 +70,10 @@ dataset = dataset.map(split_text, batched=True, remove_columns=["text"])
 
 # %%
 # Explore dataset
-pprint(dataset)
-for key, value in dataset["train"][0].items():
-    print(f"{key} {str(type(value))}: {value}")
+# pprint(dataset)
+# print(len(dataset["train"]))
+# for key, value in dataset["train"][0].items():
+#     print(f"{key} {str(type(value))}: {value}")
 
 
 # %%
@@ -164,7 +165,7 @@ if False:
     ]
     print_pretty_templated_with_mask(tokenizer, sample_conversation)
 
-if True:
+if False:
     sample_conversation = [
         # fmt: off
         {"type": "input", "content": "What does Big Data really do with our data?"},
@@ -221,9 +222,9 @@ tokenized_dataset = dataset.map(
 
 # %%
 # Explore tokenized dataset
-pprint(tokenized_dataset["train"])
-for key, value in tokenized_dataset["train"][0].items():
-    print(f"{key}: {value} ({type(value)})")
+# pprint(tokenized_dataset["train"])
+# for key, value in tokenized_dataset["train"][0].items():
+#     print(f"{key}: {value} ({type(value)})")
 
 
 # %%
