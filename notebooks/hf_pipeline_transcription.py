@@ -131,7 +131,32 @@ def print_pretty_templated_with_mask(
     print(mask_string)
 
 
-if True:
+if False:
+    sample_conversation = [
+        [
+            # fmt: off
+        {"type": "input", "content": dataset["train"]["performance"][i]},
+        {"type": "output", "content": dataset["train"]["score"][i]},
+            # fmt: on
+        ]
+        for i in range(min(3000, len(dataset["train"])))
+    ]
+    tokenized = tokenizer.apply_chat_template(
+        sample_conversation,
+        tokenize=True,
+        return_dict=True,
+    )
+    lengths = [len(x) for x in tokenized["input_ids"]]
+    print("Min: ", min(lengths))
+    print("Max: ", max(lengths))
+    print("Mean:", sum(lengths) / len(lengths))
+    # For 3000 samples:
+    # Min:  6591
+    # Max:  22880
+    # Mean: 14614.993718592965
+
+
+if False:
     sample_conversation = [
         # fmt: off
         {"type": "input", "content": "Note(p=14, t=0, d=234, v=12)\nNote(p=15, t=684, d=256, v=15)\nNote(p=14, t=750, d=528, v=45)"},
