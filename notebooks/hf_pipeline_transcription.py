@@ -1,18 +1,11 @@
-from pathlib import Path
-from typing import Any
-from typing import Mapping
-
 import peft
-import torch
 import trl
 import datasets
 from loguru import logger
 from trl import SFTConfig, SFTTrainer
-from pprint import pprint
 import transformers
 
 from data.components.patched_tokenizer import PatchedTokenizer
-from utils.ansi_colors import Colors
 
 transformers.set_seed(10)
 
