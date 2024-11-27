@@ -96,10 +96,9 @@ pprint(dataset)
 for key, value in dataset["train"][0].items():
     print(f"{key} {str(type(value))}: {value}")
 
+
 # %%
 # Explore tokenizer
-
-
 def print_pretty_templated_with_mask(
     tokenizer: transformers.AutoTokenizer,
     sample_conversation: list[dict[str, str]],
@@ -385,6 +384,16 @@ trainer = SFTTrainer(
         lora_alpha=128,
         lora_dropout=0.1,
         inference_mode=False,
+    ),
+    # deal with quantization
+    model_init_kwargs=dict(
+        quantization_config=transformers.BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="bfloat16",
+            bnb_4bit_quant_storage="bfloat16",
+        )
     ),
 )
 
