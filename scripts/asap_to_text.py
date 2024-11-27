@@ -11,7 +11,7 @@ from src.data.components.chunking_utils import ChunkingConfig
 SEPARATOR = "\n\n" + "#" * 60 + "\n" + "#" * 60 + "\n\n"
 NASAP_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset")
 SPLIT_NASAP_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6")
-TEXT_DATASET_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6_TEXT")
+TEXT_DATASET_PATH = SPLIT_NASAP_PATH.parent / (SPLIT_NASAP_PATH.name + "_TEXT")
 # fmt: on
 
 # %% Instantiate datamodule
