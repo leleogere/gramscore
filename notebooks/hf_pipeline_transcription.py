@@ -36,28 +36,6 @@ chat_template = """
 """.strip()
 
 # %%
-# Load tokenizer
-model_id = "facebook/opt-350m"
-# model_id = "mistralai/Mistral-7B-Instruct-v0.3"
-# model_id = "mistralai/Mistral-7B-v0.3"
-# tokenizer = PatchedTokenizer.from_pretrained(model_id)
-tokenizer = PatchedTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
-max_context_length = transformers.AutoConfig.from_pretrained(model_id).max_position_embeddings
-print(f"Max context length: {max_context_length}")
-
-if tokenizer.pad_token is None:
-    print("No pad token, use '[control_8]' mistral token as pad token")
-    assert tokenizer.name_or_path == 'mistralai/Mistral-7B-v0.3', "Only Mistral tokenizer supported"
-    tokenizer.pad_token = '[control_8]'
-
-if tokenizer.chat_template is None:
-    print("No chat template, use the Mistral-7B-Instruct-v0.3 one (patched with generation tags)")
-    # tokenizer.chat_template = PatchedTokenizer.from_pretrained(
-    #     "mistralai/Mistral-7B-Instruct-v0.3"
-    # ).chat_template
-    tokenizer.chat_template = chat_template
-
-# %%
 # Load dataset
 dataset = datasets.DatasetDict()
 for split in ["train"]:  # , "validation", "test"]:
@@ -98,7 +76,28 @@ for key, value in dataset["train"][0].items():
 
 
 # %%
-# Explore tokenizer
+# Load tokenizer
+model_id = "facebook/opt-350m"
+# model_id = "mistralai/Mistral-7B-Instruct-v0.3"
+# model_id = "mistralai/Mistral-7B-v0.3"
+# tokenizer = PatchedTokenizer.from_pretrained(model_id)
+tokenizer = PatchedTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
+max_context_length = transformers.AutoConfig.from_pretrained(model_id).max_position_embeddings
+print(f"Max context length: {max_context_length}")
+
+if tokenizer.pad_token is None:
+    print("No pad token, use '[control_8]' mistral token as pad token")
+    assert tokenizer.name_or_path == 'mistralai/Mistral-7B-v0.3', "Only Mistral tokenizer supported"
+    tokenizer.pad_token = '[control_8]'
+
+if tokenizer.chat_template is None:
+    print("No chat template, use the Mistral-7B-Instruct-v0.3 one (patched with generation tags)")
+    # tokenizer.chat_template = PatchedTokenizer.from_pretrained(
+    #     "mistralai/Mistral-7B-Instruct-v0.3"
+    # ).chat_template
+    tokenizer.chat_template = chat_template
+
+
 def print_pretty_templated_with_mask(
     tokenizer: transformers.AutoTokenizer,
     sample_conversation: list[dict[str, str]],
