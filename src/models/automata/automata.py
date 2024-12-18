@@ -47,9 +47,9 @@ if __name__ == '__main__':
     if True:
         random.seed(4)
         automata = ConstrainedAutomata()
-        sequence = []
+        sequence = [StartOfScore()]
         print(automata.state)
-        for i in range(10000):
+        for i in range(100000):
             # Get allowed token types and sample one
             tokens = automata.allowed_tokens_types()
             assert tokens, f"No tokens allowed at {automata.state}"
@@ -68,7 +68,7 @@ if __name__ == '__main__':
                     token = prev_bar
 
             # Limit EOS
-            if isinstance(token, EndOfScore) and len(sequence) < 10:
+            if isinstance(token, EndOfScore) and len(sequence) < 10000:
                 continue
 
             sequence.append(token)
