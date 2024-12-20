@@ -5,8 +5,8 @@ from src.models.automata.tokens import *
 
 
 class ConstrainedAutomata:
-    def __init__(self):
-        self.state = TranscriptionState()
+    def __init__(self, num_voices: int = 1):
+        self.state = TranscriptionState(num_voices=num_voices)
 
     def can_transition(self, token: Token) -> bool:
         return token.is_token_allowed(self.state)
@@ -45,8 +45,8 @@ if __name__ == '__main__':
 
     # Sample a token sequence
     if True:
-        random.seed(4)
-        automata = ConstrainedAutomata()
+        random.seed(5)
+        automata = ConstrainedAutomata(8)
         sequence = [StartOfScore()]
         print(automata.state)
         for i in range(100000):
@@ -68,8 +68,34 @@ if __name__ == '__main__':
                     token = prev_bar
 
             # Limit EOS
-            if isinstance(token, EndOfScore) and len(sequence) < 10000:
+            if isinstance(token, EndOfScore) and len(sequence) < 1000:
                 continue
+
+            # Limit Tuplets
+            if isinstance(token, TupletStart) and random.random() < 0.9:
+                continue
+
+            # Limit rare voices
+            if hasattr(token, "voice_idx"):
+                if (
+                    (
+                        token.voice_idx == 1 % 4
+                        and not automata.state.voices[token.voice_idx].started
+                        and random.random() < 1
+                    )
+                    or (
+                        token.voice_idx == 2 % 4
+                        and not automata.state.voices[token.voice_idx].started
+                        and random.random() < 1
+                    )
+                    or (
+                        token.voice_idx == 3 % 4
+                        and not automata.state.voices[token.voice_idx].started
+                        and random.random() < 1
+                    )
+                ):
+                    continue
+                    # TODO: Attempt at limiting rare voices but too long as random
 
             sequence.append(token)
             print(f"    {Colors.BLUE}{token}{Colors.END}")
