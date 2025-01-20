@@ -1,6 +1,6 @@
 import random
 
-from src.models.automata.io import token_sequence_to_partitura
+from src.models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
 from src.models.automata.tokens import *
 
 
@@ -24,6 +24,7 @@ if __name__ == '__main__':
     from pprint import pprint
     import partitura as pt
     import partitura.score
+    from pathlib import Path
     from utils.ansi_colors import Colors
 
     # Parse a token sequence
@@ -44,7 +45,7 @@ if __name__ == '__main__':
             print(automata.state)
 
     # Sample a token sequence
-    if True:
+    if False:
         random.seed(5)
         automata = ConstrainedAutomata(8)
         sequence = [StartOfScore()]
@@ -75,27 +76,27 @@ if __name__ == '__main__':
             if isinstance(token, TupletStart) and random.random() < 0.9:
                 continue
 
-            # Limit rare voices
-            if hasattr(token, "voice_idx"):
-                if (
-                    (
-                        token.voice_idx == 1 % 4
-                        and not automata.state.voices[token.voice_idx].started
-                        and random.random() < 1
-                    )
-                    or (
-                        token.voice_idx == 2 % 4
-                        and not automata.state.voices[token.voice_idx].started
-                        and random.random() < 1
-                    )
-                    or (
-                        token.voice_idx == 3 % 4
-                        and not automata.state.voices[token.voice_idx].started
-                        and random.random() < 1
-                    )
-                ):
-                    continue
-                    # TODO: Attempt at limiting rare voices but too long as random
+            # # Limit rare voices
+            # if hasattr(token, "voice_idx"):
+            #     if (
+            #         (
+            #             token.voice_idx == 1 % 4
+            #             and not automata.state.voices[token.voice_idx].started
+            #             and random.random() < 1
+            #         )
+            #         or (
+            #             token.voice_idx == 2 % 4
+            #             and not automata.state.voices[token.voice_idx].started
+            #             and random.random() < 1
+            #         )
+            #         or (
+            #             token.voice_idx == 3 % 4
+            #             and not automata.state.voices[token.voice_idx].started
+            #             and random.random() < 1
+            #         )
+            #     ):
+            #         continue
+            #         # TODO: Attempt at limiting rare voices but too long as random
 
             sequence.append(token)
             print(f"    {Colors.BLUE}{token}{Colors.END}")
@@ -111,3 +112,33 @@ if __name__ == '__main__':
 
         print(score.pretty())
         pt.save_musicxml(score, "/tmp/test.musicxml")
+
+    # Parse a MusicXML file
+    if True:
+        path = Path("/home/gerel/Téléchargements/Chopin__Trois_Valses.musicxml")
+        print(path.exists())
+        score = pt.load_musicxml(path)
+        assert len(score.parts) == 1
+        score = score.parts[0]
+        score = pt.score.unfold_part_maximal(score)
+
+        tokens = partitura_to_token_sequence(score)
+        for token in tokens[:150]:
+            print(token)
+
+        automata = ConstrainedAutomata(8)
+        bar_idx = 0
+        for token in tokens:
+            print(" > ", token)
+            if isinstance(token, Bar):
+                bar_idx += 1
+                print(f"Bar {bar_idx}")
+            automata.transition(token)
+            print(automata.state)
+            print()
+            if isinstance(token, EndOfScore):
+                break
+
+        # Write back the score to the disk
+        score = token_sequence_to_partitura(tokens)
+        pt.save_musicxml(score, "/tmp/trois_valses.musicxml")

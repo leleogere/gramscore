@@ -12,6 +12,7 @@ from fractions import Fraction
 from pprint import pprint
 from typing import Any
 import inspect
+from typing import Literal
 from typing import Self
 from collections import namedtuple
 import partitura as pt
@@ -411,19 +412,21 @@ class EndOfScore(Token):
 class Bar(Token):
     numerator: int
     denominator: int
-    real_numerator: int | None = None
+    actual_duration: Fraction | None = None
 
     def __post_init__(self):
         if self.denominator.bit_count() != 1:
             raise ValueError("The denominator of the TS must be a power of 2.")
-        if (
-            self.numerator < 1
-            or self.denominator < 1
-            or (self.real_numerator is not None and self.real_numerator < 1)
-        ):
+        if self.numerator < 1 or self.denominator < 1:
             raise ValueError("All time signature attributes values must be positive integers.")
-        if self.real_numerator is None:
-            self.real_numerator = self.numerator
+        if self.actual_duration is None:
+            self.actual_duration = Fraction(self.numerator)
+        elif self.actual_duration <= 0:
+            raise ValueError("The actual duration must be positive.")
+        elif self.actual_duration > self.normal_duration:
+            raise ValueError(
+                "The actual duration must be less than the normal duration."
+            )  # Must it?
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -442,12 +445,14 @@ class Bar(Token):
         return cls(numerator=numerator, denominator=denominator)
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
-        state.reset_voices(self.duration)
+        state.reset_voices(self.actual_duration)
         return state
 
     @property
-    def duration(self) -> Fraction:
-        """Compute the duration of the measure in quarter notes.
+    def normal_duration(self) -> Fraction:
+        """Compute the normal duration of the measure in quarter notes, according to the time
+        signature. Note that this is not necessarily the actual true duration of the measure,
+        in case of anacrusis or incomplete measures for example.
 
         The unit duration (in quarter notes) is computed using some bit manipulation
         to find the closest power of 2 (x = int.bit_length() - 1), then the duration
@@ -457,7 +462,7 @@ class Bar(Token):
             - For denominator = 8 (eighth note): 2**(2 - (4 - 1)) = 1/2
         """
         denominator_duration = Fraction(2 ** (3 - self.denominator.bit_length()))
-        return self.real_numerator * denominator_duration
+        return self.numerator * denominator_duration
 
 
 @dataclass
@@ -471,12 +476,14 @@ class KeySignature(Token):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         all_positions = [v.current_position for v in state.voices]
+        # print(f"{all_positions = }")
+        # print(state.check_for_any_voices(operator.attrgetter("in_chord")))
         return (
             all(
-                pos in (0, max(all_positions)) for pos in all_positions
-            )  # All voices at the same position
+                pos in (Fraction(0), max(all_positions)) for pos in all_positions
+            )  # All voices at the same position (or not started)
             and not state.check_for_any_voices(operator.attrgetter("in_tuplet"))  # Not in tuplet
-            and state.check_for_any_voices(operator.attrgetter("in_chord"))  # Not in chord
+            and not state.check_for_any_voices(operator.attrgetter("in_chord"))  # Not in chord
             and state.check_for_any_voices(
                 lambda v: not v.tied_notes
             )  # Avoid ambiguity with ties across key changes
@@ -491,13 +498,56 @@ class KeySignature(Token):
 
 
 @dataclass
-class HasVoice(Token):
-    voice_idx: int
+class HasStaffMixin:
+    """Used for elements that are tied to a staff."""
+
+    staff_idx: int
 
 
 @dataclass
-class HasDuration(HasVoice):
-    """Common behaviour for Note, Rest and ChordStart tokens."""
+class HasVoiceAndStaffMixin(HasStaffMixin):
+    """Used for elements that are tied to a voice and a staff."""
+
+    voice_idx: int
+
+    @staticmethod
+    def default_voice_to_staff(voice_idx: int) -> int:
+        return 0 if voice_idx < 4 else 1
+
+
+# TODO: not working yet as issues with conditions on staff_idx.
+#   A clef is only allowed if no voice *of the staff* is in chord,
+#   but voices are currently dealt with globally, and not per staff.
+# @dataclass
+# class Clef(Token, HasStaffMixin):
+#     clef: Literal["G", "F"]
+#     # TODO: support for octaved clefs and other clefs?
+#
+#     @classmethod
+#     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
+#         return not state.check_for_any_voices(lambda v: not v.in_chord and not v.tied_notes)
+#
+#     def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+#         allowed_voices = [
+#             i for i, voice in enumerate(state.voices) if not voice.in_chord and not voice.tied_notes
+#         ]
+#
+#     @classmethod
+#     def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+#         staff = random.randint(0, 1)
+#         if staff == 0:
+#             clef = "G" if random.random() < 0.9 else "F"
+#         else:
+#             clef = "F" if random.random() < 0.9 else "G"
+#         return cls(clef=clef, staff_idx=staff)
+#
+#     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
+#         return state
+
+
+@dataclass
+class HasDurationMixin:
+    """Used for elements that have a duration."""
 
     duration: SymbolicDuration
 
@@ -526,7 +576,7 @@ class HasDuration(HasVoice):
 
 
 @dataclass
-class Rest(HasDuration):
+class Rest(Token, HasVoiceAndStaffMixin, HasDurationMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         return state.check_for_any_voices(
@@ -556,7 +606,11 @@ class Rest(HasDuration):
             if not state.voices[v].in_chord and len(state.voices[v].tied_notes) == 0
         }
         voice_idx = sample_random_voice(list(voices_and_durations.keys()))
-        return cls(duration=random.choice(voices_and_durations[voice_idx]), voice_idx=voice_idx)
+        return cls(
+            duration=random.choice(voices_and_durations[voice_idx]),
+            voice_idx=voice_idx,
+            staff_idx=cls.default_voice_to_staff(voice_idx),
+        )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].advance_position(self.duration.quarter_length)
@@ -564,16 +618,16 @@ class Rest(HasDuration):
 
 
 @dataclass
-class Note(HasDuration):
+class Note(Token, HasVoiceAndStaffMixin, HasDurationMixin):
     note_class: str
     octave: int
     accidental: int
     tied: bool
-    staff: int
+    stem_direction: Literal["up", "down"] | None = None
 
     _note_classes = "ABCDEFG"
     _note_alterations = {-2: "bb", -1: "b", 0: "", 1: "#", 2: "##"}
-    _octave_range = (4, 5)
+    _octave_range = (0, 8)
 
     def __post_init__(self):
         if self.note_class not in self._note_classes:
@@ -586,6 +640,8 @@ class Note(HasDuration):
             raise ValueError(
                 f"The accidental must be one of {', '.join(map(str, self._note_alterations.keys()))}."
             )
+        if self.stem_direction not in ["up", "down", None]:
+            raise ValueError("The stem direction must be either 'up' or 'down'.")
 
     @property
     def note_tuple(self) -> tuple[str, int, int]:
@@ -601,7 +657,7 @@ class Note(HasDuration):
         if not voice.in_chord:
             duration_ok = self.duration.quarter_length <= voice.segment_remaining_duration
             # If notes tied, resolve them
-            if len(voice.tied_notes) != 0:  # No need to specify L_prev as not in chord
+            if len(voice.tied_notes) != 0:
                 return (
                     duration_ok  # SymbolicDuration is allowed
                     and self.note_tuple in voice.tied_notes.keys()  # Note completes a tied note
@@ -621,10 +677,7 @@ class Note(HasDuration):
         voice = state.voices[voice_idx]
         duration = random.choice(voices_and_durations[voice_idx])
         # TODO: randomize staff selection, and maybe assign staff to rests too?
-        if voice_idx < 4:
-            staff = 1
-        else:
-            staff = 2
+        staff = cls.default_voice_to_staff(voice_idx)
         # If not in chord
         if not voice.in_chord:
             # If no notes tied
@@ -636,7 +689,7 @@ class Note(HasDuration):
                     octave=random.randint(*cls._octave_range),
                     accidental=random.choice(list(cls._note_alterations.keys())),
                     tied=random.choice([True] + [False] * 3),
-                    staff=staff,
+                    staff_idx=staff,
                 )
             # If notes tied
             note_tuple = random.choice(list(voice.tied_notes.keys()))
@@ -647,7 +700,7 @@ class Note(HasDuration):
                 octave=note_tuple[1],
                 accidental=note_tuple[2],
                 tied=random.choice([True] + [False] * 3),
-                staff=staff,
+                staff_idx=staff,
             )
         # If in chord, force tie resolution first if there are tied notes (or it will cause issue
         # with an eventual note that want to be tied to a future note but hasn't been resolved yet)
@@ -662,7 +715,7 @@ class Note(HasDuration):
                 octave=note_tuple[1],
                 accidental=note_tuple[2],
                 tied=random.choice([True] + [False] * 3),
-                staff=staff,
+                staff_idx=staff,
             )
         # Make sure the note is not already in the chord (randomly sample until ok, maybe better approach?)
         while True:
@@ -678,7 +731,7 @@ class Note(HasDuration):
             octave=octave,
             accidental=accidental,
             tied=random.choice([True] + [False] * 3),
-            staff=staff,
+            staff_idx=staff,
         )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
@@ -695,7 +748,7 @@ class Note(HasDuration):
 
 
 @dataclass
-class ChordStart(HasDuration):
+class ChordStart(Token, HasVoiceAndStaffMixin, HasDurationMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         return state.check_for_any_voices(
@@ -715,7 +768,11 @@ class ChordStart(HasDuration):
             if not state.voices[v].in_chord and len(d) > 0
         ]
         voice_idx = sample_random_voice(valid_voice_idxs)
-        return cls(duration=random.choice(voices_and_durations[voice_idx]), voice_idx=voice_idx)
+        return cls(
+            duration=random.choice(voices_and_durations[voice_idx]),
+            voice_idx=voice_idx,
+            staff_idx=cls.default_voice_to_staff(voice_idx),
+        )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].chord = ChordState(self.duration)
@@ -723,7 +780,7 @@ class ChordStart(HasDuration):
 
 
 @dataclass
-class ChordEnd(HasVoice):
+class ChordEnd(Token, HasVoiceAndStaffMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         # return (
@@ -745,7 +802,8 @@ class ChordEnd(HasVoice):
         valid_voice_idxs = [
             i for i, v in enumerate(state.voices) if v.in_chord and v.chord.can_resolve
         ]
-        return cls(voice_idx=sample_random_voice(valid_voice_idxs))
+        voice_idx = sample_random_voice(valid_voice_idxs)
+        return cls(voice_idx=voice_idx, staff_idx=cls.default_voice_to_staff(voice_idx))
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
@@ -755,7 +813,7 @@ class ChordEnd(HasVoice):
 
 
 @dataclass
-class TupletStart(HasVoice):
+class TupletStart(Token, HasVoiceAndStaffMixin):
     n_actual: int
     n_real: int
     unit_duration_type: SymbolicDurationType
@@ -820,6 +878,7 @@ class TupletStart(HasVoice):
             n_actual=n_actual,
             n_real=n_real,
             unit_duration_type=unit_duration_type,
+            staff_idx=cls.default_voice_to_staff(voice_idx),
         )
         # return cls(
         #     n_actual=3,
@@ -837,7 +896,7 @@ class TupletStart(HasVoice):
 
 
 @dataclass
-class TupletEnd(HasVoice):
+class TupletEnd(Token, HasVoiceAndStaffMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         # return (
@@ -861,7 +920,8 @@ class TupletEnd(HasVoice):
             for i, v in enumerate(state.voices)
             if v.in_tuplet and not v.tuplet.has_space_left and not v.in_chord
         ]
-        return cls(voice_idx=sample_random_voice(valid_voice_idxs))
+        voice_idx = sample_random_voice(valid_voice_idxs)
+        return cls(voice_idx=voice_idx, staff_idx=cls.default_voice_to_staff(voice_idx))
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].tuplet = None
@@ -871,7 +931,8 @@ class TupletEnd(HasVoice):
 TOKEN_TYPES = [
     EndOfScore,
     Bar,
-    # KeySignature,
+    KeySignature,
+    # Clef,
     Rest,
     Note,
     ChordStart,
