@@ -269,7 +269,7 @@ def partitura_to_token_sequence(
             time_signature = list(point.starting_objects[pt.score.TimeSignature].keys())[0]
 
         # Finish pending tuplets if needed
-        for tuplet in pending_tuplets:
+        for tuplet in reversed(pending_tuplets):
             if tuplet.end_note.end.t <= point.t:
                 tokens.append(
                     TupletEnd(
