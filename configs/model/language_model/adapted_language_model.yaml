@@ -1,5 +1,5 @@
 _target_: peft.get_peft_model
 
 defaults:
-  - base_lm@model: mistral7b
+  - base_lm@model: falcon1b
   - peft_config: lora

@@ -2,7 +2,7 @@ _target_: src.data.nasap_abc_lm_datamodule.AsapABCLanguageModelDataModule
 
 defaults:
     - _self_
-    - chunking_config: chunk32
+    - chunking_config: null
 
 data_dir:
     _target_: pathlib.Path

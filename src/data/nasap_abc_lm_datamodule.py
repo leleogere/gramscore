@@ -1,6 +1,7 @@
 import copy
 import urllib.request
 from pathlib import Path
+import typing
 from typing import Any
 from typing import Dict
 from typing import Optional
@@ -20,6 +21,8 @@ from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.components.score_performance_dataset import Modality
 from utils.constants import SUCCESS_FILENAME
 
+import transformers
+
 
 class AsapABCLanguageModelDataModule(LightningDataModule):
     """
@@ -29,7 +32,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: Path,
-        tokenizer: str,
+        tokenizer: str | transformers.PreTrainedTokenizer,
         chunking_config: ChunkingConfig | None = None,
         batch_size: int = 64,
         num_workers: int = 1,
@@ -37,7 +40,7 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         """Initialize a `AsapLMDataModule`
 
         :param data_dir: The data directory.
-        :param tokenizer: Name or path of the tokenizer to use.
+        :param tokenizer: Name, path or instance of the tokenizer to use.
         :param chunking_config: The chunking configuration.
         :param batch_size: The batch size.
         :param num_workers: The number of workers to use for data loading.
@@ -48,7 +51,11 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters()
 
-        self.tokenizer = PatchedTokenizer.from_pretrained(tokenizer)
+        self.tokenizer = (
+            PatchedTokenizer.from_pretrained(tokenizer)
+            if isinstance(tokenizer, (str, Path))
+            else tokenizer
+        )
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None

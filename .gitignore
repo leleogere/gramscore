@@ -155,3 +155,13 @@ configs/local/default.yaml
 
 # Aim logging
 .aim
+
+# Wandb logging
+wandb/
+
+# Other
+tests/scores
+*.bak*
+/models/
+scores/
+_ignored*

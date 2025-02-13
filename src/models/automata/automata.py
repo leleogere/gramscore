@@ -5,7 +5,7 @@ from src.models.automata.tokens import *
 
 
 class ConstrainedAutomata:
-    def __init__(self, num_voices: int = 1):
+    def __init__(self, num_voices: int = 1, initial_measure_number: int = 0):
         self.state = TranscriptionState(num_voices=num_voices)
 
     def can_transition(self, token: Token) -> bool:
@@ -13,11 +13,15 @@ class ConstrainedAutomata:
 
     def transition(self, token: Token, inplace: bool = True):
         if not self.can_transition(token):
-            raise ValueError(f"Cannot transition from {self.state} with {token}")
+            raise ValueError(f"Cannot produce {token} in {self.state}")
         token.transition_fn(self.state, in_place=inplace)
 
     def allowed_tokens_types(self) -> list[Token]:
         return [token for token in TOKEN_TYPES if token.is_token_type_allowed(self.state)]
+
+    def transition_sequence(self, tokens: list[Token]):
+        for token in tokens:
+            self.transition(token)
 
 
 if __name__ == '__main__':
@@ -116,6 +120,9 @@ if __name__ == '__main__':
     # Parse a MusicXML file
     if True:
         path = Path("/home/gerel/Téléchargements/Chopin__Trois_Valses.musicxml")
+        # path = Path(
+        #     "/home/gerel/Documents/datasets/asap-dataset/Chopin/Etudes_op_25/5/xml_score.musicxml"
+        # )
         print(path.exists())
         score = pt.load_musicxml(path)
         assert len(score.parts) == 1
@@ -123,8 +130,8 @@ if __name__ == '__main__':
         score = pt.score.unfold_part_maximal(score)
 
         tokens = partitura_to_token_sequence(score)
-        for token in tokens[:150]:
-            print(token)
+        # for token in tokens[:150]:
+        #     print(token)
 
         automata = ConstrainedAutomata(8)
         bar_idx = 0
