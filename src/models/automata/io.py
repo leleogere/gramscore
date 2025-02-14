@@ -352,7 +352,7 @@ def partitura_to_token_sequence(
             print(tuplet)
             if tuplet.actual_type != tuplet.normal_type or tuplet.actual_dots != tuplet.normal_dots:
                 durations_ratio = tuplet.duration_multiplier
-                normal_notes = tuplet.normal_notes * durations_ratio
+                normal_notes = tuplet.actual_notes * durations_ratio
                 assert (
                     normal_notes.is_integer()
                 ), f"Tuplet type conversion not possible: {tuplet.actual_notes}-{tuplet.actual_type} against {tuplet.normal_notes}-{tuplet.normal_type}."
