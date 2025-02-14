@@ -25,7 +25,7 @@ from src.models.automata.tokens import (
     TupletStart,
     TupletEnd,
 )
-from utils.ansi_colors import Colors
+from src.utils.ansi_colors import Colors
 
 
 def token_sequence_to_partitura(
