@@ -155,12 +155,12 @@ def token_sequence_to_partitura(
                     step=token.note_class,
                     octave=token.octave,
                     alter=token.accidental,
-                    voice=token.voice_idx + 1,  # 1-indexed
-                    staff=token.staff_idx + 1,  # 1-indexed
+                    voice=token.voice_idx_1b,
+                    staff=token.staff_idx_1b,
                     stem_direction=token.stem_direction,
                 )
                 if isinstance(token, Note)
-                else pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx + 1)
+                else pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx_1b)
             )
             if isinstance(token, Rest) and token.measure_rest:
                 note.symbolic_duration = {}
