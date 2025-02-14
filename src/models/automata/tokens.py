@@ -18,6 +18,7 @@ from typing import Self
 from collections import namedtuple
 import partitura as pt
 import partitura.score
+from partitura.utils.globals import INT_TO_ALT
 
 from models.automata.utils import default_voice_to_staff
 
@@ -80,6 +81,7 @@ class SymbolicDuration:
 
 
 NoteTuple = namedtuple("NoteTuple", ["name", "octave", "accidental"])
+TieProperties = namedtuple("TieProperties", ["note_tuple", "min_resolution_pos"])
 
 
 class ChordState:
@@ -168,7 +170,6 @@ class TupletCompletionState(SegmentCompletionState):
 class VoiceCompletionState(SegmentCompletionState):
     def __init__(self, total_time: Fraction):
         super().__init__(total_time)
-        self.tied_notes: dict[NoteTuple, Fraction] = {}
         self.chord: ChordState | None = None
         self.tuplet: TupletCompletionState | None = None
 
@@ -195,12 +196,12 @@ class VoiceCompletionState(SegmentCompletionState):
 
     @property
     def started(self) -> bool:
-        return self.current_position > 0 and not self.in_chord and not self.in_tuplet
+        return self.current_position > 0 or self.in_chord or self.in_tuplet  # is in_chord needed?
 
-    @property
-    def prev_tied_notes(self) -> dict[NoteTuple, Fraction]:
-        """Returns all unresolved tied notes from previous positions."""
-        return dict(filter(lambda x: x[1] < self.current_position, self.tied_notes.items()))
+    # @property
+    # def prev_tied_notes(self) -> dict[NoteTuple, Fraction]:
+    #     """Returns all unresolved tied notes from previous positions."""
+    #     return dict(filter(lambda x: x[1] < self.current_position, self.tied_notes.items()))
 
     @property
     def segment_remaining_duration(self) -> Fraction:
@@ -221,7 +222,7 @@ class VoiceCompletionState(SegmentCompletionState):
             super().advance_position(duration)
 
     def __str__(self):
-        return f"VoiceCompletionState(pos={self.current_position}, tot={self.duration}, rem={self.remaining_duration}, tied={self.tied_notes}, chord={self.chord}, tuplet={self.tuplet})"
+        return f"VoiceCompletionState(pos={self.current_position}, tot={self.duration}, rem={self.remaining_duration}, chord={self.chord}, tuplet={self.tuplet})"
 
 
 class TranscriptionState:
@@ -229,6 +230,7 @@ class TranscriptionState:
         self._voices: list[VoiceCompletionState] = [
             VoiceCompletionState(Fraction(-1)) for _ in range(num_voices)
         ]
+        self.tied_notes: dict[int, TieProperties] = {}  # pitch -> [note_tuple, min_resolution_pos]
         self._voices_initialized = False
         self.measure_number = initial_measure_number
 
@@ -241,6 +243,13 @@ class TranscriptionState:
         if not self._voices:
             raise ValueError("Voices must be initialized before being accessed.")
         return self._voices
+
+    def resolvable_tied_notes(self, position: Fraction):
+        return {
+            pitch: props
+            for pitch, props in self.tied_notes.items()
+            if props.min_resolution_pos <= position
+        }
 
     def copy(self, deep: bool = True) -> Self:
         if deep:
@@ -283,7 +292,23 @@ class TranscriptionState:
         return self._voices_initialized
 
     def __str__(self):
-        return f"TranscriptionState(\n  measure={self.measure_number}\n  {',\n  '.join(map(str, self.voices))}\n)"
+        if self.tied_notes:
+            print(list(self.tied_notes.items())[0][1])
+        # tied_notes_str = [
+        #     f'{tp.note_tuple.name}{tp.note_tuple.octave}{tp.note_tuple.accidental} ({p}): {tp.min_resolution_pos}'
+        #     for p, tp in self.tied_notes.items()
+        # ]
+        tied_notes_str = [
+            f'{nt.name}{nt.octave}{INT_TO_ALT[nt.accidental]} ({p}): {pos}'
+            for p, (nt, pos) in self.tied_notes.items()
+        ]
+        components = [
+            f"measure={self.measure_number}",
+            f"tied_notes={{{', '.join(tied_notes_str)}}}",
+            *[f"voice{i}={v}" for i, v in enumerate(self.voices)],
+        ]
+        sep = ",\n  "
+        return f"TranscriptionState(\n  {sep.join(components)}\n)"
 
 
 def sample_random_voice(allowed: list[int]):
@@ -406,7 +431,7 @@ class EndOfScore(Token):
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         return (
             state.are_started_voices_complete()  # All started voices are complete
-            and state.check_for_all_voices(lambda v: len(v.tied_notes) == 0)  # No notes tied
+            and not state.tied_notes  # No notes tied
         )
 
     @classmethod
@@ -454,7 +479,13 @@ class Bar(Token):
         return cls(numerator=numerator, denominator=denominator)
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
+        # Reset all voices to zero
         state.reset_voices(self.actual_duration)
+        # Mark all ties as resolvable (after a bar line, all ties should be resolvable)
+        for pitch, props in state.tied_notes.items():
+            if props.min_resolution_pos != 0:  # Avoid resetting already resolvable ties
+                state.tied_notes[pitch] = TieProperties(props.note_tuple, Fraction(0))
+        # Update the measure number
         if hasattr(self, "_partitura_elements"):
             state.measure_number = self._partitura_elements[0].name
         else:
@@ -497,9 +528,7 @@ class KeySignature(Token):
             )  # All voices at the same position (or not started)
             and not state.check_for_any_voices(operator.attrgetter("in_tuplet"))  # Not in tuplet
             and not state.check_for_any_voices(operator.attrgetter("in_chord"))  # Not in chord
-            and state.check_for_any_voices(
-                lambda v: not v.tied_notes
-            )  # Avoid ambiguity with ties across key changes
+            # Allow ties across key signature changes?
         )
 
     @classmethod
@@ -534,9 +563,6 @@ class HasVoiceMixin:
         return self.voice_idx + 1
 
 
-# TODO: not working yet as issues with conditions on staff_idx.
-#   A clef is only allowed if no voice *of the staff* is in chord,
-#   but voices are currently dealt with globally, and not per staff.
 @dataclass
 class Clef(Token, HasStaffMixin):
     clef: Literal["G", "F"]
@@ -611,7 +637,6 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         return state.check_for_any_voices(
             lambda v: (
                 v.segment_remaining_duration > 0  # Space left in the measure (or tuplet)
-                and len(v.tied_notes) == 0  # No previous notes tied
                 and not v.in_chord  # Not in chord
             )
         )
@@ -625,26 +650,26 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             duration_ok = self.duration.quarter_length <= voice.segment_remaining_duration
         return (
             duration_ok  # Space left in the measure (or tuplet)
-            and len(voice.tied_notes) == 0  # No previous notes tied
             and not voice.in_chord  # Not in chord
         )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        # TODO: fix after adding measure rests
-        voices_and_durations = cls.get_allowed_voices_and_duration(state)
-        # Filter out voices in chord or with tied notes
-        voices_and_durations = {
-            v: duration
-            for v, duration in voices_and_durations.items()
-            if not state.voices[v].in_chord and len(state.voices[v].tied_notes) == 0
-        }
-        voice_idx = sample_random_voice(list(voices_and_durations.keys()))
-        return cls(
-            duration=random.choice(voices_and_durations[voice_idx]),
-            voice_idx=voice_idx,
-            staff_idx=default_voice_to_staff(voice_idx),
-        )
+    # TODO: TOFIX after global ties management
+    # @classmethod
+    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+    #     # TODO: fix after adding measure rests
+    #     voices_and_durations = cls.get_allowed_voices_and_duration(state)
+    #     # Filter out voices in chord or with tied notes
+    #     voices_and_durations = {
+    #         v: duration
+    #         for v, duration in voices_and_durations.items()
+    #         if not state.voices[v].in_chord and len(state.voices[v].tied_notes) == 0
+    #     }
+    #     voice_idx = sample_random_voice(list(voices_and_durations.keys()))
+    #     return cls(
+    #         duration=random.choice(voices_and_durations[voice_idx]),
+    #         voice_idx=voice_idx,
+    #         staff_idx=default_voice_to_staff(voice_idx),
+    #     )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
@@ -682,8 +707,16 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             raise ValueError("The stem direction must be either 'up' or 'down'.")
 
     @property
-    def note_tuple(self) -> tuple[str, int, int]:
-        return self.note_class, self.octave, self.accidental
+    def note_tuple(self) -> NoteTuple:
+        return NoteTuple(name=self.note_class, octave=self.octave, accidental=self.accidental)
+
+    @property
+    def pitch(self) -> int:
+        return pt.score.pitch_spelling_to_midi_pitch(
+            step=self.note_class,
+            alter=self.accidental,
+            octave=self.octave,
+        )
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -693,91 +726,91 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         voice = state.voices[self.voice_idx]
         # If not in chord
         if not voice.in_chord:
-            duration_ok = self.duration.quarter_length <= voice.segment_remaining_duration
-            # If notes tied, resolve them
-            if len(voice.tied_notes) != 0:
-                return (
-                    duration_ok  # SymbolicDuration is allowed
-                    and self.note_tuple in voice.tied_notes.keys()  # Note completes a tied note
-                )
-            # If no notes tied, any note is allowed
-            return duration_ok
+            return self.duration.quarter_length <= voice.segment_remaining_duration
         # If in chord
-        return (
-            self.duration == voice.chord.duration  # SymbolicDuration matches chord duration
-            and not self.note_tuple in voice.chord.notes  # Note not already in chord
-        )
+        else:
+            return (
+                self.duration == voice.chord.duration  # SymbolicDuration matches chord duration
+                and not self.note_tuple in voice.chord.notes  # Note not already in chord
+            )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        voices_and_durations = cls.get_allowed_voices_and_duration(state)
-        voice_idx = sample_random_voice(list(voices_and_durations.keys()))
-        voice = state.voices[voice_idx]
-        duration = random.choice(voices_and_durations[voice_idx])
-        # TODO: randomize staff selection, and maybe assign staff to rests too?
-        staff = default_voice_to_staff(voice_idx)
-        # If not in chord
-        if not voice.in_chord:
-            # If no notes tied
-            if len(voice.tied_notes) == 0:
-                return cls(
-                    duration=duration,
-                    voice_idx=voice_idx,
-                    note_class=random.choice(cls._note_classes),
-                    octave=random.randint(*cls._octave_range),
-                    accidental=random.choice(list(cls._note_alterations.keys())),
-                    tied=random.choice([True] + [False] * 3),
-                    staff_idx=staff,
-                )
-            # If notes tied
-            note_tuple = random.choice(list(voice.tied_notes.keys()))
-            return cls(
-                duration=duration,
-                voice_idx=voice_idx,
-                note_class=note_tuple[0],
-                octave=note_tuple[1],
-                accidental=note_tuple[2],
-                tied=random.choice([True] + [False] * 3),
-                staff_idx=staff,
-            )
-        # If in chord, force tie resolution first if there are tied notes (or it will cause issue
-        # with an eventual note that want to be tied to a future note but hasn't been resolved yet)
-        if len(voice.prev_tied_notes) > 0:
-            print("Tie resolution")
-            note_tuple = random.choice(list(voice.prev_tied_notes.keys()))
-            print(note_tuple)
-            return cls(
-                duration=voice.chord.duration,
-                voice_idx=voice_idx,
-                note_class=note_tuple[0],
-                octave=note_tuple[1],
-                accidental=note_tuple[2],
-                tied=random.choice([True] + [False] * 3),
-                staff_idx=staff,
-            )
-        # Make sure the note is not already in the chord (randomly sample until ok, maybe better approach?)
-        while True:
-            note_class = random.choice(cls._note_classes)
-            octave = random.randint(*cls._octave_range)
-            accidental = random.choice(list(cls._note_alterations.keys()))
-            if (note_class, octave, accidental) not in voice.chord.notes:
-                break
-        return cls(
-            duration=voice.chord.duration,
-            voice_idx=voice_idx,
-            note_class=note_class,
-            octave=octave,
-            accidental=accidental,
-            tied=random.choice([True] + [False] * 3),
-            staff_idx=staff,
-        )
+    # TODO: TOFIX after global ties management
+    # @classmethod
+    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+    #     voices_and_durations = cls.get_allowed_voices_and_duration(state)
+    #     voice_idx = sample_random_voice(list(voices_and_durations.keys()))
+    #     voice = state.voices[voice_idx]
+    #     duration = random.choice(voices_and_durations[voice_idx])
+    #     # TODO: randomize staff selection, and maybe assign staff to rests too?
+    #     staff = default_voice_to_staff(voice_idx)
+    #     # If not in chord
+    #     if not voice.in_chord:
+    #         # If no notes tied
+    #         if len(voice.tied_notes) == 0:
+    #             return cls(
+    #                 duration=duration,
+    #                 voice_idx=voice_idx,
+    #                 note_class=random.choice(cls._note_classes),
+    #                 octave=random.randint(*cls._octave_range),
+    #                 accidental=random.choice(list(cls._note_alterations.keys())),
+    #                 tied=random.choice([True] + [False] * 3),
+    #                 staff_idx=staff,
+    #             )
+    #         # If notes tied
+    #         note_tuple = random.choice(list(voice.tied_notes.keys()))
+    #         return cls(
+    #             duration=duration,
+    #             voice_idx=voice_idx,
+    #             note_class=note_tuple[0],
+    #             octave=note_tuple[1],
+    #             accidental=note_tuple[2],
+    #             tied=random.choice([True] + [False] * 3),
+    #             staff_idx=staff,
+    #         )
+    #     # If in chord, force tie resolution first if there are tied notes (or it will cause issue
+    #     # with an eventual note that want to be tied to a future note but hasn't been resolved yet)
+    #     if len(voice.prev_tied_notes) > 0:
+    #         print("Tie resolution")
+    #         note_tuple = random.choice(list(voice.prev_tied_notes.keys()))
+    #         print(note_tuple)
+    #         return cls(
+    #             duration=voice.chord.duration,
+    #             voice_idx=voice_idx,
+    #             note_class=note_tuple[0],
+    #             octave=note_tuple[1],
+    #             accidental=note_tuple[2],
+    #             tied=random.choice([True] + [False] * 3),
+    #             staff_idx=staff,
+    #         )
+    #     # Make sure the note is not already in the chord (randomly sample until ok, maybe better approach?)
+    #     while True:
+    #         note_class = random.choice(cls._note_classes)
+    #         octave = random.randint(*cls._octave_range)
+    #         accidental = random.choice(list(cls._note_alterations.keys()))
+    #         if (note_class, octave, accidental) not in voice.chord.notes:
+    #             break
+    #     return cls(
+    #         duration=voice.chord.duration,
+    #         voice_idx=voice_idx,
+    #         note_class=note_class,
+    #         octave=octave,
+    #         accidental=accidental,
+    #         tied=random.choice([True] + [False] * 3),
+    #         staff_idx=staff,
+    #     )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
-        if self.note_tuple in voice.prev_tied_notes:
-            voice.tied_notes.pop(self.note_tuple)
+        # If resolving a previous tie, remove the note from the tied notes
+        if self.pitch in state.resolvable_tied_notes(voice.current_position):
+            state.tied_notes.pop(self.pitch)
+        # If tied, add the note to tied notes
         if self.tied:
-            voice.tied_notes[self.note_tuple] = voice.current_position
+            state.tied_notes[self.pitch] = TieProperties(
+                note_tuple=self.note_tuple,
+                min_resolution_pos=voice.current_position + self.duration.quarter_length,
+            )
+        # Only advance position if in chord
         if voice.in_chord:
             voice.chord.notes.append(self.note_tuple)
         else:
@@ -820,16 +853,10 @@ class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
 class ChordEnd(Token, HasVoiceMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        # return (
-        #     state.chord.active  # In chord
-        #     and state.chord.can_resolve  # Chord can be resolved (at least 2 notes)
-        #     and len(state.prev_tied_notes) == 0  # Previous ties are resolved
-        # )
         return state.check_for_any_voices(
             lambda v: (
                 v.in_chord  # In chord
                 and v.chord.can_resolve  # Chord can be resolved (at least 2 notes)
-                and len(v.prev_tied_notes) == 0  # All *previous* ties are resolved
             )
         )
 
@@ -859,8 +886,9 @@ class TupletStart(Token, HasVoiceMixin):
     _allowed_divisions = [2, 3, 5]
 
     def __post_init__(self):
-        if self.n_actual < 2 or self.n_normal < 2:
-            raise ValueError("A tuplet must have at n_actual and n_normal > 1.")
+        pass
+        # if self.n_actual < 2 or self.n_normal < 2:
+        #     raise ValueError("A tuplet must have at n_actual and n_normal > 1.")
         # if self.n_actual == self.n_normal:
         #     raise ValueError("A tuplet must have n_actual != n_normal.")
 
