@@ -348,6 +348,13 @@ def partitura_to_token_sequence(
         tuplets = list(point.starting_objects[pt.score.Tuplet].keys())
         for tuplet in tuplets:
             # print(tuplet)
+            # Weird case where we encounter things like 6:6 tuplets (which shouldn't be a tuplet)
+            if (
+                tuplet.actual_type == tuplet.normal_type
+                and tuplet.actual_dots == tuplet.normal_dots
+                and tuplet.actual_notes == tuplet.normal_notes
+            ):
+                continue
             # Deal with the rare case of different tuplet types
             print(tuplet)
             if tuplet.actual_type != tuplet.normal_type or tuplet.actual_dots != tuplet.normal_dots:
