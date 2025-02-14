@@ -123,7 +123,15 @@ def token_sequence_to_partitura(
 
         # Clef
         elif isinstance(token, Clef):
-            time = max(v["time"] for v in voices_info)
+            time = max(
+                (
+                    note.end.t
+                    for note in score.iter_all(cls=pt.score.GenericNote, include_subclasses=True)
+                    if note.staff == token.staff_idx_1b
+                ),
+                default=0,
+            )
+            print(f"clef={token.clef}, staff={token.staff_idx}, {time=}")
             clef = pt.score.Clef(
                 staff=token.staff_idx_1b,
                 sign=token.clef,
