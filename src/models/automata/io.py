@@ -8,7 +8,8 @@ import math
 import partitura as pt
 import partitura.score
 
-from models.automata.tokens import SymbolicDurationType
+from src.models.automata.tokens import HasVoiceMixin
+from src.models.automata.tokens import SymbolicDurationType
 from src.models.automata.tokens import SymbolicDuration
 from src.models.automata.tokens import Token
 from src.models.automata.tokens import TranscriptionState
@@ -40,7 +41,9 @@ def token_sequence_to_partitura(
     :return: The Partitura part.
     """
     if states is None:
-        num_voices = max(token.voice_idx + 1 for token in tokens if hasattr(token, "voice_idx"))
+        num_voices = max(
+            token.voice_idx + 1 for token in tokens if isinstance(token, HasVoiceMixin)
+        )
         from models.automata.automata import ConstrainedAutomata
 
         automata = ConstrainedAutomata(num_voices=num_voices)
@@ -72,9 +75,6 @@ def token_sequence_to_partitura(
         return duration_in_div.numerator
 
     score = pt.score.Part("P1", quarter_duration=global_division)
-    # Add default clefs
-    score.add(pt.score.Clef(staff=1, sign="G", line=2, octave_change=0), start=0)
-    score.add(pt.score.Clef(staff=2, sign="F", line=4, octave_change=0), start=0)
 
     voices_info = [
         {
@@ -106,7 +106,7 @@ def token_sequence_to_partitura(
 
             duration = to_partitura_duration(token.actual_duration)
             print(f"Measure length: {token.actual_duration} ({duration})")
-            measure = pt.score.Measure()
+            measure = pt.score.Measure(number=state.measure_number, name=state.measure_number)
             ts = pt.score.TimeSignature(token.numerator, token.denominator)
             print(time, duration)
             score.add(measure, start=time, end=time + duration)
