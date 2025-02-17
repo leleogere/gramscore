@@ -410,6 +410,10 @@ class Token:
         """
         raise NotImplementedError("A token must implement the method `_transition_fn`.")
 
+    def __str__(self):
+        elements = [f"{k}={str(v)}" for k, v in self.__dict__.items() if not k.startswith("_")]
+        return f"{self.__class__.__name__}({', '.join(elements)})"
+
 
 @dataclass
 class StartOfScore(Token):
