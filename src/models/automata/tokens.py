@@ -466,10 +466,10 @@ class Bar(Token):
             self.actual_duration = self.normal_duration
         elif self.actual_duration <= 0:
             raise ValueError("The actual duration must be positive.")
-        elif self.actual_duration > self.normal_duration:
-            raise ValueError(
-                "The actual duration must be less than the normal duration."
-            )  # Must it?
+        # elif self.actual_duration > self.normal_duration:
+        #     raise ValueError(
+        #         "The actual duration must be less than the normal duration."
+        #     )  # Must it?
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
