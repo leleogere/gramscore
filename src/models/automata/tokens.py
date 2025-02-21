@@ -20,8 +20,6 @@ import partitura as pt
 import partitura.score
 from partitura.utils.globals import INT_TO_ALT
 
-from models.automata.utils import default_voice_to_staff
-
 
 class SymbolicDurationType(StrEnum):
     LONG = "long", Fraction(16)
@@ -324,7 +322,7 @@ def sample_random_voice(allowed: list[int]):
     return voice
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Token:
     @classmethod
     @abstractmethod
@@ -451,6 +449,7 @@ class Bar(Token):
     numerator: int
     denominator: int
     actual_duration: Fraction | None = None
+    name: str | None = None
 
     def __post_init__(self):
         if self.denominator.bit_count() != 1:
@@ -1052,7 +1051,7 @@ def fill_rests(part: pt.score.Part) -> None:
         return rests
 
     for measure in part.measures:
-        # print(f"Measure {measure.number}")
+        print(f"Measure {measure.number}")
         start_time = measure.start.t
         end_time = measure.end.t
         notes_and_tuplets = list(

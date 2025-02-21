@@ -311,6 +311,7 @@ def partitura_to_token_sequence(
             measure_token = Bar(
                 numerator=time_signature.beats,
                 denominator=time_signature.beat_type,
+                name=measure.name,
             )
             real_duration_in_divs = measure.end.t - measure.start.t
             real_duration_in_quarters = Fraction(real_duration_in_divs, point.quarter)
