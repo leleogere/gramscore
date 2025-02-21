@@ -324,6 +324,8 @@ def sample_random_voice(allowed: list[int]):
 
 @dataclass(kw_only=True)
 class Token:
+    position_in_bar: Fraction | None = None
+
     @classmethod
     @abstractmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
