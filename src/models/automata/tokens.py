@@ -996,6 +996,7 @@ class TupletEnd(Token, HasVoiceMixin):
 
 
 TOKEN_TYPES = [
+    StartOfScore,
     EndOfScore,
     Bar,
     KeySignature,
