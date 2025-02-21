@@ -74,6 +74,68 @@ def get_best_divisions(path: Path):
     return lcm
 
 
+def naive_modify_divisions_of_score(path: Path, new_divisions: int):
+    """
+    This only modify the <divisions> and <duration> tags of the notes, without any smart
+    fixes. It will print a warning when the new duration is not an integer, and round it.
+    """
+    tree: ET = ET.parse(path)
+    root = tree.getroot()
+
+    # Modify divisions
+    divisions = root.find(".//divisions")
+    old_divisions = int(divisions.text)
+    divisions.text = str(new_divisions)
+    print(f"Replacing {old_divisions=} with {new_divisions=}")
+
+    ratio = Fraction(new_divisions, old_divisions)
+    print(f"Multiplying all durations by {ratio}")
+
+    # Modify all related elements
+    measure_nb = 0
+    for element in root.iter():
+        # Keep track of measure number for logging
+        if element.tag == "measure":
+            measure_nb = element.get("number")
+
+        # Warn about <forward> tags with duration 1
+        if element.tag == "forward" and int(element.find("duration").text) == 1:
+            print(f"Found <forward> tag with duration 1 in measure {measure_nb}")
+
+        # Fix all duration tags
+        if element.tag == "duration":
+            parent = element.getparent()
+            init_duration = int(element.text)
+            updated_duration = init_duration * ratio
+            if updated_duration.denominator != 1:
+                print(
+                    f"Computed duration of {parent.tag} in measure {measure_nb} is not an integer: "
+                    f"{updated_duration} ({init_duration})"
+                )
+            updated_duration = int(updated_duration)
+            element.text = str(updated_duration)
+
+    # Export to string and fix some issues with lxml exporter to stick to original file
+    new_tree_string = ET.tostring(
+        tree,
+        encoding='utf-8',
+        xml_declaration=True,
+        pretty_print=True,
+    ).decode()
+    with path.open("r") as f:
+        original_tree_string = f.read()
+
+    # Fix the xml declaration and the midi-device tag
+    new_tree_string = fix_final_xml(original_tree_string, new_tree_string)
+
+    # Export to new file
+    new_path = path.with_name(path.stem + "_divisions_fixed.musicxml")
+    with new_path.open("w") as f:
+        f.write(new_tree_string)
+
+    return new_path
+
+
 def modify_divisions_of_score(path: Path, new_divisions: int):
     tree: ET = ET.parse(path)
     root = tree.getroot()
@@ -253,34 +315,33 @@ def modify_divisions_of_score(path: Path, new_divisions: int):
     with path.open("r") as f:
         original_tree_string = f.read()
 
-    # Replace the xml declaration with the original one
-    new_tree_string = re.sub(
-        r"<\?xml .*>", original_tree_string.split("\n")[0], new_tree_string, count=1
-    )
-
-    # Replace the <midi-device> tag with the original one
-    # Often, the original is "<midi-device ...></midi-device>", while lxml exports it as a self
-    # closing tag "<midi-device ... />"
-    original_midi_device = re.search(r"<midi-device.*", original_tree_string)
-    if original_midi_device is not None:
-        new_tree_string = re.sub(
-            r"<midi-device.*",
-            original_midi_device.group(),
-            new_tree_string,
-            count=1,
-        )
-
-    # Keep the " />" (with the space) from the original if present as lxml exports it as "/>" (no space)
-    # First check if there are " />"
-    original_space_closing = re.search(r" />", original_tree_string)
-    if original_space_closing is not None:
-        new_tree_string = re.sub(r"(?<! )/>", " />", new_tree_string, count=1)
+    # Fix the xml declaration and the midi-device tag
+    new_tree_string = fix_final_xml(original_tree_string, new_tree_string)
 
     # Export to new file
     new_path = path.with_name(path.stem + "_divisions_fixed.musicxml")
     with new_path.open("w") as f:
         f.write(new_tree_string)
     return new_path
+
+
+def fix_final_xml(original_xml: str, fixed_xml: str) -> str:
+    # Replace the xml declaration with the original one
+    fixed_xml = re.sub(r"<\?xml .*>", original_xml.split("\n")[0], fixed_xml, count=1)
+
+    # Replace the <midi-device> tag with the original one
+    # Often, the original is "<midi-device ...></midi-device>", while lxml exports it as a self
+    # closing tag "<midi-device ... />"
+    original_midi_device = re.search(r"<midi-device.*", original_xml)
+    if original_midi_device is not None:
+        fixed_xml = re.sub(
+            r"<midi-device.*",
+            original_midi_device.group(),
+            fixed_xml,
+            count=1,
+        )
+
+    return fixed_xml
 
 
 if __name__ == '__main__':
@@ -292,19 +353,20 @@ if __name__ == '__main__':
     #     "/home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/24-1_no_repeat/xml_score.musicxml"
     # )
     paths = """
-/home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/24-1_no_repeat/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/7-4/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Chopin/Barcarolle/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Chopin/Etudes_op_25/11/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Debussy/Pour_le_Piano/1/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Haydn/Keyboard_Sonatas/48-1/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Liszt/Gran_Etudes_de_Paganini/2_La_campanella/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Liszt/Mephisto_Waltz/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Liszt/Transcendental_Etudes/1/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Liszt/Transcendental_Etudes/11/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Ravel/Miroirs/3_Une_Barque/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Ravel/Pavane/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Schumann/Kreisleriana/1_no_first_repeat/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/24-1_no_repeat/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/7-4/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Chopin/Barcarolle/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Chopin/Etudes_op_25/11/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Debussy/Pour_le_Piano/1/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Haydn/Keyboard_Sonatas/48-1/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Liszt/Gran_Etudes_de_Paganini/2_La_campanella/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Liszt/Mephisto_Waltz/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Liszt/Transcendental_Etudes/1/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Liszt/Transcendental_Etudes/11/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Ravel/Miroirs/3_Une_Barque/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Ravel/Pavane/xml_score.musicxml
+# /home/gerel/Documents/datasets/asap-dataset/Schumann/Kreisleriana/1_no_first_repeat/xml_score.musicxml
+/home/gerel/Documents/datasets/asap-dataset/Liszt/Mephisto_Waltz/xml_score1.musicxml
 """
     # paths = list(map(Path, paths.strip().split("\n")))
     paths = [Path(p) for p in paths.strip().split("\n") if not p.startswith("#")]
@@ -324,7 +386,8 @@ if __name__ == '__main__':
         # input(f"Press Enter to process {path}")
         try:
             divs = get_best_divisions(path)
-            new_path = modify_divisions_of_score(path, divs)
+            # new_path = modify_divisions_of_score(path, divs)
+            new_path = naive_modify_divisions_of_score(path, divs)
             try:
                 score = pt.load_musicxml(new_path)
                 assert len(score.parts) == 1
