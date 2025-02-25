@@ -79,7 +79,6 @@ class TokenTensor(torch.Tensor):
             isinstance(item, tuple) and isinstance(item[-1], str)
         ):
             dim_name, prev_slice = (item, [...]) if is_simple_str else (item[-1], item[:-1])
-            print(dim_name, prev_slice)
             if dim_name not in self.DIMS:
                 raise KeyError(f"Unknown dimension name {dim_name}")
             res = self[
