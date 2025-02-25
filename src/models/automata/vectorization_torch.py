@@ -56,8 +56,6 @@ class TokenTensor(torch.Tensor):
     CUM_DIMS = {k: v for k, v in zip(DIMS.keys(), itertools.accumulate(DIMS.values(), initial=0))}
     TOTAL_DIMENSIONS = sum(DIMS.values())
 
-    _dim_getter = ""
-
     @classmethod
     def __new__(cls, *args, **kwargs):
         tensor = super().__new__(*args, **kwargs)
@@ -65,31 +63,21 @@ class TokenTensor(torch.Tensor):
             raise ValueError(f"Last dimension must be of size {cls.TOTAL_DIMENSIONS}")
         return tensor
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int | str | tuple):
         # If query is a string, then it is a dimension name
         # -> return the corresponding slice in the last dimension
         # If query is a tuple and the last element is a string, then it is a dimension name
         # -> return the corresponding slice in the last dimension, but also slice along the other
         #    dimensions
-        if (simple_query := (isinstance(item, str) and item.startswith(self._dim_getter))) or (
-            (
-                isinstance(item, tuple)
-                and isinstance(item[-1], str)
-                and item[-1].startswith(self._dim_getter)
-            )
+        if (is_simple_str := isinstance(item, str)) or (
+            isinstance(item, tuple) and isinstance(item[-1], str)
         ):
-            # In case of single string
-            if simple_query:
-                dim_name = item[len(self._dim_getter) :]
-                prev_slice = ...
-            # In case of tuple
-            else:
-                dim_name = item[-1][len(self._dim_getter) :]
-                prev_slice = item[:-1]
+            dim_name, prev_slice = (item, [...]) if is_simple_str else (item[-1], item[:-1])
+            print(dim_name, prev_slice)
             if dim_name not in self.DIMS:
                 raise KeyError(f"Unknown dimension name {dim_name}")
             res = self[
-                prev_slice, self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name]
+                *prev_slice, self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name]
             ]
             # For one-dimensional attributes, we directly return the value (is this a good idea?)
             if self.DIMS[dim_name] == 1:
@@ -100,28 +88,17 @@ class TokenTensor(torch.Tensor):
 
     def __setitem__(self, key, value):
         # Similar to __getitem__
-        if (simple_query := (isinstance(key, str) and key.startswith(self._dim_getter))) or (
-            (
-                isinstance(key, tuple)
-                and isinstance(key[-1], str)
-                and key[-1].startswith(self._dim_getter)
-            )
+        if (is_simple_str := isinstance(key, str)) or (
+            isinstance(key, tuple) and isinstance(key[-1], str)
         ):
-            # In case of single string
-            if simple_query:
-                dim_name = key[len(self._dim_getter) :]
-                prev_slice = ...
-            # In case of tuple
-            else:
-                dim_name = key[-1][len(self._dim_getter) :]
-                prev_slice = key[:-1]
+            dim_name, prev_slice = (key, [...]) if is_simple_str else (key[-1], key[:-1])
             if dim_name not in self.DIMS:
                 raise KeyError(f"Unknown dimension name {dim_name}")
             if self.DIMS[dim_name] == 1:
                 self[prev_slice, self.CUM_DIMS[dim_name]] = value
             else:
                 self[
-                    prev_slice,
+                    *prev_slice,
                     self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
                 ] = value
         else:
