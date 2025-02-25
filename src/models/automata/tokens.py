@@ -290,12 +290,6 @@ class TranscriptionState:
         return self._voices_initialized
 
     def __str__(self):
-        if self.tied_notes:
-            print(list(self.tied_notes.items())[0][1])
-        # tied_notes_str = [
-        #     f'{tp.note_tuple.name}{tp.note_tuple.octave}{tp.note_tuple.accidental} ({p}): {tp.min_resolution_pos}'
-        #     for p, tp in self.tied_notes.items()
-        # ]
         tied_notes_str = [
             f'{nt.name}{nt.octave}{INT_TO_ALT[nt.accidental]} ({p}): {pos}'
             for p, (nt, pos) in self.tied_notes.items()
