@@ -303,12 +303,6 @@ class TokenTensor(torch.Tensor):
 
         # Note
         if isinstance(token, tk.Note):
-            # vector[CUM_DIMS["note_class"] + NOTE_INDEXER[token.note_class]] = 1
-            # vector[CUM_DIMS["note_octave"] + token.octave] = 1
-            # vector[CUM_DIMS["note_accidental"] + token.accidental + 2] = 1
-            # vector[CUM_DIMS["note_tied"]] = 1 if token.tied else 0
-            # stem = 0 if token.stem_direction == "up" else 1 if token.stem_direction == "down" else 2
-            # vector[CUM_DIMS["note_stem_direction"] + stem] = 1
             vector["note_class"] = vector._create_onehot(
                 "note_class", cls.NOTE_INDEXER[token.note_class]
             )
@@ -324,10 +318,6 @@ class TokenTensor(torch.Tensor):
 
         # TupletStart
         if isinstance(token, tk.TupletStart):
-            # vector[CUM_DIMS["tuplet_actual_notes"]] = token.n_actual
-            # vector[CUM_DIMS["tuplet_normal_notes"]] = token.n_normal
-            # vector[CUM_DIMS["duration_type"] + DURATION_INDEXER[token.unit_duration.type.value]] = 1
-            # vector[CUM_DIMS["duration_dots"]] = token.unit_duration.dots
             vector["tuplet_actual_notes"] = token.n_actual
             vector["tuplet_normal_notes"] = token.n_normal
             vector["duration_type"] = vector._create_onehot(
