@@ -100,7 +100,7 @@ class TokenTensor(torch.Tensor):
             if dim_name not in self.DIMS:
                 raise KeyError(f"Unknown dimension name {dim_name}")
             if self.DIMS[dim_name] == 1:
-                self[prev_slice, self.CUM_DIMS[dim_name]] = value
+                self[*prev_slice, self.CUM_DIMS[dim_name]] = value
             else:
                 self[
                     *prev_slice,
