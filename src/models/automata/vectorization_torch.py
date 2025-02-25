@@ -23,6 +23,12 @@ class TokenTensor(torch.Tensor):
     This class represent Token objects in their tensor form.
     The last dimension of this tensor should always be of dimensions `TokenTensor.TOTAL_DIMENSIONS`,
     the other dimensions are arbitrary batch dimensions.
+
+    The interface is the same as a torch.Tensor object, except that it allows to manipulate the
+    last dimension directly using the dimension names associated with different token attributes.
+    The tensor is slicable using dimension names:
+        - TokenTensor(10x15xNUM_DIMS)["note_class"] -> 10x15x7
+        - TokenTensor(10x15xNUM_DIMS)[5, 3:7, "note_class"] -> 4x7
     """
 
     TOKEN_INDEXER = {token: i for i, token in enumerate(tk.TOKEN_TYPES)}
