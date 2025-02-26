@@ -244,7 +244,7 @@ class TranscriptionState:
             raise ValueError("Voices must be initialized before being accessed.")
         return self._voices
 
-    def resolvable_tied_notes(self, position: Fraction):
+    def resolvable_tied_notes(self, position: Fraction) -> dict[int, TieProperties]:
         return {
             pitch: props
             for pitch, props in self.tied_notes.items()
