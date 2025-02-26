@@ -83,7 +83,7 @@ class TokenTensor(torch.Tensor):
                 raise KeyError(f"Unknown dimension name {dim_name}")
             res = self[
                 *prev_slice, self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name]
-            ]
+            ].as_subclass(torch.Tensor)
             # For one-dimensional attributes, we directly return the value (is this a good idea?)
             if self.DIMS[dim_name] == 1:
                 res = res.squeeze(-1)
