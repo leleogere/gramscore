@@ -58,6 +58,8 @@ class SymbolicDuration:
     dots: int = 0
 
     def __post_init__(self):
+        if isinstance(self.type, str):
+            object.__setattr__(self, "type", SymbolicDurationType(self.type))
         if self.dots > 3:
             raise ValueError("A note can't have more than 3 dots.")
         # Avoid issues with too short time remaining, like a 64th or 128th-long time at the end of a
