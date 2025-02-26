@@ -1020,7 +1020,7 @@ def fill_rests(part: pt.score.Part) -> None:
     :param part: Part to fill rests in
     """
     divisions = int(part.quarter_duration_map(0))
-    print(f"{divisions=}")
+    logger.trace(f"{divisions = }")
 
     def create_rests(
         duration: Fraction,
@@ -1054,7 +1054,7 @@ def fill_rests(part: pt.score.Part) -> None:
         return rests
 
     for measure in part.measures:
-        print(f"Measure {measure.number}")
+        logger.trace(f"Measure {measure.number}")
         start_time = measure.start.t
         end_time = measure.end.t
         notes_and_tuplets = list(
