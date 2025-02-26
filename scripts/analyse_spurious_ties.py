@@ -17,6 +17,8 @@ import warnings
 from pathlib import Path
 import sys
 
+sys.setrecursionlimit(1_000_000_000)
+
 import partitura as pt
 import partitura.score
 from tqdm import tqdm
@@ -25,7 +27,11 @@ asap_path = Path("/home/gerel/Documents/datasets/asap-dataset")
 
 
 def check_ties_musescore(part: pt.score.Part) -> tuple[int, int, list[int]]:
-    """Count the ties, and return a tuple containing the number of valid and invalid ties."""
+    """
+    Count the ties, and return a tuple containing the number of valid and invalid ties.
+    A tie if invalid if it is resolved in a different measure AND it is not directly in succession
+    of the tied note.
+    """
     valid_ties = 0
     invalid_ties = 0
     invalid_measures = set()
@@ -56,25 +62,75 @@ def check_ties_musescore(part: pt.score.Part) -> tuple[int, int, list[int]]:
     return valid_ties, invalid_ties, sorted(invalid_measures)
 
 
+def check_ties_musescore_more_complete(part: pt.score.Part) -> tuple[int, int, list[int]]:
+    """
+    Count the ties, and return a tuple containing the number of valid and invalid ties.
+    A tie is valid if:
+        - the tied notes are directly successive
+        - the tied notes are in the same voice and there are no other notes/rests in the same voice
+            between the two (except for other tied notes, that might resolve into an arpeggiated
+            chord, the resolution check is not done here)
+    """
+    valid_ties = 0
+    invalid_ties = 0
+    invalid_measures = set()
+    time_to_measure = part.measure_number_map
+
+    for note in part.iter_all(cls=pt.score.GenericNote, include_subclasses=True):
+        note: pt.score.GenericNote
+        # If not tied skip
+        if note.tie_next is None:
+            continue
+
+        current_measure = int(time_to_measure(note.start.t))
+
+        # If directly successive: valid
+        if note.tie_next.start.t == note.end.t:
+            valid_ties += 1
+
+        # If not successive and not in the same voice: invalid
+        elif note.voice != note.tie_next.voice:
+            # print(f"\nVoice mismatch ({current_measure}): [{note}] | [{note.tie_next}]")
+            invalid_ties += 1
+            invalid_measures.add(current_measure)
+
+        # If not successive and in the same voice
+        else:
+            voice = note.voice
+            # Gather all GenericNotes in the same voice between the tied notes
+            notes_between = [
+                n
+                for n in part.iter_all(
+                    cls=pt.score.GenericNote,
+                    include_subclasses=True,
+                    start=note.end.t,
+                    end=note.tie_next.start.t,
+                )
+                if n.voice == voice
+            ]
+            # If any rest or non-tied note in the same voice between the tied notes: invalid
+            if any(n.tie_next is None for n in notes_between):
+                # print(
+                #     f"\nIntervening notes ({current_measure}): [{note}] | [{note.tie_next}] ({notes_between})"
+                # )
+                invalid_ties += 1
+                invalid_measures.add(current_measure)
+
+            # Otherwise: valid
+            else:
+                valid_ties += 1
+
+    return valid_ties, invalid_ties, sorted(invalid_measures)
+
+
 if __name__ == '__main__':
     import joblib
 
     total_valid = 0
     total_invalid = 0
 
-    # for score in asap_path.rglob("xml_score.musicxml"):
-    #     print(score)
-    #     with warnings.catch_warnings():
-    #         warnings.simplefilter("ignore")
-    #         score = pt.load_musicxml(score)
-    #         score = pt.score.unfold_part_maximal(score)
-    #
-    #     for part in score.parts:
-    #         valid, invalid, measures = check_ties_musescore(part)
-    #         print(
-    #             f"  - Valid: {valid} | Invalid: {invalid}",
-    #             f"[{', '.join(map(str, measures))}]" if measures else "",
-    #         )
+    complex_check = True
+    check_fn = check_ties_musescore_more_complete if complex_check else check_ties_musescore
 
     def load_score_and_check_ties(path: Path) -> tuple[int, int, list[int]]:
         # print(path)
@@ -91,7 +147,8 @@ if __name__ == '__main__':
         tot_invalids = 0
         tot_measures: set = set()
         for part in score.parts:
-            valid, invalid, measures = check_ties_musescore(part)
+            # valid, invalid, measures = check_ties_musescore(part)
+            valid, invalid, measures = check_fn(part)
             tot_valids += valid
             tot_invalids += invalid
             tot_measures.update(measures)
@@ -103,12 +160,8 @@ if __name__ == '__main__':
     #     map(
     #         Path,
     #         [
-    #             # "/home/gerel/Documents/datasets/asap-dataset/Scriabin/Etudes_op_8/11/xml_score.musicxml",
-    #             # "/home/gerel/Documents/datasets/asap-dataset/Debussy/Images_Book_1/1_Reflets_dans_lEau/xml_score.musicxml",
-    #             # "/home/gerel/Documents/datasets/asap-dataset/Debussy/Pour_le_Piano/1/xml_score.musicxml",
-    #             # "/home/gerel/Documents/datasets/asap-dataset/Liszt/Sonata/xml_score.musicxml",
-    #             "/home/gerel/Documents/datasets/asap-dataset/Liszt/Mephisto_Waltz/xml_score.musicxml",
-    #             # "/home/gerel/Documents/datasets/asap-dataset/Liszt/Sonata/xml_score.musicxml",
+    #             # "/home/gerel/Documents/datasets/asap-dataset/Schumann/Kreisleriana/3/xml_score.musicxml"
+    #             "/home/gerel/Documents/datasets/asap-dataset/Schumann/Kreisleriana/3/xml_score_m63.musicxml"
     #         ],
     #     )
     # )
