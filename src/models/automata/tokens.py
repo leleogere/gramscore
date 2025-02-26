@@ -18,6 +18,7 @@ from typing import Self
 from collections import namedtuple
 import partitura as pt
 import partitura.score
+from loguru import logger
 from partitura.utils.globals import INT_TO_ALT
 
 
