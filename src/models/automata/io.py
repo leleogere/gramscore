@@ -7,6 +7,7 @@ import math
 
 import partitura as pt
 import partitura.score
+from loguru import logger
 
 from src.models.automata.tokens import HasVoiceMixin
 from src.models.automata.tokens import SymbolicDurationType
@@ -52,7 +53,6 @@ def token_sequence_to_partitura(
             states.append(automata.state.copy())
             automata.transition(token)
 
-    print(len(tokens), len(states))
     if len(tokens) != len(states):
         raise ValueError("The number of tokens and states must be the same.")
 
@@ -62,7 +62,7 @@ def token_sequence_to_partitura(
         if isinstance(token, TupletStart):
             all_divisions.add(token.n_actual)
     global_division = math.lcm(*all_divisions)
-    print(global_division)
+    logger.trace(f"{global_division = }")
 
     def to_partitura_duration(d: Fraction | SymbolicDuration) -> int:
         """Converts a duration in quarter notes into a duration."""
@@ -105,10 +105,10 @@ def token_sequence_to_partitura(
                 v["time"] = time
 
             duration = to_partitura_duration(token.actual_duration)
-            print(f"Measure length: {token.actual_duration} ({duration})")
+            # print(f"Measure length: {token.actual_duration} ({duration})")
             measure = pt.score.Measure(number=state.measure_number, name=state.measure_number)
             ts = pt.score.TimeSignature(token.numerator, token.denominator)
-            print(time, duration)
+            # print(time, duration)
             score.add(measure, start=time, end=time + duration)
             prev_ts = next(score.last_point.iter_prev(cls=pt.score.TimeSignature), None)
             # Do not repeat TS if already same one
@@ -131,7 +131,6 @@ def token_sequence_to_partitura(
                 ),
                 default=0,
             )
-            print(f"clef={token.clef}, staff={token.staff_idx}, {time=}")
             clef = pt.score.Clef(
                 staff=token.staff_idx_1b,
                 sign=token.clef,
@@ -148,7 +147,7 @@ def token_sequence_to_partitura(
             else:
                 duration = token.duration.quarter_length
             time = voice_info["time"]
-            print(duration)
+            # print(duration)
 
             note = (
                 pt.score.Note(
@@ -179,7 +178,7 @@ def token_sequence_to_partitura(
                         "normal_notes": voice_state.tuplet.n_normal,
                         **note.symbolic_duration,
                     }
-                    print(f"  > {duration = }")
+                    # print(f"  > {duration = }")
 
             duration = to_partitura_duration(duration)
 
@@ -233,9 +232,9 @@ def token_sequence_to_partitura(
             )
             tuplet["pt_obj"].start_note = first_note
             tuplet["pt_obj"].end_note = last_note
-            print(tuplet["pt_obj"].start_note, tuplet["pt_obj"].end_note)
-            print(f"{tuplet["pt_obj"].start_note == tuplet["pt_obj"].end_note = }")
-            print(f"{tuplet["pt_obj"].start_note is tuplet["pt_obj"].end_note = }")
+            # print(tuplet["pt_obj"].start_note, tuplet["pt_obj"].end_note)
+            # print(f"{tuplet["pt_obj"].start_note == tuplet["pt_obj"].end_note = }")
+            # print(f"{tuplet["pt_obj"].start_note is tuplet["pt_obj"].end_note = }")
             score.add(tuplet["pt_obj"], start=first_note.start.t, end=last_note.end.t)
             voice_info["tuplet"] = None
 
@@ -307,7 +306,7 @@ def partitura_to_token_sequence(
         assert len(measures) <= 1, "Multiple bar at the same time are not supported."
         if len(measures) == 1:
             measure = measures[0]
-            print(measure)
+            logger.trace(measure)
             measure_token = Bar(
                 numerator=time_signature.beats,
                 denominator=time_signature.beat_type,
@@ -357,7 +356,6 @@ def partitura_to_token_sequence(
             ):
                 continue
             # Deal with the rare case of different tuplet types
-            print(tuplet)
             if tuplet.actual_type != tuplet.normal_type or tuplet.actual_dots != tuplet.normal_dots:
                 durations_ratio = tuplet.duration_multiplier
                 normal_notes = tuplet.actual_notes * durations_ratio
