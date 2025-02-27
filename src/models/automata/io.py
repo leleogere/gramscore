@@ -165,9 +165,7 @@ def token_sequence_to_partitura(
                 else pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx_1b)
             )
             if token.fermata:
-                fermata = pt.score.Fermata()
-                note.fermata = fermata
-                score.add(fermata, start=time)
+                note.fermata = pt.score.Fermata()
             if isinstance(token, Rest) and token.measure_rest:
                 note.symbolic_duration = {}
             else:
