@@ -93,9 +93,15 @@ def token_sequence_to_partitura(
             f"{Colors.RED}{state}{Colors.END}"
         )
 
-        # SOS and EOS
-        if isinstance(token, (StartOfScore, EndOfScore)):
-            pass
+        # SOS
+        if isinstance(token, StartOfScore):
+            continue
+
+        # EOS
+        if isinstance(token, EndOfScore):
+            # Add the final barline
+            score.add(pt.score.Barline("light-heavy"))
+            break
 
         # Bar
         elif isinstance(token, Bar):
