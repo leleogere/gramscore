@@ -16,6 +16,8 @@ from src.models.automata.io import token_sequence_to_partitura, partitura_to_tok
 asap_path = Path("/home/gerel/Documents/datasets/asap-dataset")
 output_path = Path("/home/gerel/Documents/datasets/asap-dataset-tokenized")
 
+CACHE = False
+
 random.seed(42)
 
 score_paths = list(asap_path.rglob("xml_score.musicxml"))
@@ -25,7 +27,7 @@ errors: dict[str, list[Path]] = defaultdict(list)  # err_msg -> paths
 
 for score_path in (pbar := tqdm(score_paths, position=0, leave=True)):
     save_path = (output_path / score_path.relative_to(asap_path)).with_suffix(".pkl")
-    if save_path.exists():
+    if save_path.exists() and CACHE:
         continue
 
     num_errors = sum(len(paths) for paths in errors.values())
