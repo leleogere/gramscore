@@ -142,6 +142,7 @@ def token_sequence_to_partitura(
         # Note and rest
         elif isinstance(token, (Note, Rest)):
             voice_info = voices_info[token.voice_idx]
+            voice_state = state.voices[token.voice_idx]
             if isinstance(token, Rest) and token.measure_rest:
                 duration = measure.duration // global_division
             else:
@@ -175,7 +176,6 @@ def token_sequence_to_partitura(
                     "dots": token.duration.dots,
                 }
                 # Update duration within tuplets
-                voice_state = state.voices[token.voice_idx]
                 if state.voices[token.voice_idx].in_tuplet:
                     voice_info["tuplet"]["notes"].append(note)
                     duration *= voice_state.tuplet.duration_multiplier
