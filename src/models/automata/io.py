@@ -246,22 +246,6 @@ def token_sequence_to_partitura(
         else:
             raise ValueError(f"Unknown token {token}.")
 
-    # # Add measure-long silences if a staff is empty on a measure
-    # for measure in score.iter_all(cls=pt.score.Measure):
-    #     for staff in (1, 2):
-    #         for note in score.iter_all(
-    #             cls=pt.score.GenericNote,
-    #             start=measure.start.t,
-    #             end=measure.end.t,
-    #             include_subclasses=True,
-    #         ):
-    #             if note.staff == staff:
-    #                 break
-    #         else:  # If the loop did not break, the staff is empty
-    #             rest = pt.score.Rest(voice=(staff - 1) * 4 + 1, staff=staff)
-    #             rest.symbolic_duration = {}  # Manually remove the duration
-    #             score.add(rest, start=measure.start.t, end=measure.end.t)
-
     return score
 
 
