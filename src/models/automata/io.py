@@ -157,10 +157,16 @@ def token_sequence_to_partitura(
                     voice=token.voice_idx_1b,
                     staff=token.staff_idx_1b,
                     stem_direction=token.stem_direction,
+                    articulations=token.articulations,
+                    ornaments=token.ornaments,
                 )
                 if isinstance(token, Note)
                 else pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx_1b)
             )
+            if token.fermata:
+                fermata = pt.score.Fermata()
+                note.fermata = fermata
+                score.add(fermata, start=time)
             if isinstance(token, Rest) and token.measure_rest:
                 note.symbolic_duration = {}
             else:
@@ -409,7 +415,13 @@ def partitura_to_token_sequence(
                     voice_idx=note.voice - 1,  # 1-indexed
                     staff_idx=note.staff - 1,  # 1-indexed
                     stem_direction=note.stem_direction,
+                    fermata=note.fermata is not None,
                 )
+                # print(f"{note.articulations = }")
+                # print(f"{note.ornaments = }")
+                for attr in note.articulations + note.ornaments:
+                    if hasattr(token, attr_ := attr.replace("-", "_")):
+                        setattr(token, attr_, True)
                 token._partitura_elements = [note]
                 tokens.append(token)
             if len(vnotes) > 1:
@@ -428,6 +440,7 @@ def partitura_to_token_sequence(
                     duration=SymbolicDuration(type=SymbolicDurationType("whole")),
                     voice_idx=rest.voice - 1,  # 1-indexed
                     staff_idx=rest.staff - 1,  # 1-indexed
+                    fermata=rest.fermata is not None,
                 )
             # Regular rest
             else:

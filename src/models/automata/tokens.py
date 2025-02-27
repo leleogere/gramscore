@@ -637,6 +637,7 @@ class HasDurationMixin:
 @dataclass
 class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     measure_rest: bool = False
+    fermata: bool = False
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -693,6 +694,21 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     accidental: int
     tied: bool
     stem_direction: Literal["up", "down"] | None = None
+    grace: bool = False
+    fermata: bool = False
+    # Articulations
+    accent: bool = False
+    strong_accent: bool = False
+    staccato: bool = False
+    staccatissimo: bool = False
+    tenuto: bool = False
+    detached_legato: bool = False
+    # Ornaments
+    trill_mark: bool = False
+    turn: bool = False
+    mordent: bool = False
+    inverted_mordent: bool = False
+    tremolo: bool = False
 
     _note_classes = "ABCDEFG"
     _note_alterations = {-2: "bb", -1: "b", 0: "", 1: "#", 2: "##"}
@@ -711,6 +727,31 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             )
         if self.stem_direction not in ["up", "down", None]:
             raise ValueError("The stem direction must be either 'up' or 'down'.")
+
+    @property
+    def articulations(self):
+        articulations = [
+            attr.replace("_", "-")
+            for attr in [
+                "accent",
+                "strong_accent",
+                "staccato",
+                "staccatissimo",
+                "tenuto",
+                "detached_legato",
+            ]
+            if getattr(self, attr)
+        ]
+        return articulations
+
+    @property
+    def ornaments(self):
+        ornaments = [
+            attr.replace("_", "-")
+            for attr in ["trill_mark", "turn", "mordent", "inverted_mordent", "tremolo"]
+            if getattr(self, attr)
+        ]
+        return ornaments
 
     @property
     def note_tuple(self) -> NoteTuple:
