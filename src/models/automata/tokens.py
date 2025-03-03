@@ -773,12 +773,15 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         voice = state.voices[self.voice_idx]
         # If not in chord
         if not voice.in_chord:
-            return self.duration.quarter_length <= voice.segment_remaining_duration
+            return self.duration.quarter_length <= voice.segment_remaining_duration or (
+                self.grace and not voice.completed
+            )
         # If in chord
         else:
             return (
                 self.duration == voice.chord.duration  # SymbolicDuration matches chord duration
                 and not self.note_tuple in voice.chord.notes  # Note not already in chord
+                and not self.grace  # Not a grace note
             )
 
     # TODO: TOFIX after global ties management
@@ -860,6 +863,8 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         # Only advance position if in chord
         if voice.in_chord:
             voice.chord.notes.append(self.note_tuple)
+        elif self.grace:
+            pass  # Do not advance position for grace notes
         else:
             voice.advance_position(self.duration.quarter_length)
         return state

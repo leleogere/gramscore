@@ -156,8 +156,17 @@ def token_sequence_to_partitura(
             time = voice_info["time"]
             # print(duration)
 
-            note = (
-                pt.score.Note(
+            # Rest
+            if isinstance(token, Rest):
+                note = pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx_1b)
+            # Note
+            else:
+                cls = (
+                    pt.score.Note
+                    if not token.grace
+                    else functools.partial(pt.score.GraceNote, grace_type="acciaccatura")
+                )
+                note = cls(
                     step=token.note_class,
                     octave=token.octave,
                     alter=token.accidental,
@@ -167,14 +176,12 @@ def token_sequence_to_partitura(
                     articulations=token.articulations,
                     ornaments=token.ornaments,
                 )
-                if isinstance(token, Note)
-                else pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx_1b)
-            )
+
             if token.fermata:
                 note.fermata = pt.score.Fermata()
             if isinstance(token, Rest) and token.measure_rest:
                 note.symbolic_duration = {}
-            else:
+            elif isinstance(token, Rest) or (isinstance(token, Note) and not token.grace):
                 note.symbolic_duration = {
                     "type": token.duration.type.value,
                     "dots": token.duration.dots,
@@ -189,6 +196,9 @@ def token_sequence_to_partitura(
                         **note.symbolic_duration,
                     }
                     # print(f"  > {duration = }")
+            else:
+                note.symbolic_duration = {"type": "eighth"}
+                duration = 0
 
             duration = to_partitura_duration(duration)
 
@@ -372,33 +382,56 @@ def partitura_to_token_sequence(
             tokens.append(token)
             pending_tuplets.append(tuplet)
 
-        # Look for Note
-        notes = list(point.starting_objects[pt.score.Note].keys())
+        # Look for notes and grace note
+        notes = list(
+            itertools.chain(
+                point.starting_objects[pt.score.GraceNote].keys(),  # Grace notes before notes
+                point.starting_objects[pt.score.Note].keys(),
+            )
+        )
         # Get notes per voice
-        notes_per_voice = defaultdict(list)
+        notes_per_voice = defaultdict(lambda: {"grace": [], "note": []})
         for note in notes:
-            notes_per_voice[note.voice].append(note)
+            type_ = "grace" if isinstance(note, pt.score.GraceNote) else "note"
+            notes_per_voice[note.voice][type_].append(note)
         for voice, vnotes in notes_per_voice.items():
-            # All notes in the voice should have the same duration
-            assert len(set(n.duration for n in vnotes)) == 1
-            sym_dur = SymbolicDuration(
-                type=SymbolicDurationType(vnotes[0].symbolic_duration["type"]),
+            gnotes, nnotes = vnotes.values()
+            # All non-grace notes in the voice should have the same duration
+            assert len(set(n.duration for n in nnotes)) == 1
+            nnote_sym_dur = SymbolicDuration(
+                type=SymbolicDurationType(nnotes[0].symbolic_duration["type"]),
                 dots=(
-                    vnotes[0].symbolic_duration["dots"]
-                    if "dots" in vnotes[0].symbolic_duration
+                    nnotes[0].symbolic_duration["dots"]
+                    if "dots" in nnotes[0].symbolic_duration
                     else 0
                 ),
             )
-            if len(vnotes) > 1:
-                token = ChordStart(voice_idx=voice - 1, duration=sym_dur)  # 1-indexed
-                token._partitura_elements = vnotes
+            # Add grace notes
+            for gnote in gnotes:
+                token = Note(
+                    note_class=gnote.step,
+                    octave=gnote.octave,
+                    accidental=gnote.alter or 0,
+                    duration=SymbolicDuration(type=SymbolicDurationType.EIGHTH),
+                    tied=False,
+                    voice_idx=gnote.voice - 1,  # 1-indexed
+                    staff_idx=gnote.staff - 1,  # 1-indexed
+                    stem_direction=gnote.stem_direction,
+                    fermata=False,
+                    grace=True,
+                )
+                token._partitura_elements = [gnote]
                 tokens.append(token)
-            for note in vnotes:
+            if len(nnotes) > 1:
+                token = ChordStart(voice_idx=voice - 1, duration=nnote_sym_dur)  # 1-indexed
+                token._partitura_elements = nnotes
+                tokens.append(token)
+            for note in nnotes:
                 token = Note(
                     note_class=note.step,
                     octave=note.octave,
                     accidental=note.alter or 0,
-                    duration=sym_dur,
+                    duration=nnote_sym_dur,
                     tied=note.tie_next is not None,
                     voice_idx=note.voice - 1,  # 1-indexed
                     staff_idx=note.staff - 1,  # 1-indexed
@@ -412,9 +445,9 @@ def partitura_to_token_sequence(
                         setattr(token, attr_, True)
                 token._partitura_elements = [note]
                 tokens.append(token)
-            if len(vnotes) > 1:
+            if len(nnotes) > 1:
                 token = ChordEnd(voice_idx=voice - 1)  # 1-indexed
-                token._partitura_elements = vnotes
+                token._partitura_elements = nnotes
                 tokens.append(token)
             # TODO: tied notes
 
