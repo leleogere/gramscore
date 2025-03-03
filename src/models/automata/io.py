@@ -443,6 +443,7 @@ def partitura_to_token_sequence(
                     ),
                     voice_idx=rest.voice - 1,  # 1-indexed
                     staff_idx=rest.staff - 1,  # 1-indexed
+                    fermata=rest.fermata is not None,
                 )
             token._partitura_elements = [rest]
             tokens.append(token)
