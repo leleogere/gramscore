@@ -481,4 +481,6 @@ def partitura_to_token_sequence(
             token._partitura_elements = [rest]
             tokens.append(token)
 
+    tokens.append(EndOfScore())
+
     return tokens
