@@ -226,6 +226,32 @@ def clip_score(
                 end=original_note.end.t - start_point.t,
             )
 
+    # Finally, add back global context elements (key/time signature and clefs)
+    for context_cls in [pt.score.KeySignature, pt.score.TimeSignature]:
+        if not start_point.starting_objects.get(context_cls, None):
+            try:
+                prev_context_element = next(start_point.iter_prev(cls=context_cls, eq=False))
+            except StopIteration:
+                continue
+            # print(f"Adding {prev_context_element}")
+            clipped_score.add(copy.copy(prev_context_element), start=0)
+
+    # Specific behaviour for clefs as there are tied to staves
+    clefs_found = [False] * clipped_score.number_of_staves
+    if start_point.starting_objects.get(pt.score.Clef, None) is not None:
+        for clef in start_point.starting_objects[pt.score.Clef]:
+            clefs_found[clef.staff - 1] = True
+            clipped_score.add(copy.copy(clef), start=start_point.t)
+    clef_iterator = start_point.iter_prev(cls=pt.score.Clef, eq=False)
+    while not all(clefs_found):
+        try:
+            clef = next(clef_iterator)
+        except StopIteration:
+            break
+        if not clefs_found[clef.staff - 1]:
+            clefs_found[clef.staff - 1] = True
+            clipped_score.add(copy.copy(clef), start=0)
+
     if return_measure_range:
         if end_measure_idx is None:
             end_measure_idx = len(score.measures)
