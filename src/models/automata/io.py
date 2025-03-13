@@ -328,7 +328,7 @@ def partitura_to_token_sequence(
             tokens.append(measure_token)
 
         # Look for Clef
-        clefs = list(point.starting_objects[pt.score.Clef].keys())
+        clefs = sorted(list(point.starting_objects[pt.score.Clef].keys()), key=lambda c: c.staff)
         for clef in clefs:
             tokens.append(
                 Clef(
