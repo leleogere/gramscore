@@ -86,12 +86,12 @@ def token_sequence_to_partitura(
     ]
     for i, (token, state) in enumerate(zip(tokens, states)):
         # print(state.n, time, token, state)
-        print(
-            # f"{Colors.RED}{state.}{Colors.END} "
-            f"{Colors.GREEN}{[float(v['time'] / global_division) for v in voices_info]}{Colors.END} "
-            f"{Colors.BLUE}{token}{Colors.END} "
-            f"{Colors.RED}{state}{Colors.END}"
-        )
+        # print(
+        #     # f"{Colors.RED}{state.}{Colors.END} "
+        #     f"{Colors.GREEN}{[float(v['time'] / global_division) for v in voices_info]}{Colors.END} "
+        #     f"{Colors.BLUE}{token}{Colors.END} "
+        #     f"{Colors.RED}{state}{Colors.END}"
+        # )
 
         # SOS
         if isinstance(token, StartOfScore):
