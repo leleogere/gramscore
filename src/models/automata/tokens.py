@@ -693,6 +693,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     octave: int
     accidental: int
     tied: bool
+    tied_prev: bool | None = None  # Not used by the model, only for debugging purposes
     stem_direction: Literal["up", "down"] | None = None
     grace: bool = False
     fermata: bool = False

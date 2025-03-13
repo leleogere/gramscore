@@ -433,6 +433,7 @@ def partitura_to_token_sequence(
                     accidental=note.alter or 0,
                     duration=nnote_sym_dur,
                     tied=note.tie_next is not None,
+                    tied_prev=note.tie_prev is not None,  # TODO: remove at some point?
                     voice_idx=note.voice - 1,  # 1-indexed
                     staff_idx=note.staff - 1,  # 1-indexed
                     stem_direction=note.stem_direction,
