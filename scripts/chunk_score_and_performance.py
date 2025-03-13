@@ -112,7 +112,7 @@ def clip_midi(
     midi.clip(start_time, end_time, inplace=True)
 
     # Adjust the timings so the performances starts at 0
-    midi.shift_times(-start_time, inplace=True)
+    midi.shift_time(-start_time, inplace=True)
 
     if return_measure_range:
         return midi, (start_measure, end_measure)
