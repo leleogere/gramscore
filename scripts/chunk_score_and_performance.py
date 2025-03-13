@@ -190,6 +190,10 @@ def clip_score(
 
     # Mapping from note id (same in both original and clipped score) to note in the clipped score
     id_to_clipped_score_note: dict[str, pt.score.Note] = {n.id: n for n in clipped_score.notes}
+    if any(x is None for x in id_to_clipped_score_note.keys()):
+        raise ValueError(
+            "Some notes do not have an ID, make sure to load them with `force_note_ids=True`"
+        )
     # Track the number of notes in each voice at each start time (to replace by rest only if needed)
     num_notes_per_voice_and_start = defaultdict(int)
     # Store IDs of notes that will need to be removed (and original note to access the timings)
@@ -535,7 +539,7 @@ if __name__ == '__main__':
     chunks_filename = f"{performance_path.stem}_chunks.json"
     annotations_path = asap_path / "asap_annotations.json"
 
-    score = pt.load_musicxml(score_path)
+    score = pt.load_musicxml(score_path, force_note_ids=True)
     assert len(score.parts) == 1
     score = pt.score.unfold_part_maximal(score.parts[0])
     # fill_rests(score)
