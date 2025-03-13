@@ -227,7 +227,7 @@ class VoiceCompletionState(SegmentCompletionState):
 
 
 class TranscriptionState:
-    def __init__(self, num_voices: int = 1, initial_measure_number: int = 0):
+    def __init__(self, num_voices: int = 1, initial_measure_number: int = 1):
         self._voices: list[VoiceCompletionState] = [
             VoiceCompletionState(Fraction(-1)) for _ in range(num_voices)
         ]
