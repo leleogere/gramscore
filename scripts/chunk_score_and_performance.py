@@ -35,8 +35,8 @@ def clip_midi(
     :param midi: The MIDI performance to clip.
     :param chunks: A dataframe containing the notes contained in every beat.
     :param performance_annotations: The annotation of every beat (b or db) in the performance.
-    :param measure_range: The range of measures (start, end) to clip the performance to. If the end
-        measure is None, it will be computed based on num_notes.
+    :param measure_range: The range of measures (start, end_excluded) to clip the performance to.
+        If the end measure is None, it will be computed based on num_notes.
     :param num_notes: Only used when the end measure is None, it will accumulate the required
         number of notes starting from the measure start, continuing until the end of the measure.
         Note that there might be more than the required number of notes (if there are still notes
@@ -51,6 +51,10 @@ def clip_midi(
 
     # Check measure boundaries parameters
     start_measure, end_measure = measure_range
+    if end_measure is not None:
+        # In this script, we will treat end_measure as inclusive, but we keep it exclusive in
+        # the function signature to be consistent with the other clip_* functions
+        end_measure_included = end_measure - 1
     if (end_measure is None) == (num_notes is None):
         raise ValueError("Exactly one of end_measure and num_notes must be specified")
 
@@ -78,9 +82,12 @@ def clip_midi(
     assert all(flatten[i] == flatten[i - 1] + 1 for i in range(1, len(flatten)))
 
     # Keep only note index of each measure
-    chunks["midi"] = (
+    chunks["start"] = (
         chunks["midi"].apply(lambda x: int(x[0]) if x else pd.NA).astype(pd.Int64Dtype()).ffill()
     )
+    chunks["end"] = chunks["start"].shift(-1)
+    total_notes = len(midi.tracks[0].notes)
+    chunks["end"].iloc[-1] = total_notes
     if check_num_measures is not None and check_num_measures != len(chunks):
         raise ValueError(
             f"Number of measures in the MIDI ({check_num_measures}) does not match the "
@@ -88,21 +95,21 @@ def clip_midi(
         )
 
     # Add last entry to not skip the last measure
-    total_notes = len(midi.tracks[0].notes)
-    chunks.loc[len(chunks)] = [total_notes]
 
     # If num_notes, find the end measure based on the required number of notes
     if num_notes is not None:
-        if num_notes >= total_notes:
-            end_measure = len(chunks)
+        if num_notes >= total_notes - chunks.iloc[start_measure]["start"]:
+            end_measure_included = len(chunks) - 1
         else:
-            end_measure = chunks[chunks["midi"] >= num_notes].index[0]
+            end_measure_included = chunks[
+                chunks["end"] - chunks.loc[start_measure]["start"] >= num_notes
+            ].index[0]
 
     # Keep only the performed notes in the queried measures
     # print()
     # print(start_measure, end_measure)
     clipped_notes = midi.tracks[0].notes[
-        chunks.iloc[start_measure]["midi"] : chunks.iloc[end_measure]["midi"]
+        chunks.loc[start_measure]["start"] : chunks.loc[end_measure_included]["end"]
     ]
     midi.tracks[0].notes = clipped_notes
 
@@ -115,7 +122,7 @@ def clip_midi(
     midi.shift_time(-start_time, inplace=True)
 
     if return_measure_range:
-        return midi, (start_measure, end_measure)
+        return midi, (start_measure, end_measure_included + 1)
     else:
         return midi
 

@@ -3,25 +3,44 @@ Test the chunking process
 """
 
 import copy
+import itertools
 from importlib.resources import files
+from pathlib import Path
 
-import pytest
-
+import pandas as pd
 import partitura as pt
 import partitura.score
-import itertools
+import pytest
+import symusic
+
 import tests.resources
+from data.music_chunking import clip_midi
+from data.music_chunking import clip_score
 
-from pprint import pprint
 
-from scripts.chunk_score_and_performance import clip_token_sequence, clip_score
+def get_resource(file_name: str) -> Path:
+    return Path(files(tests.resources).joinpath(file_name))
 
 
 @pytest.fixture
 def score():
-    path = files(tests.resources).joinpath("test_chunking.musicxml")
+    path = get_resource("test_chunking.musicxml")
     score = pt.load_musicxml(path, force_note_ids=True)
     return score
+
+
+@pytest.fixture
+def midi_and_chunks_and_annotations():
+    midi_path = get_resource("Bach-Fugue-bwv_846-Shi05M.mid")
+    # The file below is obtained with the chunker.py script of MIDI2ScoreTransformer
+    chunks_path = get_resource("Bach-Fugue-bwv_846-Shi05M-chunks.json")
+    # The file below is obtained from the ASAP annotations JSON file with the command:
+    # jq '{sample: ."Bach/Fugue/bwv_846/Shi05M.mid"}' asap_annotations.json
+    annotations_path = get_resource("Bach-Fugue-bwv_846-Shi05M-annotations.json")
+    midi = symusic.Score.from_file(midi_path)
+    chunks = pd.read_json(chunks_path)
+    annotations = pd.read_json(annotations_path, orient="index").loc["sample"]
+    return midi, chunks, annotations
 
 
 def assert_notes_equal(
@@ -138,7 +157,86 @@ def test_clip_score_per_num_notes(score):
             measure_range=(start_measure, None),
             num_notes=num_notes,
         )
-        # print(clipped_part.pretty())
         assert (
             len(clipped_part.measures) == expected_num_measures
         ), f"Expected {expected_num_measures} measures, got {len(clipped_part.measures)}"
+
+
+def test_clip_midi(midi_and_chunks_and_annotations):
+    midi, chunks, annotations = midi_and_chunks_and_annotations
+
+    test_cases = [
+        # Measures 14 to 16 (included)
+        {
+            "measure_range": (13, 16),
+            "expected_num_notes": 72,
+            "first_pitches": {69, 57, 45},  # Use sets as order in chords not guaranteed
+            "last_pitches": {77},  # Same here
+            "queried_num_notes": None,
+        },
+        # Measures 25 to 26 (included)
+        {
+            "measure_range": (24, 26),
+            "expected_num_notes": 61,  # 60 in the score but extra C3 in the performance
+            "first_pitches": {50, 70, 74},
+            "last_pitches": {67},
+            "queried_num_notes": None,
+        },
+        # Measure 25 with 33 notes (only 1 measure)
+        {
+            "measure_range": (24, None),
+            "expected_num_notes": 33,
+            "first_pitches": {50, 70, 74},
+            "last_pitches": {55, 70, 74},
+            "queried_num_notes": 33,
+        },
+        # Measure 25 with 34 notes: first note of second measure, so 2 measures (same as 2nd test)
+        {
+            "measure_range": (24, None),
+            "expected_num_notes": 61,
+            "first_pitches": {50, 70, 74},
+            "last_pitches": {67},
+            "queried_num_notes": 34,
+        },
+        # Measure 25 to the end
+        {
+            "measure_range": (24, None),
+            "expected_num_notes": 75,
+            "first_pitches": {50, 70, 74},
+            "last_pitches": {76, 84},  # should be {76, 79, 84} but G5 missing in the performance
+            "queried_num_notes": 1000,
+        },
+    ]
+
+    for test_case in test_cases:
+        extracted_midi = clip_midi(
+            midi=midi,
+            chunks=chunks.copy(deep=True),
+            performance_annotations=annotations,
+            measure_range=test_case["measure_range"],
+            num_notes=test_case["queried_num_notes"],
+            inplace=False,
+        )
+        extracted_midi.dump_midi(
+            f"/tmp/extracted_midi_{test_case['measure_range'][0]}-{test_case['measure_range'][1]}.mid"
+        )
+
+        # Check if the number of notes is correct in a few chunks
+        num_notes = len(extracted_midi.tracks[0].notes)
+        assert (
+            num_notes == test_case["expected_num_notes"]
+        ), f"Expected {test_case['expected_num_notes']} notes, got {num_notes}"
+
+        # Check first notes
+        num_first_notes = len(test_case["first_pitches"])
+        first_pitches = set(note.pitch for note in extracted_midi.tracks[0].notes[:num_first_notes])
+        assert (
+            first_pitches == test_case["first_pitches"]
+        ), f"Expected {test_case['first_pitches']} as first pitches, got {first_pitches}"
+
+        # Check last notes
+        num_last_notes = len(test_case["last_pitches"])
+        last_pitches = set(note.pitch for note in extracted_midi.tracks[0].notes[-num_last_notes:])
+        assert (
+            last_pitches == test_case["last_pitches"]
+        ), f"Expected {test_case['last_pitches']} as last pitches, got {last_pitches}"
