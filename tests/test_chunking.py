@@ -67,6 +67,8 @@ def test_clip_score_per_measure(score):
     In this score, the first part is the actual score to chunk (into 2-measure chunks), and the two
     other parts are the expected results:
         M1-2 -> P2, M2-3 -> P3, M3-4 -> P2, M4-5 -> P3, M5-6 -> P2, M6-7 -> P3...
+    Open the file in MuseScore to better understand, the two bottom parts are the interleaved
+    expected results.
     """
     part_to_chunk = score.parts[0]  # Part containing the score to chunk
     expected_odd = score.parts[1]  # Part containing the expected results for odd measures (1-based)
