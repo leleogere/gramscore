@@ -212,8 +212,12 @@ def clip_score(
             # If this note is also tied to next notes, mark them as to remove
             for next_tie in note.tie_next_notes:
                 notes_to_remove[next_tie.id] = next_tie
-                # Also track them to add a rest there too if needed
-                num_notes_per_voice_and_start[(next_tie.voice, next_tie.start.t)] += 1
+                # Also track this timepoint to add a rest there too if needed (only needed once
+                # as subsequent iteration on this timepoint will be the same)
+                if not (next_tie.voice, next_tie.start.t) in num_notes_per_voice_and_start:
+                    num_notes_per_voice_and_start[(next_tie.voice, next_tie.start.t)] = len(
+                        list(next_tie.iter_chord())
+                    )
     # Go over notes to remove, remove them and if needed replace by rests
     for note_id, original_note in notes_to_remove.items():
         # Remove the note from the clipped score

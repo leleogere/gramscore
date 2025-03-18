@@ -127,7 +127,6 @@ def test_clip_score_per_measure(score):
             )
         )
 
-        assert len(test_notes) == len(expected_notes)
         for n1, n2 in itertools.zip_longest(test_notes, expected_notes):
             assert_notes_equal(n1, n2, n2_time_shift=measure_start.start.t)
 
@@ -148,8 +147,8 @@ def test_clip_score_per_num_notes(score):
         [8, 7, 2],
         [8, 11, 2],
         [8, 12, 3],
-        [8, 100, 4],
-        [0, 100, 12],
+        [8, 100, 5],
+        [0, 100, 13],
     ]:
         part = copy.deepcopy(part_to_chunk)
         clipped_part = clip_score(
