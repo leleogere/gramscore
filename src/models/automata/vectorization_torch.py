@@ -97,8 +97,6 @@ class TokenTensor(torch.Tensor):
             isinstance(key, tuple) and isinstance(key[-1], str)
         ):
             dim_name, prev_slice = (key, [...]) if is_simple_str else (key[-1], key[:-1])
-            if dim_name not in self.DIMS:
-                raise KeyError(f"Unknown dimension name {dim_name}")
             if self.DIMS[dim_name] == 1:
                 self[*prev_slice, self.CUM_DIMS[dim_name]] = value
             else:
@@ -111,10 +109,6 @@ class TokenTensor(torch.Tensor):
 
     @classmethod
     def _create_onehot(cls, dim_name: str, value: int):
-        if dim_name not in cls.DIMS:
-            raise KeyError(f"Unknown dimension name {dim_name}")
-        if not 0 <= value < cls.DIMS[dim_name]:
-            raise ValueError(f"Value {value} is out of bounds for dimension {dim_name}")
         return torch.nn.functional.one_hot(
             torch.tensor(value),
             num_classes=cls.DIMS[dim_name],
@@ -248,12 +242,90 @@ class TokenTensor(torch.Tensor):
 
         raise ValueError(f"Unknown token type {token_type}")
 
-    def to_token(self) -> tk.Token | list[tk.Token] | list:
+    def to_tokens(self) -> tk.Token | list[tk.Token] | list:
         if self.dim() == 1:
             return self._to_token_single()
         else:
             # Recursively build a list of tokens along each dimension
-            return [subtensor.to_token() for subtensor in self]
+            return [subtensor.to_tokens() for subtensor in self]
+
+    def __embed_token_type(self, token: tk.Token) -> Self:
+        self["token_type"] = self._create_onehot("token_type", self.TOKEN_INDEXER[type(token)])
+
+    def __embed_start_of_score_information(self, sos: tk.StartOfScore) -> Self:
+        pass  # Nothing to do
+
+    def __embed_end_of_score_information(self, eos: tk.EndOfScore) -> Self:
+        pass  # Nothing to do
+
+    def __embed_bar_information(self, bar: tk.Bar) -> Self:
+        self["bar_numerator"] = bar.numerator
+        self["bar_denominator"] = self._create_onehot(
+            "bar_denominator",
+            self.TS_DENOMINATOR_INDEXER[bar.denominator],
+        )
+        self["bar_actual_duration_numerator"] = bar.actual_duration.numerator
+        self["bar_actual_duration_denominator"] = bar.actual_duration.denominator
+
+    def __embed_key_signature_information(self, key_signature: tk.KeySignature) -> Self:
+        fifths = key_signature.accidentals + 7
+        self["key_signature"] = self._create_onehot("key_signature", fifths)
+
+    def __embed_clef_information(self, clef: tk.Clef) -> Self:
+        clef_type = 0 if clef.clef == "G" else 1
+        self["clef_type"] = clef_type
+        self.__embed_staff_information(clef)
+
+    def __embed_duration_information(self, has_duration: tk.HasDurationMixin) -> Self:
+        self["duration_type"] = self._create_onehot(
+            "duration_type",
+            self.DURATION_INDEXER[has_duration.duration.type.value],
+        )
+        self["duration_dots"] = has_duration.duration.dots
+
+    def __embed_staff_information(self, has_staff: tk.HasStaffMixin) -> Self:
+        self["staff_idx"] = self._create_onehot("staff_idx", has_staff.staff_idx)
+
+    def __embed_voice_information(self, has_voice: tk.HasVoiceMixin) -> Self:
+        self["voice_idx"] = self._create_onehot("voice_idx", has_voice.voice_idx)
+
+    def __embed_note_information(self, note: tk.Note) -> Self:
+        self["note_class"] = self._create_onehot("note_class", self.NOTE_INDEXER[note.note_class])
+        self["note_octave"] = self._create_onehot("note_octave", note.octave)
+        self["note_accidental"] = self._create_onehot("note_accidental", note.accidental + 2)
+        self["note_tied"] = 1 if note.tied else 0
+        stem_direction = (
+            0 if note.stem_direction == "up" else 1 if note.stem_direction == "down" else 2
+        )
+        self["note_stem_direction"] = self._create_onehot("note_stem_direction", stem_direction)
+        self.__embed_staff_information(note)
+        self.__embed_voice_information(note)
+        self.__embed_duration_information(note)
+
+    def __embed_rest_information(self, rest: tk.Rest) -> Self:
+        self.__embed_staff_information(rest)
+        self.__embed_voice_information(rest)
+        self.__embed_duration_information(rest)
+
+    def __embed_tuplet_start_information(self, tuplet_start: tk.TupletStart) -> Self:
+        self["tuplet_actual_notes"] = tuplet_start.n_actual
+        self["tuplet_normal_notes"] = tuplet_start.n_normal
+        self["duration_type"] = self._create_onehot(
+            "duration_type",
+            self.DURATION_INDEXER[tuplet_start.unit_duration.type.value],
+        )
+        self["duration_dots"] = tuplet_start.unit_duration.dots
+        self.__embed_voice_information(tuplet_start)
+
+    def __embed_tuplet_end_information(self, tuplet_end: tk.TupletEnd) -> Self:
+        self.__embed_voice_information(tuplet_end)
+
+    def __embed_chord_start_information(self, chord_start: tk.ChordStart) -> Self:
+        self.__embed_voice_information(chord_start)
+        self.__embed_duration_information(chord_start)
+
+    def __embed_chord_end_information(self, chord_end: tk.ChordEnd) -> Self:
+        self.__embed_voice_information(chord_end)
 
     @classmethod
     def _from_token_single(cls, token: tk.Token) -> torch.Tensor:
@@ -262,68 +334,33 @@ class TokenTensor(torch.Tensor):
         vector = cls(torch.zeros(cls.TOTAL_DIMENSIONS, dtype=torch.float))
 
         # Vectorize token type
-        vector["token_type"] = cls._create_onehot("token_type", cls.TOKEN_INDEXER[type(token)])
+        vector.__embed_token_type(token)
 
-        # Bar
-        if isinstance(token, tk.Bar):
-            vector["bar_numerator"] = token.numerator
-            vector["bar_denominator"] = cls._create_onehot(
-                "bar_denominator",
-                cls.TS_DENOMINATOR_INDEXER[token.denominator],
-            )
-            vector["bar_actual_duration_numerator"] = token.actual_duration.numerator
-            vector["bar_actual_duration_denominator"] = token.actual_duration.denominator
-
-        # KeySignature
-        if isinstance(token, tk.KeySignature):
-            fifths = token.accidentals + 7
-            vector["key_signature"] = vector._create_onehot("key_signature", fifths)
-
-        # Clef
-        if isinstance(token, tk.Clef):
-            clef_type = 0 if token.clef == "G" else 1
-            vector["clef_type"] = clef_type
-
-        # HasStaffMixin
-        if isinstance(token, tk.HasStaffMixin):
-            vector["staff_idx"] = vector._create_onehot("staff_idx", token.staff_idx)
-
-        # HasVoiceMixin
-        if isinstance(token, tk.HasVoiceMixin):
-            vector["voice_idx"] = vector._create_onehot("voice_idx", token.voice_idx)
-
-        # HasDurationMixin
-        if isinstance(token, tk.HasDurationMixin):
-            vector["duration_type"] = vector._create_onehot(
-                "duration_type",
-                cls.DURATION_INDEXER[token.duration.type.value],
-            )
-            vector["duration_dots"] = token.duration.dots
-
-        # Note
-        if isinstance(token, tk.Note):
-            vector["note_class"] = vector._create_onehot(
-                "note_class", cls.NOTE_INDEXER[token.note_class]
-            )
-            vector["note_octave"] = vector._create_onehot("note_octave", token.octave)
-            vector["note_accidental"] = vector._create_onehot(
-                "note_accidental", token.accidental + 2
-            )
-            vector["note_tied"] = 1 if token.tied else 0
-            stem_direction = {"up": 0, "down": 1, None: 2}[token.stem_direction]
-            vector["note_stem_direction"] = vector._create_onehot(
-                "note_stem_direction", stem_direction
-            )
-
-        # TupletStart
-        if isinstance(token, tk.TupletStart):
-            vector["tuplet_actual_notes"] = token.n_actual
-            vector["tuplet_normal_notes"] = token.n_normal
-            vector["duration_type"] = vector._create_onehot(
-                "duration_type",
-                cls.DURATION_INDEXER[token.unit_duration.type.value],
-            )
-            vector["duration_dots"] = token.unit_duration.dots
+        # Add the information specific to the token type
+        if isinstance(token, tk.StartOfScore):
+            vector.__embed_start_of_score_information(token)
+        elif isinstance(token, tk.EndOfScore):
+            vector.__embed_end_of_score_information(token)
+        elif isinstance(token, tk.Bar):
+            vector.__embed_bar_information(token)
+        elif isinstance(token, tk.KeySignature):
+            vector.__embed_key_signature_information(token)
+        elif isinstance(token, tk.Clef):
+            vector.__embed_clef_information(token)
+        elif isinstance(token, tk.Note):
+            vector.__embed_note_information(token)
+        elif isinstance(token, tk.Rest):
+            vector.__embed_rest_information(token)
+        elif isinstance(token, tk.ChordStart):
+            vector.__embed_chord_start_information(token)
+        elif isinstance(token, tk.ChordEnd):
+            vector.__embed_chord_end_information(token)
+        elif isinstance(token, tk.TupletStart):
+            vector.__embed_tuplet_start_information(token)
+        elif isinstance(token, tk.TupletEnd):
+            vector.__embed_tuplet_end_information(token)
+        else:
+            raise ValueError(f"Unexpected token: {token}")
 
         return vector
 
