@@ -94,6 +94,7 @@ def test_clip_score_per_measure(score):
     expected_even = score.parts[2]  # Part containing the expected results for even measures
 
     for measure_start_idx in range(len(part_to_chunk.measures) - 1):
+        # print(f"Chunking measures {measure_start_idx + 1}-{measure_start_idx + 2}")
         measure_end_idx = measure_start_idx + 2
 
         part = copy.deepcopy(part_to_chunk)
@@ -108,27 +109,64 @@ def test_clip_score_per_measure(score):
             measure_range=(measure_start_idx, measure_end_idx),
         )
 
-        # Get the notes and rests of the chunked score
-        test_notes = list(
+        # Check the elements
+        # Do not check KS bc difficulties to input them independently in the parts in MuseScore
+        cls_to_check = [
+            pt.score.GenericNote,
+            pt.score.TimeSignature,
+            pt.score.Clef,
+            # pt.score.KeySignature,
+        ]
+        test_elements = list(
             clipped_test.iter_all(
-                cls=pt.score.GenericNote,
+                cls=cls_to_check,
                 include_subclasses=True,
                 start=0,
                 end=measure_end.end.t - measure_start.start.t,
             )
         )
-        # Get the expected notes and rests
-        expected_notes = list(
+        expected_elements = list(
             expected.iter_all(
-                cls=pt.score.GenericNote,
+                cls=cls_to_check,
                 include_subclasses=True,
                 start=measure_start.start.t,
                 end=measure_end.end.t,
             )
         )
+        for el1, el2 in itertools.zip_longest(test_elements, expected_elements):
+            # print("*", el1)
+            # print(" ", el2)
+            # Check same type
+            assert type(el1) is type(el2), f"Different types: {type(el1)} != {type(el2)}"
 
-        for n1, n2 in itertools.zip_longest(test_notes, expected_notes):
-            assert_notes_equal(n1, n2, n2_time_shift=measure_start.start.t)
+            # Check timings
+            assert (
+                el1.start.t == el2.start.t - measure_start.start.t
+            ), f"Different start times: {el1.start.t} != {el2.start.t - measure_start.start.t}"
+            if el1.end is not None:
+                assert (
+                    el1.end.t == el2.end.t - measure_start.start.t
+                ), f"Different end times: {el1.end.t} != {el2.end.t - measure_start.start.t}"
+            else:
+                assert el2.end is None, "Expected end to be None"
+
+            # Check notes
+            if isinstance(el1, pt.score.GenericNote):
+                assert_notes_equal(el1, el2, n2_time_shift=measure_start.start.t)
+            # Check non-notes elements
+            else:
+                if isinstance(el1, pt.score.TimeSignature):
+                    attributes_to_check = ["beats", "beat_type"]
+                elif isinstance(el1, pt.score.Clef):
+                    attributes_to_check = ["sign", "line", "octave_change", "staff"]
+                elif isinstance(el1, pt.score.KeySignature):
+                    attributes_to_check = ["fifths"]
+                else:
+                    raise ValueError(f"Unexpected class: {type(el1)}")
+                for attr in attributes_to_check:
+                    assert getattr(el1, attr) == getattr(
+                        el2, attr
+                    ), f"Different {attr}: {getattr(el1, attr)} != {getattr(el2, attr)}"
 
 
 def test_clip_score_per_num_notes(score):
@@ -216,9 +254,9 @@ def test_clip_midi(midi_and_chunks_and_annotations):
             num_notes=test_case["queried_num_notes"],
             inplace=False,
         )
-        extracted_midi.dump_midi(
-            f"/tmp/extracted_midi_{test_case['measure_range'][0]}-{test_case['measure_range'][1]}.mid"
-        )
+        # extracted_midi.dump_midi(
+        #     f"/tmp/extracted_midi_{test_case['measure_range'][0]}-{test_case['measure_range'][1]}.mid"
+        # )
 
         # Check if the number of notes is correct in a few chunks
         num_notes = len(extracted_midi.tracks[0].notes)
