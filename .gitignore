@@ -165,3 +165,5 @@ tests/scores
 /models/
 scores/
 _ignored*
+profile_output*
+.mscbackup
