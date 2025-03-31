@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import line_profiler
 import music21 as m21
 import pandas as pd
 import partitura as pt
@@ -36,11 +37,33 @@ from utils.constants import TO_IGNORE_INDICES
 class ScorePerformanceEntry:
     xml_score: Path
     midi_performance: Path
-    midi_score_annotations: Path = None
-    midi_score: Path = None
-    composer: str = None
-    title: str = None
-    split: str = None
+    midi_score_annotations: Path | None = None
+    midi_score: Path | None = None
+    base_path: Path | None = None
+    composer: str | None = None
+    title: str | None = None
+    split: str | None = None
+
+    def _get_relative_path(self, absolute_path: Path) -> Path:
+        if self.base_path is None:
+            raise ValueError("The attribute `base_path` must be set to get a relative path")
+        return absolute_path.relative_to(self.base_path)
+
+    @property
+    def xml_score_relative(self) -> Path:
+        return self._get_relative_path(self.xml_score)
+
+    @property
+    def midi_performance_relative(self) -> Path:
+        return self._get_relative_path(self.midi_performance)
+
+    @property
+    def midi_score_annotations_relative(self) -> Path:
+        return self._get_relative_path(self.midi_score_annotations)
+
+    @property
+    def midi_score_relative(self) -> Path:
+        return self._get_relative_path(self.midi_score)
 
 
 class ScorePerformanceDataset(Dataset):
@@ -49,14 +72,16 @@ class ScorePerformanceDataset(Dataset):
     def __init__(
         self,
         entries: list[ScorePerformanceEntry],
-        transform: Any = None,
+        transforms: Callable | list[Callable] = None,
     ) -> None:
         """Initialize a dataset of pairs of MusicXML scores and MIDI performances.
 
         :param entries: A list of ScorePerformanceEntry objects.
         """
         self.entries = entries
-        self.transform = transform
+        self.transforms = transforms
+        if not isinstance(self.transforms, list):
+            self.transforms = [self.transforms]
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -65,6 +90,7 @@ class ScorePerformanceDataset(Dataset):
         """
         return len(self.entries)
 
+    @line_profiler.profile
     def __getitem__(self, idx: int) -> ScorePerformanceEntry:
         """Return a sample from the dataset.
 
@@ -72,8 +98,9 @@ class ScorePerformanceDataset(Dataset):
         :return: The sample at the given index.
         """
         entry = self.entries[idx]
-        if self.transform:
-            entry = self.transform(entry)
+        if self.transforms:
+            for transform in self.transforms:
+                entry = transform(entry)
         return entry
 
 
@@ -91,7 +118,7 @@ class AsapDataset(ScorePerformanceDataset):
         data_dir: Path,
         split: str,
         filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
-        transform: Any = None,
+        transforms: Callable | list[Callable] = None,
     ) -> None:
         """Initialize an `AsapDataset` (using the MIDI2ScoreTransformer method).
 
@@ -105,7 +132,7 @@ class AsapDataset(ScorePerformanceDataset):
         assert split in ["all", "train", "validation", "test"], f"Invalid split: {split}"
         entries = self.read_metadata_like_m2st(data_dir, split)
         entries = list(filter(filter_fn, entries))
-        super().__init__(entries, transform)
+        super().__init__(entries, transforms)
 
     @staticmethod
     def read_metadata(data_dir: Path) -> list[ScorePerformanceEntry]:
@@ -127,6 +154,7 @@ class AsapDataset(ScorePerformanceDataset):
                     midi_score=data_dir / Path(entry["midi_score"]) if "midi_score" in entry else None,
                     midi_performance=data_dir / Path(entry["midi_performance"]),
                     midi_score_annotations=data_dir / Path(entry["midi_score_annotations"]) if "midi_score_annotations" in entry else None,
+                    base_path=data_dir,
                     # fmt: on
                 )
                 for entry in reader
@@ -197,6 +225,7 @@ class AsapDataset(ScorePerformanceDataset):
                     title=entry["title"],
                     xml_score=score_path,
                     midi_performance=performance_path,
+                    base_path=data_dir,
                 )
             )
 

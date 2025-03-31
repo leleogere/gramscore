@@ -3,11 +3,13 @@ import itertools
 import warnings
 from collections import defaultdict
 from pathlib import Path
+from typing import assert_never
 
 import pandas as pd
 import partitura as pt
 import partitura.score
 import symusic
+from loguru import logger
 
 import src.models.automata.tokens as tk
 from src.models.automata.io import partitura_to_token_sequence
@@ -45,6 +47,11 @@ def clip_midi(
     """
     if not inplace:
         midi = midi.copy(deep=True)
+        chunks = chunks.copy(deep=True)
+
+    # In case of empty first beat, remove it (not sure why the chunker adds it)
+    if not chunks.iloc[0]["midi"]:
+        chunks = chunks.iloc[1:].reset_index(drop=True)
 
     # Check measure boundaries parameters
     start_measure, end_measure = measure_range
@@ -56,22 +63,28 @@ def clip_midi(
         raise ValueError("Exactly one of end_measure and num_notes must be specified")
 
     # Get beat types
-    beat_types = pd.Series(performance_annotations["performance_beats_type"].values())
+    beat_type = pd.Series(performance_annotations["performance_beats_type"].values())
+    # print(f"beat_type\n{beat_type}")
 
     # Merge with beat_type sequentially, with NaN at beginning if not same length
-    # This happens when the first note does not fall on a beat
-    num_nan = len(chunks) - len(beat_types)
-    beat_type = pd.concat(
-        [pd.Series([""] * num_nan), beat_types],
-        axis=0,
-        ignore_index=True,
-    )
-    assert len(chunks) == len(beat_type)  # TODO: remove this, unneeded check
+    # This can happens when the first note does not fall on a beat
+    diff = len(chunks) - len(beat_type)
+    if diff > 0:
+        beat_type = pd.concat(
+            [pd.Series([""] * diff), beat_type],
+            axis=0,
+            ignore_index=True,
+        )
+    # print(f"beat_type\n{beat_type}")
+    assert len(chunks) == len(beat_type)
     chunks["beat_type"] = beat_type
+    # print(chunks)
 
     # Assign each beat to its measure index
-    chunks["measure"] = chunks["beat_type"].str.startswith("db").cumsum()
+    chunks["measure"] = chunks["beat_type"].str.startswith("db").astype(int).cumsum()
+    # print(chunks.head(40))
     chunks = chunks[["midi", "measure"]].groupby("measure").agg(lambda x: sum(x, []))
+    # print(chunks)
 
     # Make sure all numbers are consecutive in "midi" when they are flattened
     # TODO: remove when everything is working
@@ -84,7 +97,10 @@ def clip_midi(
     )
     chunks["end"] = chunks["start"].shift(-1)
     total_notes = len(midi.tracks[0].notes)
-    chunks["end"].iloc[-1] = total_notes
+    # print(chunks)
+    chunks.loc[chunks.iloc[len(chunks) - 1].name, "end"] = (  # Weird assignment bc Copy-on-Write
+        total_notes
+    )
     if check_num_measures is not None and check_num_measures != len(chunks):
         raise ValueError(
             f"Number of measures in the MIDI ({check_num_measures}) does not match the "
@@ -99,14 +115,15 @@ def clip_midi(
             end_measure_included = len(chunks) - 1
         else:
             end_measure_included = chunks[
-                chunks["end"] - chunks.loc[start_measure]["start"] >= num_notes
+                chunks["end"] - chunks.iloc[start_measure]["start"] >= num_notes
             ].index[0]
 
     # Keep only the performed notes in the queried measures
     # print()
     # print(start_measure, end_measure)
+    # print(chunks)
     clipped_notes = midi.tracks[0].notes[
-        chunks.loc[start_measure]["start"] : chunks.loc[end_measure_included]["end"]
+        chunks.iloc[start_measure]["start"] : chunks.iloc[end_measure_included]["end"]
     ]
     midi.tracks[0].notes = clipped_notes
 
@@ -185,7 +202,7 @@ def clip_score(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         clipped_score = sv.create_variant_part()
-    clipped_score.set_quarter_duration(0, score.quarter_duration_map(current_measure.start.t))
+    clipped_score.set_quarter_duration(0, int(score.quarter_duration_map(current_measure.start.t)))
 
     # When creating a score variant, notes that where tied before the start of the variant have
     # been kept, but the tie has been removed. Ideally, we want those notes to be completly removed
@@ -238,31 +255,104 @@ def clip_score(
                 end=original_note.end.t - start_point.t,
             )
 
-    # Finally, add back global context elements (key/time signature and clefs)
-    for context_cls in [pt.score.KeySignature, pt.score.TimeSignature]:
-        if not start_point.starting_objects.get(context_cls, None):
-            try:
-                prev_context_element = next(start_point.iter_prev(cls=context_cls, eq=False))
-            except StopIteration:
-                continue
-            # print(f"Adding {prev_context_element}")
-            clipped_score.add(copy.copy(prev_context_element), start=0)
+    # # Finally, add back global context elements (key/time signature and clefs)
+    # for context_cls in [pt.score.KeySignature, pt.score.TimeSignature]:
+    #     if not start_point.starting_objects.get(context_cls, None):
+    #         try:
+    #             prev_context_element = next(start_point.iter_prev(cls=context_cls, eq=False))
+    #         except StopIteration:
+    #             continue
+    #         # print(f"Adding {prev_context_element}")
+    #         clipped_score.add(copy.copy(prev_context_element), start=0)
+    #
+    # # Specific behaviour for clefs as there are tied to staves
+    # clefs_found = [False] * clipped_score.number_of_staves
+    # if start_point.starting_objects.get(pt.score.Clef, None) is not None:
+    #     for clef in start_point.starting_objects[pt.score.Clef]:
+    #         clefs_found[clef.staff - 1] = True
+    #         clipped_score.add(copy.copy(clef), start=start_point.t)
+    # clef_iterator = start_point.iter_prev(cls=pt.score.Clef, eq=False)
+    # while not all(clefs_found):
+    #     try:
+    #         clef = next(clef_iterator)
+    #     except StopIteration:
+    #         break
+    #     if not clefs_found[clef.staff - 1]:
+    #         clefs_found[clef.staff - 1] = True
+    #         clipped_score.add(copy.copy(clef), start=0)
 
-    # Specific behaviour for clefs as there are tied to staves
-    clefs_found = [False] * clipped_score.number_of_staves
-    if start_point.starting_objects.get(pt.score.Clef, None) is not None:
-        for clef in start_point.starting_objects[pt.score.Clef]:
-            clefs_found[clef.staff - 1] = True
-            clipped_score.add(copy.copy(clef), start=start_point.t)
-    clef_iterator = start_point.iter_prev(cls=pt.score.Clef, eq=False)
-    while not all(clefs_found):
+    # Finally, add back global context elements (key/time signature and clefs)
+    context_elements_classes_still_to_be_found = [
+        pt.score.TimeSignature,
+        pt.score.KeySignature,
+        pt.score.Clef,
+    ]
+    context_elements_found = {
+        pt.score.TimeSignature: False,
+        pt.score.KeySignature: False,
+        pt.score.Clef: [False] * clipped_score.number_of_staves,
+    }
+    # Look for elements already present at the start
+    for context_cls in context_elements_classes_still_to_be_found[:]:
+        if elements := start_point.starting_objects.get(context_cls, None):
+            if context_cls == pt.score.Clef:
+                for clef in elements:
+                    context_elements_found[context_cls][clef.staff - 1] = True
+                if all(context_elements_found[context_cls]):
+                    context_elements_classes_still_to_be_found.remove(context_cls)
+            else:
+                context_elements_found[context_cls] = True
+                context_elements_classes_still_to_be_found.remove(context_cls)
+    # Look for elements in previous measures for the ones not found yet
+    prev_context_elements = start_point.iter_prev(
+        cls=list(context_elements_classes_still_to_be_found)
+    )
+    while context_elements_classes_still_to_be_found:
+        # Find the previous element
         try:
-            clef = next(clef_iterator)
+            prev_context_element = next(prev_context_elements)
         except StopIteration:
+            logger.warning(
+                f"Could not find all context elements: {context_elements_classes_still_to_be_found}"
+            )
             break
-        if not clefs_found[clef.staff - 1]:
-            clefs_found[clef.staff - 1] = True
-            clipped_score.add(copy.copy(clef), start=0)
+        element_cls = type(prev_context_element)
+        new_element = None
+
+        # Deal with Clef elements
+        if (
+            isinstance(prev_context_element, pt.score.Clef)
+            and not context_elements_found[pt.score.Clef][prev_context_element.staff - 1]
+        ):
+            context_elements_found[pt.score.Clef][prev_context_element.staff - 1] = True
+            new_element = pt.score.Clef(
+                staff=prev_context_element.staff,
+                sign=prev_context_element.sign,
+                line=prev_context_element.line,
+                octave_change=prev_context_element.octave_change,
+            )
+            # If all clefs found, do not search for it anymore
+            if all(context_elements_found[pt.score.Clef]):
+                context_elements_classes_still_to_be_found.remove(pt.score.Clef)
+
+        # Deal with TimeSignature and KeySignature elements
+        elif not context_elements_found[element_cls]:
+            context_elements_found[type(prev_context_element)] = True
+            context_elements_classes_still_to_be_found.remove(type(prev_context_element))
+            if isinstance(prev_context_element, pt.score.TimeSignature):
+                new_element = pt.score.TimeSignature(
+                    beats=prev_context_element.beats,
+                    beat_type=prev_context_element.beat_type,
+                )
+            elif isinstance(prev_context_element, pt.score.KeySignature):
+                new_element = pt.score.KeySignature(
+                    fifths=prev_context_element.fifths,
+                    mode=prev_context_element.mode,
+                )
+
+        # Add new element if found
+        if new_element is not None:
+            clipped_score.add(new_element, start=0)
 
     if return_measure_range:
         if end_measure_idx is None:
@@ -466,15 +556,17 @@ def clip_token_sequence(
 
 
 if __name__ == '__main__':
-    # asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
-    asap_path = Path(
-        "~/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset"
-    ).expanduser()
+    asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
+    # asap_path = Path(
+    #     "~/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset"
+    # ).expanduser()
 
-    # piece_path = asap_path / "Bach/Fugue/bwv_846"
-    # performance_path = piece_path / "Shi05M.mid"
-    piece_path = asap_path / "Beethoven/Piano_Sonatas/13-4"
-    performance_path = piece_path / "Taverna01.mid"
+    piece_path = asap_path / "Bach/Fugue/bwv_846"
+    performance_path = piece_path / "Shi05M.mid"
+    # piece_path = asap_path / "Beethoven/Piano_Sonatas/13-4"
+    # performance_path = piece_path / "Taverna01.mid"
+    # piece_path = asap_path / "Chopin/Scherzos/31"
+    # performance_path = piece_path / "midi_score.mid"
     score_path = piece_path / "xml_score.musicxml"
 
     chunks_filename = f"{performance_path.stem}_chunks.json"
@@ -483,19 +575,36 @@ if __name__ == '__main__':
     score = pt.load_musicxml(score_path, force_note_ids=True)
     assert len(score.parts) == 1
     score = pt.score.unfold_part_maximal(score.parts[0])
-    # fill_rests(score)
+    print(f"{len(score.measures)} measures")
+    tk.fill_rests(score)
 
     midi = symusic.Score.from_file(performance_path)
+    if len(midi.tracks) > 1:
+        for track in midi.tracks[1:]:
+            midi.tracks[0].notes.extend(track.notes)
 
     chunks = pd.read_json(piece_path / chunks_filename)
     annotations = pd.read_json(annotations_path, orient="index")
-    performance_annotations = annotations.loc[str(performance_path.relative_to(asap_path))]
+    if performance_path.stem != "midi_score":
+        performance_annotations = annotations.loc[str(performance_path.relative_to(asap_path))]
+    else:
+        some_performance = next(
+            filter(lambda f: f.stem != "midi_score", performance_path.parent.glob("*.mid"))
+        ).relative_to(asap_path)
+        # annotations.loc[str(performance_path.relative_to(asap_path))] = {
+        performance_annotations = {
+            "score_and_performance_aligned": True,
+            "performance_beats": annotations.loc[str(some_performance)]["midi_score_beats"],
+            "performance_beats_type": annotations.loc[str(some_performance)][
+                "midi_score_beats_type"
+            ],
+        }
 
     tokens = partitura_to_token_sequence(score)
 
-    m_start = 19
+    m_start = 18
     m_end = None
-    n_notes = 20
+    n_notes = 50
     output_path = Path("/tmp")
 
     clipped_score, (m_start, m_end) = clip_score(
@@ -506,6 +615,7 @@ if __name__ == '__main__':
     )
     print(f"Clipped from {m_start} to {m_end}")
 
+    print(chunks)
     clipped_midi = clip_midi(
         midi=midi,
         chunks=chunks,
