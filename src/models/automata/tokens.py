@@ -724,7 +724,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             )
         if self.accidental not in self._note_alterations.keys():
             raise ValueError(
-                f"The accidental must be one of {', '.join(map(str, self._note_alterations.keys()))}."
+                f"The accidental must be one of {', '.join(map(str, self._note_alterations.keys()))}, got {self.accidental}."
             )
         if self.stem_direction not in ["up", "down", None]:
             raise ValueError("The stem direction must be either 'up' or 'down'.")
