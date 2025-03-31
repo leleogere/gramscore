@@ -45,7 +45,8 @@ from src.models.automata.io import token_sequence_to_partitura, partitura_to_tok
 # score_path = Path("~/Documents/datasets/asap-dataset/Chopin/Etudes_op_25/5/xml_score.musicxml").expanduser()
 # score_path = Path("~/Documents/datasets/bach-dataset/Bach/Fugue/bwv_868/xml_score.musicxml").expanduser()
 # score_path = Path("~/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/3-1/xml_score.musicxml").expanduser()
-score_path = Path("~/Documents/datasets/asap-dataset/Bach/Fugue/bwv_889/xml_score.musicxml").expanduser()
+# score_path = Path("~/Documents/datasets/asap-dataset/Bach/Fugue/bwv_889/xml_score.musicxml").expanduser()
+score_path = Path("~/Documents/datasets/asap-dataset/Liszt/Concert_Etude_S145/2/xml_score.musicxml").expanduser()
 
 # score_path = Path("~/Documents/MuseScore4/Scores/test_remplissage_silences.musicxml").expanduser()
 # fmt: on

@@ -13,8 +13,10 @@ from src.models.automata.tokens import fill_rests
 from src.models.automata.automata import ConstrainedAutomata
 from src.models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
 
-asap_path = Path("/home/gerel/Documents/datasets/asap-dataset")
-output_path = Path("/home/gerel/Documents/datasets/asap-dataset-tokenized")
+# asap_path = Path("/home/gerel/Documents/datasets/asap-dataset")
+# output_path = Path("/home/gerel/Documents/datasets/asap-dataset-tokenized")
+asap_path = Path("/home/gerel/Documents/datasets/bach-dataset")
+output_path = Path("/home/gerel/Documents/datasets/bach-dataset-tokenized")
 
 CACHE = False
 
