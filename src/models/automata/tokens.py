@@ -415,6 +415,12 @@ class Token:
         ]
         return f"{self.__class__.__name__}({', '.join(elements)})"
 
+    def __getstate__(self):
+        # Remove eventual _partitura_elements attribute when pickling
+        state = self.__dict__.copy()
+        state.pop('_partitura_elements', None)
+        return state
+
 
 @dataclass
 class StartOfScore(Token):
