@@ -238,20 +238,26 @@ def create_chunk_file_for_all_midi_scores(
 
 
 if __name__ == '__main__':
-    import sys
+    import argparse
+
+    # fmt: off
+    parser = argparse.ArgumentParser(description="Create chunk files for all MIDI scores in the ASAP dataset.")
+    parser.add_argument("asap_path", type=Path, help="Path to the ASAP dataset.")
+    parser.add_argument("--log-level", type=str, default="INFO", help="Log level (TRACE, DEBUG, INFO, WARNING, ERROR).")
+    args = parser.parse_args()
+    # fmt: on
 
     logger.remove()
-    logger.add(lambda msg: tqdm.write(msg, end=""), level="INFO")
+    logger.add(lambda msg: tqdm.write(msg, end=""), level=args.log_level)
 
-    asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
-    metadata = pd.read_csv(asap_path / "metadata.csv")
+    metadata = pd.read_csv(args.asap_path / "metadata.csv")
     # metadata = metadata[metadata["folder"] == "Scriabin/Sonatas/5"]
     # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/17-1"]
     # metadata = metadata[metadata["folder"] == "Schumann/Kreisleriana/7"]
     # metadata = metadata[metadata["folder"] == "Bach/Fugue/bwv_865"]
-    annotations = pd.read_json(asap_path / "asap_annotations.json", orient="index")
+    annotations = pd.read_json(args.asap_path / "asap_annotations.json", orient="index")
     create_chunk_file_for_all_midi_scores(
         metadata=metadata,
         annotations=annotations,
-        asap_path=asap_path,
+        asap_path=args.asap_path,
     )
