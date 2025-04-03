@@ -12,6 +12,7 @@ from collections import UserList
 from collections import defaultdict
 from dataclasses import dataclass
 from fractions import Fraction
+from itertools import zip_longest
 from pathlib import Path
 from typing import Literal
 from typing import Self
@@ -160,8 +161,8 @@ def create_chunk_file_for_midi_score(
             if no_onset:
                 reason = "Empty last measure" if (reason == "empty") else "Last measure all tied"
                 logger.warning(f"{piece}: {reason}, adding it to the score map.")
-                for i in range(0, difference, -1):
-                    downbeats_score_map.append([num_xml_measures - 1 - i])
+                for i in range(difference, 0, -1):
+                    downbeats_score_map.append([num_xml_measures - i])
             else:
                 raise ValueError(
                     f"Number of measures in XML score ({num_xml_measures}) close to number of "
@@ -190,7 +191,11 @@ def create_chunk_file_for_midi_score(
     i, note = next(indices_and_notes, (None, None))
     mapping = defaultdict(list)
     # Assign notes to their group
-    for next_db, xml_measures in zip(midi_score_downbeats, downbeats_score_map):
+    for next_db, xml_measures in zip_longest(
+        midi_score_downbeats[1:],
+        downbeats_score_map,
+        fillvalue=math.inf,
+    ):
         # Take all notes before the next downbeat, and assign them to the current measure (or group
         # of measures)
         notes_in_current_group = []
@@ -201,11 +206,12 @@ def create_chunk_file_for_midi_score(
         mapping[xml_measures_str] = notes_in_current_group
     # Take care of the last group if needed
     if note is not None:
-        last_measure = [i]
-        for i, note in indices_and_notes:
-            last_measure.append(i)
-        xml_measures_str = "-".join(str(m) for m in downbeats_score_map[-1])
-        mapping[xml_measures_str] = last_measure
+        assert False
+        # last_measure = [i]
+        # for i, note in indices_and_notes:
+        #     last_measure.append(i)
+        # xml_measures_str = "-".join(str(m) for m in downbeats_score_map[-1])
+        # mapping[xml_measures_str] = last_measure
 
     logger.trace(piece + ":\n" + "\n".join(f"{k}: {len(v)} notes" for k, v in mapping.items()))
 
@@ -248,13 +254,15 @@ if __name__ == '__main__':
     # fmt: on
 
     logger.remove()
-    logger.add(lambda msg: tqdm.write(msg, end=""), level=args.log_level)
+    logger.add(lambda msg: tqdm.write(msg, end=""), level=args.log_level.upper())
 
     metadata = pd.read_csv(args.asap_path / "metadata.csv")
     # metadata = metadata[metadata["folder"] == "Scriabin/Sonatas/5"]
     # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/17-1"]
     # metadata = metadata[metadata["folder"] == "Schumann/Kreisleriana/7"]
     # metadata = metadata[metadata["folder"] == "Bach/Fugue/bwv_865"]
+    # metadata = metadata[metadata["folder"] == "Chopin/Scherzos/31"]
+    # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/29-4"]
     annotations = pd.read_json(args.asap_path / "asap_annotations.json", orient="index")
     create_chunk_file_for_all_midi_scores(
         metadata=metadata,

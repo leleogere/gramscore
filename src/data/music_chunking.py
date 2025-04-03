@@ -1,5 +1,6 @@
 import copy
 import itertools
+import json
 import warnings
 from collections import defaultdict
 from pathlib import Path
@@ -18,114 +19,187 @@ from src.models.automata.tokens import HasStaffMixin
 from src.models.automata.utils import voice_absolute_into_voice_relative_to_staff
 
 
+def read_chunk_file(path: Path) -> pd.DataFrame:
+    """
+    This function reads a JSON chunk files, in the following format:
+    {
+        "0": [0, 1, 2, 3],
+        "1-2": [4, 5, 6, 7, 8, 9, 10],
+        "3": [11, 12, 13, 14, 15],
+        "4-5-6": [16, 17, 18, 19, 20, 21, 22],
+        ...
+    }
+    The keys are the index of the measures in the score, and the values are the indices of the
+    notes in the performance belonging to that measure (or group of measures).
+    There is one entry per downbeat in the annotations.
+
+    It returns a DataFrame with one row per downbeat/group, with the following columns:
+        - "measures" <list[int]>: The index of the measures in the score
+        - "first_measure_of_group" <int>: The index of the first measure in the group
+        - "last_measure_of_group" <int>: The index of the last measure in the group
+        - "notes" <list[int]>: The indices of the notes in the performance belonging to that
+            downbeat
+        - "first_note_of_group" <int>: The index of the first note in the group (if group empty,
+            the first note of the next group)
+        - "last_note_of_group" <int>: The index of the last note in the group (if group empty,
+            the last note of the previous group)  # TODO remove that info
+        - "is_empty" <bool>: Whether the group is empty or not (in that case we have
+            last_note_of_group > first_note_of_group)
+
+    :param path: The path to the chunk file.
+    :return: A DataFrame with the chunk information.
+    """
+    with path.open("r") as f:
+        raw_chunks = json.load(f)
+
+    # Convert to DataFrame
+    chunks = pd.DataFrame(raw_chunks.items(), columns=["measures", "notes"])
+
+    # Convert the string measure column to a list of integers
+    chunks["measures"] = chunks["measures"].map(lambda x: [int(m) for m in str(x).split("-")])
+
+    # Get the first measure of each group
+    chunks["first_measure_of_group"] = chunks["measures"].map(lambda x: x[0])
+
+    # Get the last measure of each group
+    chunks["last_measure_of_group"] = chunks["measures"].map(lambda x: x[-1])
+
+    # Get the first note of each group
+    chunks["first_note_of_group"] = (
+        chunks["notes"]
+        .map(
+            lambda x: x[0] if len(x) > 0 else None,
+        )
+        .astype(pd.Int64Dtype())
+    )
+
+    # Get the last note of each group
+    chunks["last_note_of_group"] = (
+        chunks["notes"]
+        .map(
+            lambda x: x[-1] if len(x) > 0 else None,
+        )
+        .astype(pd.Int64Dtype())
+    )
+
+    # Add empty column
+    chunks["is_empty"] = chunks["notes"].map(lambda x: len(x) == 0)
+
+    return chunks
+
+
 def clip_midi(
-    midi: symusic.Score,
+    midi: symusic.core.ScoreSecond,
     chunks: pd.DataFrame,
-    performance_annotations: pd.DataFrame,
-    measure_range: tuple[int, int | None],
+    start_measure: int,
     num_notes: int | None = None,
     inplace: bool = True,
-    return_measure_range: bool = False,
     check_num_measures: int | None = None,
-) -> symusic.factory.ScoreFactory | tuple[symusic.factory.ScoreFactory, tuple[int, int]]:
+) -> tuple[symusic.core.ScoreSecond, tuple[int, int]]:
     """
-    Clip a MIDI performance to a range of measures or an approximate number of notes.
+    Clip a MIDI performance to an approximate number of notes, starting from a given measure.
+    This function can return more than the required number of notes as it will accumulate notes
+    to the end of the last measure so that it returns a complete last measure.
+    This function can also return less than the required number of notes if there are less than
+    the required number of notes in the performance starting from the given measure.
 
     :param midi: The MIDI performance to clip.
-    :param chunks: A dataframe containing the notes contained in every beat.
-    :param performance_annotations: The annotation of every beat (b or db) in the performance.
-    :param measure_range: The range of measures (start, end_excluded) to clip the performance to.
-        If the end measure is None, it will be computed based on num_notes.
-    :param num_notes: Only used when the end measure is None, it will accumulate the required
-        number of notes starting from the measure start, continuing until the end of the measure.
+    :param chunks: A dict mapping the measure number (or numbers) to the note indices in the
+        performance belonging to that measure (or group of measures). Each entry correspond to a
+        downbeat in the annotations. See ASAP `downbeats_score_map`.
+    :param start_measure: Index of the measure to start the chunk. If it belongs to a group of
+        measures, the first measure of the group will be used instead.
+    :param num_notes: Required number of notes to gather, starting from the start measure.
         Note that there might be more than the required number of notes (if there are still notes
-        in the last measure), or less (if the remaining notes from the start measure is less than
-        the required number of notes).
+        in the last downbeat group), or less (if the remaining notes from the start measure is
+        less than the required number of notes).
     :param inplace: Whether to modify the input MIDI performance or return a new one.
-    :param return_measure_range: Only used to check that the total number of measure in the MIDI
-        matches some externally computed number of measures.
+    :param check_num_measures: Only used to check that the total number of measures in the MIDI
+        performance matches some externally computed number of measures.
+
+    :return: The clipped MIDI performance and the range of measures (inclusive) used to clip it.
+
+    # TODO: update the docstring
     """
+    if len(midi.tracks) > 1:
+        raise ValueError("MIDI performance must have only one track.")
+
     if not inplace:
         midi = midi.copy(deep=True)
-        chunks = chunks.copy(deep=True)
-
-    # In case of empty first beat, remove it (not sure why the chunker adds it)
-    if not chunks.iloc[0]["midi"]:
-        chunks = chunks.iloc[1:].reset_index(drop=True)
-
-    # Check measure boundaries parameters
-    start_measure, end_measure = measure_range
-    if end_measure is not None:
-        # In this script, we will treat end_measure as inclusive, but we keep it exclusive in
-        # the function signature to be consistent with the other clip_* functions
-        end_measure_included = end_measure - 1
-    if (end_measure is None) == (num_notes is None):
-        raise ValueError("Exactly one of end_measure and num_notes must be specified")
-
-    # Get beat types
-    beat_type = pd.Series(performance_annotations["performance_beats_type"].values())
-    # print(f"beat_type\n{beat_type}")
-
-    # Merge with beat_type sequentially, with NaN at beginning if not same length
-    # This can happens when the first note does not fall on a beat
-    diff = len(chunks) - len(beat_type)
-    if diff > 0:
-        beat_type = pd.concat(
-            [pd.Series([""] * diff), beat_type],
-            axis=0,
-            ignore_index=True,
-        )
-    # print(f"beat_type\n{beat_type}")
-    assert len(chunks) == len(beat_type)
-    chunks["beat_type"] = beat_type
-    # print(chunks)
-
-    # Assign each beat to its measure index
-    chunks["measure"] = chunks["beat_type"].str.startswith("db").astype(int).cumsum()
-    # print(chunks.head(40))
-    chunks = chunks[["midi", "measure"]].groupby("measure").agg(lambda x: sum(x, []))
-    # print(chunks)
 
     # Make sure all numbers are consecutive in "midi" when they are flattened
     # TODO: remove when everything is working
-    flatten = sum(chunks["midi"], [])
+    flatten = sum(chunks["measures"], [])
     assert all(flatten[i] == flatten[i - 1] + 1 for i in range(1, len(flatten)))
 
-    # Keep only note index of each measure
-    chunks["start"] = (
-        chunks["midi"].apply(lambda x: int(x[0]) if x else pd.NA).astype(pd.Int64Dtype()).ffill()
-    )
-    chunks["end"] = chunks["start"].shift(-1)
-    total_notes = len(midi.tracks[0].notes)
-    # print(chunks)
-    chunks.loc[chunks.iloc[len(chunks) - 1].name, "end"] = (  # Weird assignment bc Copy-on-Write
-        total_notes
-    )
-    if check_num_measures is not None and check_num_measures != len(chunks):
+    # Check number of measures if needed
+    num_measures = sum(len(measures) for measures in chunks["measures"])
+    if check_num_measures is not None and check_num_measures != num_measures:
         raise ValueError(
-            f"Number of measures in the MIDI ({check_num_measures}) does not match the "
-            f"required number of measures ({len(chunks)})"
+            f"Number of measures in the chunks file ({num_measures}) does not match the "
+            f"required number of measures ({check_num_measures})"
         )
 
-    # Add last entry to not skip the last measure
+    # If retrieve the index of the downbeat group corresponding to the required measure
+    if start_measure > chunks["last_measure_of_group"].iloc[-1]:
+        raise ValueError(
+            f"Start measure {start_measure} is greater than the last measure "
+            f"{chunks['last_measure_of_group'].iloc[-1]}"
+        )
+
+    # Find the downbeat group contining the required start measure
+    start_downbeat = next(
+        (
+            i
+            for i, row in chunks.iterrows()
+            if row["first_measure_of_group"] <= start_measure <= row["last_measure_of_group"]
+        ),
+    )
+    if chunks.iloc[start_downbeat]["first_measure_of_group"] != start_measure:
+        logger.info(
+            f"Start measure {start_measure} is not the first measure of a group, "
+            f"using first measure of {chunks.iloc[start_downbeat]['measures']} instead."
+        )
+
+    # If the start_downbeat group is empty, find the first non-empty group
+    if chunks.iloc[start_downbeat]["is_empty"]:
+        # Find the first non-empty group
+        new_start_downbeat = next(
+            (i for i, row in chunks.iloc[start_downbeat:].iterrows() if not row["is_empty"])
+        )
+        # Will error in case of all empty groups after this one, but as we make sure we take a
+        # couple of measures of margin when sampling start_downbeat, this should not happen. I do
+        # not catch the error as if it happens it will likely indicate a bug.
+        logger.info(
+            f"Start downbeat group {start_downbeat} is empty, using {new_start_downbeat} from "
+            f"{chunks.iloc[new_start_downbeat]['measures']} instead."
+        )
+        start_downbeat = new_start_downbeat
+
+    total_notes = len(midi.tracks[0].notes)
+    assert chunks["last_note_of_group"].max() == total_notes - 1
 
     # If num_notes, find the end measure based on the required number of notes
-    if num_notes is not None:
-        if num_notes >= total_notes - chunks.iloc[start_measure]["start"]:
-            end_measure_included = len(chunks) - 1
-        else:
-            end_measure_included = chunks[
-                chunks["end"] - chunks.iloc[start_measure]["start"] >= num_notes
-            ].index[0]
+    end_downbeat = next(
+        (
+            i
+            for i, row in chunks.iterrows()
+            if not row["is_empty"]
+            and row["first_note_of_group"]
+            <= chunks.iloc[start_downbeat]["first_note_of_group"] + num_notes
+            <= row["last_note_of_group"]
+        ),
+        len(chunks) - 1,
+    )
+    end_measure = chunks.iloc[end_downbeat]["last_measure_of_group"]
 
     # Keep only the performed notes in the queried measures
-    # print()
-    # print(start_measure, end_measure)
-    # print(chunks)
     clipped_notes = midi.tracks[0].notes[
-        chunks.iloc[start_measure]["start"] : chunks.iloc[end_measure_included]["end"]
+        chunks.iloc[start_downbeat]["first_note_of_group"] : chunks.iloc[end_downbeat][
+            "last_note_of_group"
+        ]
+        + 1
     ]
-    midi.tracks[0].notes = clipped_notes
 
     # Clip the performance to the timing of the first and last notes
     start_time = clipped_notes[0].time
@@ -135,59 +209,30 @@ def clip_midi(
     # Adjust the timings so the performances starts at 0
     midi.shift_time(-start_time, inplace=True)
 
-    if return_measure_range:
-        return midi, (start_measure, end_measure_included + 1)
-    else:
-        return midi
+    return midi, (start_measure, end_measure)
 
 
 def clip_score(
     score: pt.score.Part,
-    measure_range: tuple[int, int | None],
-    num_notes: int | None = None,
-    return_measure_range: bool = False,
+    start_measure: int,
+    end_measure: int,
     check_num_measures: int | None = None,
-) -> pt.score.Part | tuple[pt.score.Part, tuple[int, int]]:
+) -> pt.score.Part:
     """
     Clip a score to a range of measures or an approximate number of notes.
 
     :param score: The score to clip.
-    :param measure_range: The range of measures (start, end) to clip the score to. If the end
-        measure is None, it will be computed based on num_notes.
-    :param num_notes: Only used when the end measure is None, it will accumulate the required
-        number of notes starting from the measure start, continuing until the end of the measure.
-        Note that there might be more than the required number of notes (if there are still notes
-        in the last measure), or less (if the remaining notes from the start measure is less than
-        the required number of notes).
-    :param return_measure_range: Whether to return the actual measure range used to clip the
-        score (useful when num_notes is used).
+    :param start_measure: The index of the measure to start the clip.
+    :param end_measure: The index of the measure to end the clip (inclusive).
     :param check_num_measures: Only used to check that the total number of measure in the score
         matches some externally computed number of measures.
+
+    :return: The clipped score.
     """
     # Check and process measure boundaries parameters
-    start_measure_idx, end_measure_idx = measure_range
-    if (end_measure_idx is None) == (num_notes is None):
-        raise ValueError("Exactly one of end_measure and num_notes must be specified")
-    current_measure = score.measures[start_measure_idx]
-    start_point = current_measure.start
-
-    # Compute end measure index if needed
-    if num_notes is not None:
-        end_measure_idx = start_measure_idx
-        accumulated_notes = 0
-        for element in score.iter_all(
-            cls=(pt.score.Measure, pt.score.Note),
-            include_subclasses=True,  # Include grace notes
-            start=start_point.t,
-        ):
-            # print(element)
-            if accumulated_notes >= num_notes:
-                break
-            elif isinstance(element, pt.score.Measure):
-                end_measure_idx += 1
-            elif element.tie_prev is None:  # skip tied notes
-                accumulated_notes += 1
-            # print(f"{end_measure_idx=}, {accumulated_notes=}")
+    if end_measure < start_measure:
+        raise ValueError("End measure must be greater than or equal to start measure")
+    start_point = score.measures[start_measure].start
 
     # Check number of measures if needed
     if check_num_measures is not None and check_num_measures != len(score.measures):
@@ -198,11 +243,11 @@ def clip_score(
 
     # Create a new ScoreVariant
     sv = pt.score.ScoreVariant(score)
-    sv.add_segment(current_measure.start, score.measures[end_measure_idx - 1].end)
+    sv.add_segment(start_point, score.measures[end_measure].end)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        clipped_score = sv.create_variant_part()
-    clipped_score.set_quarter_duration(0, int(score.quarter_duration_map(current_measure.start.t)))
+        clipped_score: pt.score.Part = sv.create_variant_part()
+    clipped_score.set_quarter_duration(0, int(score.quarter_duration_map(start_point.t)))
 
     # When creating a score variant, notes that where tied before the start of the variant have
     # been kept, but the tie has been removed. Ideally, we want those notes to be completly removed
@@ -254,32 +299,6 @@ def clip_score(
                 start=original_note.start.t - start_point.t,
                 end=original_note.end.t - start_point.t,
             )
-
-    # # Finally, add back global context elements (key/time signature and clefs)
-    # for context_cls in [pt.score.KeySignature, pt.score.TimeSignature]:
-    #     if not start_point.starting_objects.get(context_cls, None):
-    #         try:
-    #             prev_context_element = next(start_point.iter_prev(cls=context_cls, eq=False))
-    #         except StopIteration:
-    #             continue
-    #         # print(f"Adding {prev_context_element}")
-    #         clipped_score.add(copy.copy(prev_context_element), start=0)
-    #
-    # # Specific behaviour for clefs as there are tied to staves
-    # clefs_found = [False] * clipped_score.number_of_staves
-    # if start_point.starting_objects.get(pt.score.Clef, None) is not None:
-    #     for clef in start_point.starting_objects[pt.score.Clef]:
-    #         clefs_found[clef.staff - 1] = True
-    #         clipped_score.add(copy.copy(clef), start=start_point.t)
-    # clef_iterator = start_point.iter_prev(cls=pt.score.Clef, eq=False)
-    # while not all(clefs_found):
-    #     try:
-    #         clef = next(clef_iterator)
-    #     except StopIteration:
-    #         break
-    #     if not clefs_found[clef.staff - 1]:
-    #         clefs_found[clef.staff - 1] = True
-    #         clipped_score.add(copy.copy(clef), start=0)
 
     # Finally, add back global context elements (key/time signature and clefs)
     context_elements_classes_still_to_be_found = [
@@ -349,17 +368,14 @@ def clip_score(
                     fifths=prev_context_element.fifths,
                     mode=prev_context_element.mode,
                 )
+            else:
+                assert_never(prev_context_element)
 
         # Add new element if found
         if new_element is not None:
             clipped_score.add(new_element, start=0)
 
-    if return_measure_range:
-        if end_measure_idx is None:
-            end_measure_idx = len(score.measures)
-        return clipped_score, (start_measure_idx, end_measure_idx)
-    else:
-        return clipped_score
+    return clipped_score
 
 
 def clip_token_sequence(
@@ -556,34 +572,43 @@ def clip_token_sequence(
 
 
 if __name__ == '__main__':
+    import warnings
+
     asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
     # asap_path = Path(
     #     "~/Documents/transcription/MIDI2ScoreTransformer/midi2scoretransformer/data/asap-dataset"
     # ).expanduser()
 
-    piece_path = asap_path / "Bach/Fugue/bwv_846"
-    performance_path = piece_path / "Shi05M.mid"
+    # piece_path = asap_path / "Bach/Fugue/bwv_846"
+    # performance_path = piece_path / "Shi05M.mid"
     # piece_path = asap_path / "Beethoven/Piano_Sonatas/13-4"
     # performance_path = piece_path / "Taverna01.mid"
     # piece_path = asap_path / "Chopin/Scherzos/31"
-    # performance_path = piece_path / "midi_score.mid"
+    piece_path = asap_path / "Beethoven/Piano_Sonatas/29-4"
+    performance_path = piece_path / "midi_score.mid"
     score_path = piece_path / "xml_score.musicxml"
 
     chunks_filename = f"{performance_path.stem}_chunks.json"
     annotations_path = asap_path / "asap_annotations.json"
 
-    score = pt.load_musicxml(score_path, force_note_ids=True)
-    assert len(score.parts) == 1
-    score = pt.score.unfold_part_maximal(score.parts[0])
-    print(f"{len(score.measures)} measures")
-    tk.fill_rests(score)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        score = pt.load_musicxml(score_path, force_note_ids=True)
+        assert len(score.parts) == 1
+        score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=True, update_ids=True)
+        print(f"{len(score.measures)} measures")
+        # tk.fill_rests(score)
 
     midi = symusic.Score.from_file(performance_path)
     if len(midi.tracks) > 1:
         for track in midi.tracks[1:]:
             midi.tracks[0].notes.extend(track.notes)
+        # Remove other tracks
+        midi.tracks = midi.tracks[:1]
+        # Sort by time
+        midi.tracks[0].sort()
 
-    chunks = pd.read_json(piece_path / chunks_filename)
+    chunks = read_chunk_file(piece_path / chunks_filename)
     annotations = pd.read_json(annotations_path, orient="index")
     if performance_path.stem != "midi_score":
         performance_annotations = annotations.loc[str(performance_path.relative_to(asap_path))]
@@ -602,38 +627,35 @@ if __name__ == '__main__':
 
     tokens = partitura_to_token_sequence(score)
 
-    m_start = 18
-    m_end = None
-    n_notes = 50
+    m_start = 13
+    n_notes = 500
     output_path = Path("/tmp")
 
-    clipped_score, (m_start, m_end) = clip_score(
-        score=score,
-        measure_range=(m_start, m_end),
-        num_notes=n_notes,
-        return_measure_range=True,
-    )
-    print(f"Clipped from {m_start} to {m_end}")
-
-    print(chunks)
-    clipped_midi = clip_midi(
+    clipped_midi, (real_m_start, real_m_end) = clip_midi(
         midi=midi,
         chunks=chunks,
-        performance_annotations=performance_annotations,
-        measure_range=(m_start, m_end),
+        start_measure=m_start,
+        num_notes=n_notes,
         check_num_measures=len(score.measures),
         inplace=True,
     )
+    print(f"Clipped from {real_m_start} to {real_m_end}")
 
-    clipped_tokens = clip_token_sequence(
-        tokens=tokens, measure_range=(m_start, m_end), check_num_measures=len(score.measures)
+    clipped_score = clip_score(
+        score=score,
+        start_measure=real_m_start,
+        end_measure=real_m_end,
     )
+
+    # clipped_tokens = clip_token_sequence(
+    #     tokens=tokens, measure_range=(m_start, m_end), check_num_measures=len(score.measures)
+    # )
     # automata = ConstrainedAutomata(num_voices=8)
     # automata.transition_sequence(clipped_tokens)
 
     pt.save_musicxml(clipped_score, output_path / "clipped_score.musicxml")
     clipped_midi.dump_midi(output_path / "clipped_performance.mid")
-    pt.save_musicxml(
-        token_sequence_to_partitura(clipped_tokens),
-        "/tmp/clipped_score_tokens.musicxml",
-    )
+    # pt.save_musicxml(
+    #     token_sequence_to_partitura(clipped_tokens),
+    #     "/tmp/clipped_score_tokens.musicxml",
+    # )
