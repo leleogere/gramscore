@@ -8,6 +8,8 @@ The resulting chunks are saved as JSON files next to the performance-MIDI files.
 """
 
 import json
+import math
+from collections import defaultdict
 from collections.abc import Iterable
 from collections.abc import Iterator
 from fractions import Fraction
@@ -20,39 +22,83 @@ import symusic
 from joblib import Parallel, delayed
 from partitura.utils.music import midi_pitch_to_pitch_spelling
 from tqdm import tqdm
+import partitura as pt
+import partitura.score
 
 from tokenizer import MultistreamTokenizer
 
 
-def make_measures(midi, midi_score: pretty_midi.PrettyMIDI, mxl, annots, swap=True):
+def tick_to_second(
+    tick: int, tpq: int, tempos: symusic.core.TempoTickList, as_fraction: bool = False
+) -> float | Fraction:
+    if not tempos:
+        raise ValueError("No tempo events provided")
+
+    ticks_times_mspq = Fraction(0) if as_fraction else 0.0
+    current_tempo = tempos[0]
+
+    # Process each tempo event segment
+    for next_tempo in tempos[1:]:
+        if tick < next_tempo.time:
+            delta = tick - current_tempo.time
+            ticks_times_mspq += delta * current_tempo.mspq
+            break
+        delta = next_tempo.time - current_tempo.time
+        ticks_times_mspq += delta * current_tempo.mspq
+        current_tempo = next_tempo
+    # Handle the last segment
+    else:
+        delta = tick - current_tempo.time
+        ticks_times_mspq += delta * current_tempo.mspq
+
+    return ticks_times_mspq / 1_000_000 / tpq
+
+
+def make_measures(
+    performance_note_list: symusic.core.NoteSecondList | list,
+    midi_score: symusic.core.ScoreTick,
+    xml_score: pt.score.Part,
+    annots,
+    swap=True,
+):
     swap_tol = 0.05
-    measures = {"midi": [], "mxl": []}
+    xml_score_note_list: list[pt.score.Note] = xml_score.notes
+    xml_score_divisions = xml_score.quarter_duration_map(0)
+    db_to_xml_score_mapping = annots["downbeats_score_map"]
+    assert len(xml_score._quarter_durations) == 1, "Only one division supported"
+    measures = defaultdict(lambda: defaultdict(list))
     i, j = (0, 0)
-    for sb_seconds in annots["midi_score_beats"]:
+    for db_time_seconds, score_measures in zip(
+        annots["midi_score_downbeats"], db_to_xml_score_mapping
+    ):
         # Convert the score beats from seconds to musical time using
         # the provided MIDI scores
-        sb = midi_score.time_to_tick(sb_seconds) / midi_score.resolution
+        # score_db_ticks = midi_score.time_to_tick(score_db_seconds) / midi_score.resolution
+        db_time_ticks = db_time_seconds / midi_score.ticks_per_quarter
         # print(sb, sb_seconds)
-        measures["mxl"].append([])
-        while j < len(mxl) and mxl[j].offset < sb:
+        measures["mxl"][str(score_measures)].append([])
+        while (
+            j < len(xml_score_note_list)
+            and xml_score_note_list[j].start.t / xml_score_divisions < db_time_ticks
+        ):
             # print(" ", mxl[j].offset, "\t", mxl[j].pitch.unicodeNameWithOctave)
-            measures["mxl"][-1].append((j, mxl[j].pitch.midi))
+            measures["mxl"][str(score_measures)][-1].append((j, xml_score_note_list[j].midi_pitch))
             j += 1
 
     # Use the performance beats to split the MIDI into pseudo-measures of beat length
-    for pb in annots["performance_beats"]:
-        measures["midi"].append([])
-        while i < len(midi) and midi[i].start < pb - swap_tol:
-            measures["midi"][-1].append((i, midi[i].pitch))
+    for pb, score_measures in zip(annots["performance_downbeats"], db_to_xml_score_mapping):
+        measures["midi"][str(score_measures)].append([])
+        while i < len(performance_note_list) and performance_note_list[i].start < pb - swap_tol:
+            measures["midi"][str(score_measures)][-1].append((i, performance_note_list[i].pitch))
             i += 1
 
-    measures["midi"].append([])
-    measures["mxl"].append([])
-    while i < len(midi):
-        measures["midi"][-1].append((i, midi[i].pitch))
+    measures["midi"]["TODO"].append([])
+    measures["mxl"]["TODO"].append([])
+    while i < len(performance_note_list):
+        measures["midi"]["TODO"][-1].append((i, performance_note_list[i].pitch))
         i += 1
-    while j < len(mxl):
-        measures["mxl"][-1].append((j, mxl[j].pitch.midi))
+    while j < len(xml_score_note_list):
+        measures["mxl"]["TODO"][-1].append((j, xml_score_note_list[j].midi_pitch))
         j += 1
 
     if not swap:
@@ -88,7 +134,8 @@ def make_measures(midi, midi_score: pretty_midi.PrettyMIDI, mxl, annots, swap=Tr
                 # Only swap notes if they are within 0.5s of the beat boundary
                 if (
                     last_p == pitch
-                    and annots["performance_beats"][i] - midi[last_j].start < swap_tol
+                    and annots["performance_beats"][i] - performance_note_list[last_j].start
+                    < swap_tol
                 ):
                     measures["midi"][i + 1].insert(0, measures["midi"][i].pop())
                     n_swaps += 1
@@ -100,7 +147,8 @@ def make_measures(midi, midi_score: pretty_midi.PrettyMIDI, mxl, annots, swap=Tr
                 # ---only swap notes if they are within 0.5s of the beat boundary
                 if (
                     first_p == pitch
-                    and midi[first_j].start - annots["performance_beats"][i] < swap_tol
+                    and performance_note_list[first_j].start - annots["performance_beats"][i]
+                    < swap_tol
                 ):
                     measures["midi"][i].append(measures["midi"][i + 1].pop(0))
                     n_swaps += 1
@@ -110,8 +158,8 @@ def make_measures(midi, midi_score: pretty_midi.PrettyMIDI, mxl, annots, swap=Tr
     # print("Swaps", n_swaps, n_swaps/len(midi))
     # If we had to swap a lot of notes, we probably messed up and should just return
     # the raw alignment...
-    if n_swaps / len(midi) > 0.1:
-        return make_measures(midi, midi_score, mxl, annots, swap=False)
+    if n_swaps / len(performance_note_list) > 0.1:
+        return make_measures(performance_note_list, midi_score, xml_score, annots, swap=False)
     for i in range(len(measures["midi"])):
         measures["midi"][i] = sorted([j for j, _ in measures["midi"][i]])
         measures["mxl"][i] = sorted([j for j, _ in measures["mxl"][i]])
@@ -123,10 +171,10 @@ def make_measures(midi, midi_score: pretty_midi.PrettyMIDI, mxl, annots, swap=Tr
         #         step, alter, octave = midi_pitch_to_pitch_spelling(p)
         #         alter = "#" * alter if alter > 0 else "b" * -alter
         #         midi_or_mxl[j] = f"{k}: {step}{alter}{octave} ({p})"
-    assert max([max(m + [0]) for m in measures["midi"]]) == len(midi) - 1
-    assert sum(len(m) for m in measures["midi"]) == len(midi)
-    assert max([max(m + [0]) for m in measures["mxl"]]) == len(mxl) - 1
-    assert sum(len(m) for m in measures["mxl"]) == len(mxl)
+    # assert max([max(m + [0]) for m in measures["midi"]]) == len(performance_note_list) - 1
+    # assert sum(len(m) for m in measures["midi"]) == len(performance_note_list)
+    # assert max([max(m + [0]) for m in measures["mxl"]]) == len(xml_score_note_list) - 1
+    # assert sum(len(m) for m in measures["mxl"]) == len(xml_score_note_list)
     measures["swapped"] = True
     return measures
 
@@ -202,12 +250,33 @@ def handle_file(midi_path: Path, mxl_path: Path, save_path: Path, annots: dict[s
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m, s = MultistreamTokenizer.mxl_to_list(str(mxl_path))
+        # m, s = MultistreamTokenizer.mxl_to_list(str(mxl_path))
+
+        # Load performance
+        midi_performance = symusic.Score(midi_path, ttype="second")
+        if len(midi_performance.tracks) > 1:
+            for track in midi_performance.tracks[1:]:
+                midi_performance.tracks[0].notes.extend(track.notes)
+            midi_performance.sort(inplace=True)
+
+        # Load MIDI score (and merge tracks into first one)
+        midi_score = symusic.Score(mxl_path.with_name("midi_score.mid"), ttype="second")
+        if len(midi_score.tracks) > 1:
+            for track in midi_score.tracks[1:]:
+                midi_score.tracks[0].notes.extend(track.notes)
+            midi_score.sort(inplace=True)
+
+        # Load XML score
+        xml_score = pt.load_score(str(mxl_path))
+        xml_score = pt.score.unfold_part_maximal(xml_score)
+        assert len(xml_score.parts) == 1, "Only one part supported"
+        xml_score = xml_score.parts[0]
+
         measures = make_measures(
-            MultistreamTokenizer.midi_to_list(str(midi_path)),
-            pretty_midi.PrettyMIDI(str(mxl_path.with_name("midi_score.mid"))),
-            m,
-            annots,
+            performance_note_list=midi_performance.tracks[0].notes,
+            midi_score=midi_score,
+            xml_score=xml_score,
+            annots=annots,
         )
 
     # Write to disk
@@ -240,10 +309,43 @@ if __name__ == "__main__":
         metadata = pd.read_csv(f)
     if args.composer:
         metadata = metadata[metadata.composer == args.composer]
+        print(metadata)
 
     # Read annotations
     with (dataset_path / "asap_annotations.json").open("r") as f:
         annotations = json.load(f)
+
+    # Create additional annotations for the midi_score.mid files
+    metadata_to_add = []
+    for _, row_ in metadata.drop_duplicates("xml_score").iterrows():
+        # Find a performance for which the "downbeats_score_map" is not nan
+        for row in metadata[metadata["xml_score"] == row_.xml_score].itertuples():
+            if isinstance(annotations[row.midi_performance]["downbeats_score_map"], list):
+                break
+        else:
+            print("NaN downbeats_score_map for", row_.xml_score)
+            row = row_
+
+        print(row)
+        performance = row.midi_performance
+        midi_score_downbeats = annotations[performance]["midi_score_downbeats"]
+        downbeats_score_map = annotations[performance]["downbeats_score_map"]
+        annotations[row.midi_score] = {
+            "score_and_performance_aligned": True,
+            "performance_downbeats": midi_score_downbeats,
+            "midi_score_downbeats": midi_score_downbeats,
+            "downbeats_score_map": downbeats_score_map,
+        }
+        metadata_to_add.append(
+            {
+                "xml_score": row.xml_score,
+                "midi_score": row.midi_score,
+                "midi_performance": row.midi_score,
+                "performance_annotations": row.midi_score_annotations,
+                "midi_score_annotations": row.midi_score_annotations,
+            }
+        )
+    metadata = pd.concat([metadata, pd.DataFrame(metadata_to_add)])
 
     # Find all scores and performances
     paths = []
@@ -265,22 +367,11 @@ if __name__ == "__main__":
     #     )
     # ]
 
-    # Create additional annotations for the midi_score.mid files
-    for _, row in metadata.drop_duplicates("xml_score").iterrows():
-        performance = row.midi_performance
-        performance_beats = annotations[performance]["midi_score_beats"]
-        midi_score_beats = annotations[performance]["midi_score_beats"]
-        annotations[row.midi_score] = {
-            "score_and_performance_aligned": True,
-            "performance_beats": performance_beats,
-            "midi_score_beats": midi_score_beats,
-        }
-
     # Only process midi_score.mid files
     paths = [p for p in paths if p[0].name == "midi_score.mid"]
 
     # Chunk the files
-    results = Parallel(n_jobs=min(12, len(paths)), return_as="generator")(
+    results = Parallel(n_jobs=min(1, len(paths)), return_as="generator")(
         delayed(handle_file)(
             midi_path,
             mxl_path,
