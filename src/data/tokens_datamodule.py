@@ -31,6 +31,8 @@ from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.music_chunking import clip_midi
 from data.music_chunking import clip_score
+from data.music_chunking import read_chunk_file
+from midi2scoretransformer.tokenizer import MultistreamTokenizer
 from models.automata.automata import ConstrainedAutomata
 from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
@@ -57,6 +59,13 @@ class MusicReader:
 
         # Read performance
         performance = symusic.Score.from_file(entry.midi_performance)
+        # Merge all tracks into first one if multiple ones
+        if len(performance.tracks) > 1:
+            track = performance.tracks[0]  # Only reference so OK modifying it
+            for other in performance.tracks[1:]:
+                for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
+                    getattr(track, attr).extend(getattr(other, attr))
+                performance.tracks.remove(other)
         assert len(performance.tracks) == 1
 
         return {
@@ -157,12 +166,12 @@ class MusicChunker:
 
         num_measures = len(sample["score"].measures)
         if self.start_measure is None:
-            # Get a random measure between the first and the third to last
-            start_measure = random.randint(0, num_measures - 4)
+            # Get a random measure between the first and a bit before the end
+            start_measure = random.randint(0, num_measures - 10) if num_measures > 15 else 0
         else:
             start_measure = self.start_measure
 
-        print(f"{start_measure = }")
+        # print(f"{start_measure = }")
 
         # Get the first num_performed_notes notes in the MIDI file starting from this measure
         # (and add notes until the end of the measure if not filled)
@@ -170,17 +179,18 @@ class MusicChunker:
             sample["entry"].xml_score.parent
             / f"{sample['entry'].midi_performance.stem}_chunks.json"
         )
+        if not chunks_file.exists():
+            logger.error(f"{chunks_file} does not exist, skipping the sample")
+            raise FileNotFoundError(f"{chunks_file} does not exist, skipping the sample")
+        chunks = read_chunk_file(chunks_file)
         # print("BEFORE clip_midi")
+
         performance, (start_measure, end_measure) = clip_midi(
             midi=sample["performance"],
-            chunks=pd.read_json(chunks_file),
-            performance_annotations=self.annotations.loc[
-                str(sample["entry"].midi_performance_relative)
-            ],
-            measure_range=(start_measure, None),
+            chunks=chunks,
+            start_measure=start_measure,
             num_notes=self.num_performed_notes,
             inplace=False,
-            return_measure_range=True,
             check_num_measures=num_measures,
         )
         # print("AFTER clip_midi")
@@ -188,7 +198,8 @@ class MusicChunker:
         # Get the corresponding notes in the score
         score = clip_score(
             score=sample["score"],
-            measure_range=(start_measure, end_measure),
+            start_measure=start_measure,
+            end_measure=end_measure,
         )
         # print("AFTER clip_score")
 
@@ -199,18 +210,32 @@ class MusicChunker:
         }
 
 
-class MusicVectorizer:
+class ScoreVectorizer:
     @line_profiler.profile
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Vectorize score
         sample["score_tokens"] = partitura_to_token_sequence(sample["score"])
         sample["score_tensor"] = TokenTensor.from_tokens(sample["score_tokens"])
+        return sample
 
+
+class PerformanceVectorizer:
+    @line_profiler.profile
+    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Vectorize performance
-        sample["performance_tensor"] = torch.FloatTensor(
-            sample["performance"].pianoroll(modes=["frame"], pitch_range=(MIN_PITCH, MAX_PITCH))
-        )
-
+        # sample["performance_tensor"] = torch.FloatTensor(
+        #     sample["performance"].pianoroll(modes=["frame"], pitch_range=(MIN_PITCH, MAX_PITCH))
+        # )
+        assert len(sample["performance"].tracks) == 1, "Only one track supported"
+        midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
+        # This is directly from Beyer's MIDI2ScoreTransformer code
+        midi_streams = {
+            "onset": torch.FloatTensor([n.start for n in midi_list]),
+            "duration": torch.FloatTensor([n.duration for n in midi_list]),
+            "pitch": torch.LongTensor([n.pitch for n in midi_list]),
+            "velocity": torch.LongTensor([n.velocity for n in midi_list]),
+        }
+        sample["performance_streams"] = MultistreamTokenizer.bucket_midi(midi_streams)
         return sample
 
 
@@ -224,7 +249,7 @@ class Cache:
         self.key = key
         self.cache = {}
 
-    # @line_profiler.profile
+    @line_profiler.profile
     def __call__(self, sample: Any) -> Any:
         key = self.key(sample)
         if key in self.cache:
@@ -243,9 +268,151 @@ class Debugger:
     ):
         self.func = func
 
-    @line_profiler.profile
     def __call__(self, sample: Any) -> Any:
         self.func(sample)
+        return sample
+
+
+class TmpTrainTransform:
+    """
+    This class regroup all transforms that are only used for training for easier profiling.
+    """
+
+    def __init__(
+        self,
+        num_performed_notes: int,
+        annotations: pd.DataFrame | Path,
+        start_measure: int | None = None,
+    ):
+        self.num_performed_notes = num_performed_notes
+        if isinstance(annotations, pd.DataFrame):
+            self.annotations = annotations
+        else:
+            self.annotations = pd.read_json(annotations, orient="index")
+        self.start_measure = start_measure
+        CACHE = True
+        if CACHE:
+            self.cache = {}
+        else:
+            self.cache = None
+
+    @line_profiler.profile
+    def __call__(self, entry: ScorePerformanceEntry) -> dict[str, Any]:
+        if self.cache is not None and entry.midi_performance in self.cache:
+            sample = self.cache[entry.midi_performance]
+        else:
+            # ===========
+            # MusicReader
+            # ===========
+            # Read score
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                score = pt.load_musicxml(entry.xml_score, force_note_ids=True)
+                assert len(score.parts) == 1
+                part = pt.score.unfold_part_maximal(score.parts[0])
+
+            # Read performance
+            performance = symusic.Score.from_file(entry.midi_performance)
+            # Merge all tracks into first one if multiple ones
+            if len(performance.tracks) > 1:
+                track = performance.tracks[0]  # Only reference so OK modifying it
+                for other in performance.tracks[1:]:
+                    for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
+                        getattr(track, attr).extend(getattr(other, attr))
+                    performance.tracks.remove(other)
+            assert len(performance.tracks) == 1
+
+            sample = {
+                "entry": entry,
+                "score": part,
+                "performance": performance,
+            }
+
+            # ===============
+            # VoiceRestFiller
+            # ===============
+            fill_rests(sample["score"])
+
+            # ==============
+            # VoiceReorderer
+            # ==============
+            sample["score"] = reorder_voices(sample["score"])
+
+            if self.cache is not None:
+                self.cache[entry.midi_performance] = sample
+
+        # ============
+        # MusicChunker
+        # ============
+        # If not enough notes, return the original score and performance
+        total_notes = len(sample["score"].notes)
+        if total_notes <= self.num_performed_notes:
+            return sample
+
+        num_measures = len(sample["score"].measures)
+        if self.start_measure is None:
+            # Get a random measure between the first and a bit before the end
+            start_measure = random.randint(0, num_measures - 10) if num_measures > 15 else 0
+        else:
+            start_measure = self.start_measure
+
+        # print(f"{start_measure = }")
+
+        # Get the first num_performed_notes notes in the MIDI file starting from this measure
+        # (and add notes until the end of the measure if not filled)
+        chunks_file = (
+            sample["entry"].xml_score.parent
+            / f"{sample['entry'].midi_performance.stem}_chunks.json"
+        )
+        if not chunks_file.exists():
+            logger.error(f"{chunks_file} does not exist, skipping the sample")
+            raise FileNotFoundError(f"{chunks_file} does not exist, skipping the sample")
+        chunks = read_chunk_file(chunks_file)
+        # print("BEFORE clip_midi")
+
+        performance, (start_measure, end_measure) = clip_midi(
+            midi=sample["performance"],
+            chunks=chunks,
+            start_measure=start_measure,
+            num_notes=self.num_performed_notes,
+            inplace=False,
+            check_num_measures=num_measures,
+        )
+        # print("AFTER clip_midi")
+
+        # Get the corresponding notes in the score
+        score = clip_score(
+            score=sample["score"],
+            start_measure=start_measure,
+            end_measure=end_measure,
+        )
+
+        sample = {
+            "score": score,
+            "performance": performance,
+            **{k: v for k, v in sample.items() if k not in ["score", "performance"]},
+        }
+
+        # ===============
+        # ScoreVectorizer
+        # ===============
+        sample["score_tokens"] = partitura_to_token_sequence(sample["score"])
+        sample["score_tensor"] = TokenTensor.from_tokens(sample["score_tokens"])
+
+        # =====================
+        # PerformanceVectorizer
+        # =====================
+        assert len(sample["performance"].tracks) == 1, "Only one track supported"
+        midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
+        # This is directly from Beyer's MIDI2ScoreTransformer code
+        midi_streams = {
+            "onset": torch.FloatTensor([n.start for n in midi_list]),
+            "duration": torch.FloatTensor([n.duration for n in midi_list]),
+            "pitch": torch.LongTensor([n.pitch for n in midi_list]),
+            "velocity": torch.LongTensor([n.velocity for n in midi_list]),
+        }
+        sample["performance_streams"] = MultistreamTokenizer.bucket_midi(midi_streams)
+
         return sample
 
 
@@ -258,6 +425,7 @@ class AsapTokensDataModule(LightningDataModule):
         self,
         data_dir: Path,
         batch_size: int = 64,
+        include_midi_scores: bool = False,
         filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
         num_workers: int = 4,
     ) -> None:
@@ -265,6 +433,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         :param data_dir: The data directory.
         :param batch_size: The batch size.
+        :param include_midi_scores: Whether to include the MIDI scores as performances.
         :param filter_fn: A function to filter the entries.
         :param num_workers: The number of workers to use for data loading.
         """
@@ -285,19 +454,37 @@ class AsapTokensDataModule(LightningDataModule):
         self._prepared = False
 
     @staticmethod
+    @line_profiler.profile
     def collate_fn(
         batch: list[dict[str, Any]],
-    ) -> tuple[TokenTensor, torch.Tensor]:
+    ) -> tuple[TokenTensor, dict[str, torch.Tensor]]:
         """
         Collate function for the `DataLoader`.
 
         :param batch: The batch to collate.
         :return: The collated batch.
         """
+        # Pad and collate score tensors
         scores = [x["score_tensor"] for x in batch]
-        performances = [x["performance_tensor"].transpose(0, 1) for x in batch]
-        scores_collated: TokenTensor = pad_sequence(scores, batch_first=True)
-        performances_collated: torch.Tensor = pad_sequence(performances, batch_first=True)
+        scores_collated: TokenTensor = pad_sequence(scores, batch_first=True, padding_value=-100)
+
+        # Pad and collate performance tensor streams
+        performances = [x["performance_streams"] for x in batch]
+        streams = ["onset", "duration", "pitch", "velocity"]
+        performances_collated = {
+            stream: pad_sequence(
+                [x[stream] for x in performances],
+                batch_first=True,
+                padding_value=0,  # Zero as in MIDI2ScoreTransformer
+            )
+            for stream in streams
+        }
+        # Security check to catch bug
+        assert all(
+            performances_collated[streams[0]].shape[0:2] == performances_collated[stream].shape[0:2]
+            for stream in streams[1:]
+        ), "All streams should have the same batch size and number of notes"
+
         return scores_collated, performances_collated
 
     def prepare_data(self) -> None:
@@ -352,29 +539,37 @@ class AsapTokensDataModule(LightningDataModule):
         # Setup transforms
         transforms = {
             "train": [
-                Cache(
-                    transforms=[
-                        MusicReader(),
-                        VoiceRestFiller(),
-                        VoiceReorderer(),
-                    ],
-                    key=lambda entry: entry.midi_performance,
-                ),
-                # # Debugger(lambda s: print("DEBUG", s["entry"])),
-                MusicChunker(
+                TmpTrainTransform(
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
-                ),
-                # RandomTransposer(
-                #     intervals=[
-                #         pt.score.Interval(
-                #             number=int(inter[0]), quality=inter[1:], direction=direction
-                #         )
-                #         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d", "5P", "5A", "5d"]
-                #         for direction in ["up", "down"]
-                #     ]
+                )
+                # # MusicReader(),
+                # # VoiceRestFiller(),
+                # # VoiceReorderer(),
+                # Cache(
+                #     transforms=[
+                #         MusicReader(),
+                #         VoiceRestFiller(),
+                #         VoiceReorderer(),
+                #     ],
+                #     key=lambda entry: entry.midi_performance,
                 # ),
-                MusicVectorizer(),
+                # # # Debugger(lambda s: print("DEBUG", s["entry"])),
+                # MusicChunker(
+                #     num_performed_notes=500,
+                #     annotations=self.hparams.data_dir / "asap_annotations.json",
+                # ),
+                # # RandomTransposer(
+                # #     intervals=[
+                # #         pt.score.Interval(
+                # #             number=int(inter[0]), quality=inter[1:], direction=direction
+                # #         )
+                # #         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d", "5P", "5A", "5d"]
+                # #         for direction in ["up", "down"]
+                # #     ]
+                # # ),
+                # ScoreVectorizer(),
+                # PerformanceVectorizer(),
             ],
             "validation": [
                 Cache(
@@ -391,7 +586,8 @@ class AsapTokensDataModule(LightningDataModule):
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                     start_measure=0,
                 ),
-                MusicVectorizer(),
+                ScoreVectorizer(),
+                PerformanceVectorizer(),
             ],
             "test": [
                 MusicReader(),
@@ -402,7 +598,8 @@ class AsapTokensDataModule(LightningDataModule):
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                     start_measure=0,
                 ),
-                MusicVectorizer(),
+                ScoreVectorizer(),
+                PerformanceVectorizer(),
             ],
         }
 
@@ -412,6 +609,7 @@ class AsapTokensDataModule(LightningDataModule):
                 split: AsapDataset(
                     data_dir=self.hparams.data_dir,
                     split=split,
+                    include_midi_scores=self.hparams.include_midi_scores,
                     transforms=transforms[split],
                     filter_fn=self.hparams.filter_fn,
                 )
@@ -486,21 +684,56 @@ if __name__ == "__main__":
 
     data_module = AsapTokensDataModule(
         data_dir=Path("~/Documents/datasets/asap-dataset").expanduser(),
-        filter_fn=lambda x: x.composer == "Bach",
-        batch_size=1,
-        num_workers=1,
+        include_midi_scores=True,
+        filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem == "midi_score",
+        batch_size=4,
+        num_workers=10,
     )
     data_module.prepare_data()
     data_module.setup()
-    # for performances, scores in data_module.train_dataloader():
-    #     print(f"{performances.shape = }\t{scores.shape = }")
+    size = len(data_module.train_dataloader())
+    print(f"{size = }")
+
+    # for i, (scores, performances) in enumerate(data_module.train_dataloader(), start=1):
+    # for i, sample in enumerate(data_module.data_train, start=1):
+    #     print(f"{i}/{size}")
+
+    # print(f"{performances["onset"].shape = }\t{scores.shape = }")
+    # print(
+    #     f"score={scores.shape}\t"
+    #     f"p_onset={performances['onset'].shape}\t"
+    #     f"p_duration={performances['duration'].shape}\t"
+    #     f"p_pitch={performances['pitch'].shape}\t"
+    #     f"p_velocity={performances['velocity'].shape}"
+    # )
+
     # for sample in data_module.data_train:
     #     # print(sample)
     #     print(sample["entry"])
-    for _ in range(1):
+
+    diffs = []
+    for _ in range(10):
+        print(_)
         start = time.time()
+        # for i, sample in enumerate(data_module.train_dataloader(), start=1):
         for i, sample in enumerate(data_module.data_train, start=1):
-            print(f"{i}/{len(data_module.data_train)}: {sample['entry'].midi_performance}")
+            # AsapTokensDataModule.collate_fn([sample])
+            # print(f"{i}/{size}")
             pass
-        end = time.time()
-        print(f"{end - start:.2f} s")
+        diff = time.time() - start
+        diffs.append(diff)
+        print(f"{diff:.3f}s  [{diff/len(data_module.data_train):.3f}s/sample]")
+    #
+    # # fmt: off
+    # print(f"Avg:  {sum(diffs)/len(diffs):.3f}s  [{sum(diffs)/len(diffs)/len(data_module.data_train):.3f}s/sample]")
+    # print(f"1st:  {diffs[0]:.3f}s  [{diffs[0]/len(data_module.data_train):.3f}s/sample]")
+    # print(f"Avg1: {sum(diffs[1:])/len(diffs[1:]):.3f}s  [{sum(diffs[1:])/len(diffs[1:])/len(data_module.data_train):.3f}s/sample]")
+    # # fmt: on
+
+    # for _ in range(10):
+    #     start = time.time()
+    #     for i, sample in enumerate(data_module.data_train, start=1):
+    #         # print(f"{i}/{len(data_module.data_train)}: {sample['entry'].midi_performance}")
+    #         pass
+    #     diff = time.time() - start
+    #     print(f"{diff:.2f}s  [{diff/len(data_module.data_train):.2f}s/sample]")

@@ -113,7 +113,7 @@ class ScorePerformanceDataset(Dataset):
         """
         return len(self.entries)
 
-    @line_profiler.profile
+    # @line_profiler.profile
     def __getitem__(self, idx: int) -> ScorePerformanceEntry:
         """Return a sample from the dataset.
 
