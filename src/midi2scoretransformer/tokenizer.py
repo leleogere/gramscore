@@ -22,7 +22,7 @@ from music21 import (
 
 from music21.common.numberTools import opFrac
 from music21.midi.translate import prepareStreamForMidi
-from score_utils import realize_spanners
+from .score_utils import realize_spanners
 
 
 class Downbeat:
