@@ -103,7 +103,7 @@ class ScorePerformanceDataset(Dataset):
         """
         self.entries = entries
         self.transforms = transforms
-        if self.transforms is not None and not isinstance(transforms):
+        if self.transforms is not None and not isinstance(transforms, list):
             self.transforms = [self.transforms]
 
     def __len__(self) -> int:
