@@ -125,9 +125,9 @@ def token_sequence_to_partitura(
             # Set last measure and measure rests end time
             for obj in measure_long_objets:
                 # Remove and re-add objects with fixed end time
-                start = obj.start.t
+                init_start = obj.start.t
                 score.remove(obj)
-                score.add(obj, start=start, end=time)
+                score.add(obj, start=init_start, end=time)
             measure_long_objets.clear()
             # Start new measure
             measure = pt.score.Measure(number=state.measure_number, name=state.measure_number)
