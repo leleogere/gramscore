@@ -148,7 +148,6 @@ def get_voice_mapping(notes_and_rests: list[pt.score.GenericNote]) -> dict[int, 
         and voice_absolute_into_voice_relative_to_staff(mapping[r.voice], one_based=True)[0]
         != 1  # They are not the first (and only because of sorting) voice of the staff
     )
-    print(voices_with_full_rests_to_remove)
     for voice, staff in voices_with_full_rests_to_remove:
         mapping.pop(voice)
         staffs_to_fix_order.add(staff)
