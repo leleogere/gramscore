@@ -231,7 +231,7 @@ def token_sequence_to_partitura(
                     tied_notes[token.note_tuple] = note
 
             score.add(note, start=time, end=time + duration)
-            if not voice_state.in_chord:
+            if not voice_state.in_chord and not (isinstance(token, Rest) and token.measure_rest):
                 voice_info["time"] += duration
 
         # Chord start
