@@ -1,5 +1,7 @@
 import functools
 import itertools
+import operator
+import warnings
 from collections import defaultdict
 from fractions import Fraction
 from pprint import pprint
@@ -9,6 +11,7 @@ import partitura as pt
 import partitura.score
 from loguru import logger
 
+from models.automata.voice_reordering import reorder_voices
 from src.models.automata.tokens import HasVoiceMixin
 from src.models.automata.tokens import SymbolicDurationType
 from src.models.automata.tokens import SymbolicDuration
@@ -75,15 +78,16 @@ def token_sequence_to_partitura(
         return duration_in_div.numerator
 
     score = pt.score.Part("P1", quarter_duration=global_division)
+    measure_long_objets: set[pt.score.Rest | pt.score.Measure] = set()
 
     voices_info = [
         {
             "time": 0,
-            "tied_notes": {},
             "tuplet": None,  # {"pt_obj": pt.score.Tuplet(), "notes": []}
         }
         for _ in range(states[0].num_voices)
     ]
+    tied_notes = {}
     for i, (token, state) in enumerate(zip(tokens, states)):
         # print(state.n, time, token, state)
         # print(
@@ -99,9 +103,15 @@ def token_sequence_to_partitura(
 
         # EOS
         if isinstance(token, EndOfScore):
+            time = max(v["time"] for v in voices_info)
+            for obj in measure_long_objets:
+                # Remove and re-add objects with fixed end time
+                init_start = obj.start.t
+                score.remove(obj)
+                score.add(obj, start=init_start, end=time)
+            measure_long_objets.clear()  # Should not be needed as we are at the end
             # Add the final barline
             score.add(pt.score.Barline("light-heavy"))
-            break
 
         # Bar
         elif isinstance(token, Bar):
@@ -110,14 +120,23 @@ def token_sequence_to_partitura(
             for v in voices_info:
                 v["time"] = time
 
-            duration = to_partitura_duration(token.actual_duration)
             # print(f"Measure length: {token.actual_duration} ({duration})")
+
+            # Set last measure and measure rests end time
+            for obj in measure_long_objets:
+                # Remove and re-add objects with fixed end time
+                start = obj.start.t
+                score.remove(obj)
+                score.add(obj, start=start, end=time)
+            measure_long_objets.clear()
+            # Start new measure
             measure = pt.score.Measure(number=state.measure_number, name=state.measure_number)
+            measure_long_objets.add(measure)
             ts = pt.score.TimeSignature(token.numerator, token.denominator)
             # print(time, duration)
-            score.add(measure, start=time, end=time + duration)
+            score.add(measure, start=time, end=None)  # End will be set at next bar
             prev_ts = next(score.last_point.iter_prev(cls=pt.score.TimeSignature), None)
-            # Do not repeat TS if already same one
+            # Only add TS if different one than previous one
             if prev_ts is None or prev_ts.beats != ts.beats or prev_ts.beat_type != ts.beat_type:
                 score.add(ts, start=time)
 
@@ -149,16 +168,13 @@ def token_sequence_to_partitura(
         elif isinstance(token, (Note, Rest)):
             voice_info = voices_info[token.voice_idx]
             voice_state = state.voices[token.voice_idx]
-            if isinstance(token, Rest) and token.measure_rest:
-                duration = measure.duration // global_division
-            else:
-                duration = token.duration.quarter_length
+            duration = token.duration.quarter_length  # Measure rests' duration will be fixed later
             time = voice_info["time"]
             # print(duration)
 
             # Rest
             if isinstance(token, Rest):
-                note = pt.score.Rest(voice=token.voice_idx + 1, staff=token.staff_idx_1b)
+                note = pt.score.Rest(voice=token.voice_idx_1b, staff=token.staff_idx_1b)
             # Note
             else:
                 cls = (
@@ -181,6 +197,7 @@ def token_sequence_to_partitura(
                 note.fermata = pt.score.Fermata()
             if isinstance(token, Rest) and token.measure_rest:
                 note.symbolic_duration = {}
+                measure_long_objets.add(note)  # Fix duration at next bar
             elif isinstance(token, Rest) or (isinstance(token, Note) and not token.grace):
                 note.symbolic_duration = {
                     "type": token.duration.type.value,
@@ -196,7 +213,7 @@ def token_sequence_to_partitura(
                         **note.symbolic_duration,
                     }
                     # print(f"  > {duration = }")
-            else:
+            else:  # Grace notes
                 note.symbolic_duration = {"type": "eighth"}
                 duration = 0
 
@@ -204,14 +221,14 @@ def token_sequence_to_partitura(
 
             if isinstance(token, Note):
                 # Resolve previous ties
-                if token.note_tuple in voice_info["tied_notes"].keys():
-                    prev_note = voice_info["tied_notes"][token.note_tuple]
+                if token.note_tuple in tied_notes.keys():
+                    prev_note = tied_notes[token.note_tuple]
                     note.tie_prev = prev_note
                     prev_note.tie_next = note
-                    voice_info["tied_notes"].pop(token.note_tuple)
+                    tied_notes.pop(token.note_tuple)
                 # Deal with future ties
                 if token.tied:
-                    voice_info["tied_notes"][token.note_tuple] = note
+                    tied_notes[token.note_tuple] = note
 
             score.add(note, start=time, end=time + duration)
             if not voice_state.in_chord:
@@ -232,7 +249,17 @@ def token_sequence_to_partitura(
 
         # Tuplet start
         elif isinstance(token, TupletStart):
-            voices_info[token.voice_idx]["tuplet"] = {"pt_obj": pt.score.Tuplet(), "notes": []}
+            voices_info[token.voice_idx]["tuplet"] = {
+                "pt_obj": pt.score.Tuplet(
+                    actual_notes=token.n_actual,
+                    normal_notes=token.n_normal,
+                    actual_type=token.unit_duration.type.value,
+                    actual_dots=token.unit_duration.dots,
+                    normal_type=token.unit_duration.type.value,
+                    normal_dots=token.unit_duration.dots,
+                ),
+                "notes": [],
+            }
 
         # Tuplet end
         elif isinstance(token, TupletEnd):
@@ -314,16 +341,15 @@ def partitura_to_token_sequence(
             measure_token = Bar(
                 numerator=time_signature.beats,
                 denominator=time_signature.beat_type,
-                name=measure.name,
             )
             real_duration_in_divs = measure.end.t - measure.start.t
             real_duration_in_quarters = Fraction(real_duration_in_divs, point.quarter)
-            if measure_token.normal_duration != real_duration_in_quarters:
+            if measure_token.nominal_duration != real_duration_in_quarters:
                 # print(
                 #     f"Measure ({measure_token.normal_duration}) does not match actual duration "
                 #     f"({real_duration_in_quarters}), marking as incomplete measure."
                 # )
-                measure_token.actual_duration = real_duration_in_quarters
+                measure_token.is_nominal = False
             measure_token._partitura_elements = [measure, time_signature]
             tokens.append(measure_token)
 
@@ -349,7 +375,10 @@ def partitura_to_token_sequence(
             tokens.append(token)
 
         # Look for Tuplet
-        tuplets = list(point.starting_objects[pt.score.Tuplet].keys())
+        tuplets = sorted(
+            point.starting_objects[pt.score.Tuplet].keys(),
+            key=lambda t: t.start_note.voice,
+        )
         for tuplet in tuplets:
             # print(tuplet)
             # Weird case where we encounter things like 6:6 tuplets (which shouldn't be a tuplet)
@@ -375,7 +404,7 @@ def partitura_to_token_sequence(
                 n_normal=normal_notes,
                 unit_duration=SymbolicDuration(
                     type=SymbolicDurationType(tuplet.actual_type),
-                    # dots=tuplet.nodots,
+                    dots=tuplet.actual_dots,
                 ),
             )
             token._partitura_elements = [tuplet]
@@ -383,11 +412,12 @@ def partitura_to_token_sequence(
             pending_tuplets.append(tuplet)
 
         # Look for notes and grace note
-        notes = list(
+        notes = sorted(
             itertools.chain(
                 point.starting_objects[pt.score.GraceNote].keys(),  # Grace notes before notes
                 point.starting_objects[pt.score.Note].keys(),
-            )
+            ),
+            key=lambda n: (isinstance(n, pt.score.GraceNote), n.voice, n.midi_pitch, n.step),
         )
         # Get notes per voice
         notes_per_voice = defaultdict(lambda: {"grace": [], "note": []})
@@ -433,7 +463,7 @@ def partitura_to_token_sequence(
                     accidental=note.alter or 0,
                     duration=nnote_sym_dur,
                     tied=note.tie_next is not None,
-                    tied_prev=note.tie_prev is not None,  # TODO: remove at some point?
+                    # tied_prev=note.tie_prev is not None,  # TODO: remove at some point?
                     voice_idx=note.voice - 1,  # 1-indexed
                     staff_idx=note.staff - 1,  # 1-indexed
                     stem_direction=note.stem_direction,
@@ -453,7 +483,10 @@ def partitura_to_token_sequence(
             # TODO: tied notes
 
         # Look for Rest
-        rests = list(point.starting_objects[pt.score.Rest].keys())
+        rests = sorted(
+            point.starting_objects[pt.score.Rest].keys(),
+            key=operator.attrgetter("voice"),
+        )
         for rest in rests:
             # Measure rest
             if "type" not in rest.symbolic_duration:
@@ -485,3 +518,39 @@ def partitura_to_token_sequence(
     tokens.append(EndOfScore())
 
     return tokens
+
+
+if __name__ == '__main__':
+    from pathlib import Path
+    from src.models.automata.tokens import fill_rests
+    import warnings
+
+    path = Path(
+        # "~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_860/xml_score.musicxml"
+        "~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_883/xml_score.musicxml"
+    ).expanduser()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        score = pt.load_musicxml(path, force_note_ids=True).parts[0]
+        score = pt.score.unfold_part_maximal(score)
+    fill_rests(score)
+    score = reorder_voices(score)
+
+    tokens = partitura_to_token_sequence(score)
+
+    detokenized_score = token_sequence_to_partitura(tokens)
+    # print(detokenized_score.pretty())
+
+    retokenized_tokens = partitura_to_token_sequence(detokenized_score)
+
+    # assert all(
+    #     token == retokenized_token for token, retokenized_token in zip(tokens, retokenized_tokens)
+    # ), "Tokens do not match after detokenization."
+
+    for token, retokenized_token in zip(tokens, retokenized_tokens):
+        if token != retokenized_token:
+            print(f"* {token}")
+            print(f"  {retokenized_token}")
+            # print(token._partitura_elements)
+            # print(retokenized_token._partitura_elements)

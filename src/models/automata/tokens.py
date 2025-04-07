@@ -1,6 +1,7 @@
 import copy
 import dataclasses
 import functools
+import math
 import operator
 import random
 from collections import defaultdict
@@ -110,12 +111,16 @@ class ChordState:
 class SegmentCompletionState:
     """This class represent the completion state of an abstract segment (tuplet or measure)."""
 
-    def __init__(self, duration: Fraction):
+    def __init__(self, duration: Fraction | None):
         self._duration = duration
         self._current_position = Fraction(0)
 
     @property
-    def duration(self) -> Fraction:
+    def is_bounded(self) -> bool:
+        return self._duration is not None
+
+    @property
+    def duration(self) -> Fraction | None:
         return self._duration
 
     @property
@@ -123,11 +128,15 @@ class SegmentCompletionState:
         return self._current_position
 
     @property
-    def remaining_duration(self) -> Fraction:
+    def remaining_duration(self) -> Fraction | float:
+        if not self.is_bounded:
+            return math.inf
         return self.duration - self.current_position
 
     @property
     def has_space_left(self) -> bool:
+        if not self.is_bounded:
+            return True
         return self.remaining_duration > 0
 
     def advance_position(self, increment: Fraction) -> None:
@@ -138,7 +147,7 @@ class SegmentCompletionState:
         # assert (
         #     self._current_position + increment <= self._duration
         # ), "Increment must not exceed the total duration."
-        if self._current_position + increment > self._duration:
+        if self.is_bounded and self._current_position + increment > self._duration:
             raise ValueError("Increment must not exceed the total duration.")
         self._current_position += increment
 
@@ -169,7 +178,7 @@ class TupletCompletionState(SegmentCompletionState):
 
 
 class VoiceCompletionState(SegmentCompletionState):
-    def __init__(self, total_time: Fraction):
+    def __init__(self, total_time: Fraction | None):
         super().__init__(total_time)
         self.chord: ChordState | None = None
         self.tuplet: TupletCompletionState | None = None
@@ -183,26 +192,20 @@ class VoiceCompletionState(SegmentCompletionState):
         return self.tuplet is not None
 
     @property
+    def in_structure(self):
+        return self.in_chord or self.in_tuplet
+
+    @property
     def completed(self) -> bool:
-        return not self.has_space_left and not self.in_tuplet and not self.in_chord
-
-    @property
-    def active(self) -> bool:
-        """Returns whether the voice is active, i.e. started but not completed."""
-        return self.started and not self.completed
-
-    @property
-    def inactive(self) -> bool:
-        return not self.active
+        return not self.in_structure and (  # Can't be completed if in a tuplet or a chord
+            not self.has_space_left
+            if self.is_bounded  # if bounded, check if has space left
+            else self.current_position > 0  # else, OK to end whenever we want
+        )
 
     @property
     def started(self) -> bool:
-        return self.current_position > 0 or self.in_chord or self.in_tuplet  # is in_chord needed?
-
-    # @property
-    # def prev_tied_notes(self) -> dict[NoteTuple, Fraction]:
-    #     """Returns all unresolved tied notes from previous positions."""
-    #     return dict(filter(lambda x: x[1] < self.current_position, self.tied_notes.items()))
+        return self.current_position > 0 or self.in_structure
 
     @property
     def segment_remaining_duration(self) -> Fraction:
@@ -229,7 +232,7 @@ class VoiceCompletionState(SegmentCompletionState):
 class TranscriptionState:
     def __init__(self, num_voices: int = 1, initial_measure_number: int = 1):
         self._voices: list[VoiceCompletionState] = [
-            VoiceCompletionState(Fraction(-1)) for _ in range(num_voices)
+            VoiceCompletionState(None) for _ in range(num_voices)
         ]
         self.tied_notes: dict[int, TieProperties] = {}  # pitch -> [note_tuple, min_resolution_pos]
         self._voices_initialized = False
@@ -241,8 +244,6 @@ class TranscriptionState:
 
     @property
     def voices(self) -> list[VoiceCompletionState]:
-        if not self._voices:
-            raise ValueError("Voices must be initialized before being accessed.")
         return self._voices
 
     def resolvable_tied_notes(self, position: Fraction) -> dict[int, TieProperties]:
@@ -272,19 +273,19 @@ class TranscriptionState:
     ) -> bool:
         return any(condition(voice) for voice in self.voices if filter_fn(voice))
 
-    def are_started_voices_synced(self) -> bool:
+    def are_started_voices_synced_and_not_in_structure(self) -> bool:
         all_positions = [v.current_position for v in self.voices]
         return self.check_for_all_voices(
-            lambda v: v.current_position == max(all_positions),
+            lambda v: v.current_position == max(all_positions) and not v.in_structure,
             filter_fn=operator.attrgetter("started"),
         )
 
     def are_started_voices_complete(self) -> bool:
-        return self.are_started_voices_synced() and self.check_for_any_voices(
+        return self.are_started_voices_synced_and_not_in_structure() and self.check_for_any_voices(
             operator.attrgetter("completed")
         )
 
-    def reset_voices(self, total_time: Fraction) -> None:
+    def reset_voices(self, total_time: Fraction | None) -> None:
         self._voices = [VoiceCompletionState(total_time) for _ in range(self.num_voices)]
         self._voices_initialized = True
 
@@ -457,29 +458,19 @@ class EndOfScore(Token):
 class Bar(Token):
     numerator: int
     denominator: int
-    actual_duration: Fraction | None = None
-    name: str | None = None
+    is_nominal: bool = True  # Whether the measure duration respects the time signature
 
     def __post_init__(self):
         if self.denominator.bit_count() != 1:
             raise ValueError("The denominator of the TS must be a power of 2.")
         if self.numerator < 1 or self.denominator < 1:
             raise ValueError("All time signature attributes values must be positive integers.")
-        if self.actual_duration is None:
-            self.actual_duration = self.normal_duration
-        elif self.actual_duration <= 0:
-            raise ValueError("The actual duration must be positive.")
-        # elif self.actual_duration > self.normal_duration:
-        #     raise ValueError(
-        #         "The actual duration must be less than the normal duration."
-        #     )  # Must it?
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return not state.voices_initialized or (  # Voices not initialized (first bar token)
-            state.are_started_voices_complete()  # All started voices are complete
-            and not state.check_for_any_voices(operator.attrgetter("in_tuplet"))  # Not in tuplet
-            and not state.check_for_any_voices(operator.attrgetter("in_chord"))  # Not in chord
+        return (
+            not state.voices_initialized  # Used for the first bar
+            or state.are_started_voices_complete()  # All started voices are complete
         )
 
     @classmethod
@@ -492,21 +483,21 @@ class Bar(Token):
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         # Reset all voices to zero
-        state.reset_voices(self.actual_duration)
+        state.reset_voices(self.nominal_duration if self.is_nominal else None)
         # Mark all ties as resolvable (after a bar line, all ties should be resolvable)
         for pitch, props in state.tied_notes.items():
             if props.min_resolution_pos != 0:  # Avoid resetting already resolvable ties
                 state.tied_notes[pitch] = TieProperties(props.note_tuple, Fraction(0))
         # Update the measure number
         if hasattr(self, "_partitura_elements"):
-            state.measure_number = self._partitura_elements[0].name
+            state.measure_number = self._partitura_elements[0].number
         else:
             state.measure_number += 1
         return state
 
     @property
-    def normal_duration(self) -> Fraction:
-        """Compute the normal duration of the measure in quarter notes, according to the time
+    def nominal_duration(self) -> Fraction:
+        """Compute the nominal duration of the measure in quarter notes, according to the time
         signature. Note that this is not necessarily the actual true duration of the measure,
         in case of anacrusis or incomplete measures for example.
 
@@ -531,15 +522,8 @@ class KeySignature(Token):
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        all_positions = [v.current_position for v in state.voices]
-        # print(f"{all_positions = }")
-        # print(state.check_for_any_voices(operator.attrgetter("in_chord")))
         return (
-            all(
-                pos in (Fraction(0), max(all_positions)) for pos in all_positions
-            )  # All voices at the same position (or not started)
-            and not state.check_for_any_voices(operator.attrgetter("in_tuplet"))  # Not in tuplet
-            and not state.check_for_any_voices(operator.attrgetter("in_chord"))  # Not in chord
+            state.are_started_voices_synced_and_not_in_structure()  # All started voices synced
             # Allow ties across key signature changes?
         )
 
@@ -615,29 +599,29 @@ class HasDurationMixin:
 
     duration: SymbolicDuration
 
-    @classmethod
-    def get_allowed_voices_and_duration(
-        cls,
-        state: TranscriptionState,
-        keep_empty: bool = False,
-    ) -> dict[int, list[SymbolicDuration]]:
-        voices_and_durations = {
-            i: [
-                d
-                for type_ in SymbolicDurationType
-                for dots in range(4)
-                if (d := SymbolicDuration(type_, dots)).quarter_length
-                <= v.segment_remaining_duration
-                and not (d.type is SymbolicDurationType.N64TH and d.dots > 1)
-                and not (d.type is SymbolicDurationType.N128TH and d.dots > 1)
-                and not (d.type is SymbolicDurationType.N256TH and d.dots > 0)
-                # TODO: are the 3 conditions above replaceable by d.quarter_length.denominator > min_dur.denominator?
-            ]
-            for i, v in enumerate(state.voices)
-        }
-        if not keep_empty:
-            voices_and_durations = {k: v for k, v in voices_and_durations.items() if v}
-        return voices_and_durations
+    # @classmethod
+    # def get_allowed_voices_and_duration(
+    #     cls,
+    #     state: TranscriptionState,
+    #     keep_empty: bool = False,
+    # ) -> dict[int, list[SymbolicDuration]]:
+    #     voices_and_durations = {
+    #         i: [
+    #             d
+    #             for type_ in SymbolicDurationType
+    #             for dots in range(4)
+    #             if (d := SymbolicDuration(type_, dots)).quarter_length
+    #             <= v.segment_remaining_duration
+    #             and not (d.type is SymbolicDurationType.N64TH and d.dots > 1)
+    #             and not (d.type is SymbolicDurationType.N128TH and d.dots > 1)
+    #             and not (d.type is SymbolicDurationType.N256TH and d.dots > 0)
+    #             # TODO: are the 3 conditions above replaceable by d.quarter_length.denominator > min_dur.denominator?
+    #         ]
+    #         for i, v in enumerate(state.voices)
+    #     }
+    #     if not keep_empty:
+    #         voices_and_durations = {k: v for k, v in voices_and_durations.items() if v}
+    #     return voices_and_durations
 
 
 @dataclass
@@ -658,13 +642,12 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         # print(self.voice_idx)
         voice = state.voices[self.voice_idx]
         if self.measure_rest:
-            duration_ok = voice.current_position == 0
+            return voice.current_position == 0 and not voice.in_structure
         else:
-            duration_ok = self.duration.quarter_length <= voice.segment_remaining_duration
-        return (
-            duration_ok  # Space left in the measure (or tuplet)
-            and not voice.in_chord  # Not in chord
-        )
+            return (
+                self.duration.quarter_length <= voice.segment_remaining_duration  # Space left
+                and not voice.in_chord  # Not in chord
+            )
 
     # TODO: TOFIX after global ties management
     # @classmethod
@@ -699,7 +682,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     octave: int
     accidental: int
     tied: bool
-    tied_prev: bool | None = None  # Not used by the model, only for debugging purposes
+    # tied_prev: bool | None = None  # Not used by the model, only for debugging purposes
     stem_direction: Literal["up", "down"] | None = None
     grace: bool = False
     fermata: bool = False
@@ -781,7 +764,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         # If not in chord
         if not voice.in_chord:
             return self.duration.quarter_length <= voice.segment_remaining_duration or (
-                self.grace and not voice.completed
+                self.grace and voice.has_space_left
             )
         # If in chord
         else:
@@ -867,7 +850,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
                 note_tuple=self.note_tuple,
                 min_resolution_pos=voice.current_position + self.duration.quarter_length,
             )
-        # Only advance position if in chord
+        # Only advance position if not in chord of grace note
         if voice.in_chord:
             voice.chord.notes.append(self.note_tuple)
         elif self.grace:
@@ -888,20 +871,20 @@ class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
             )
         )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        voices_and_durations = cls.get_allowed_voices_and_duration(state)
-        # Discard voices that are already in a chord
-        valid_voice_idxs = [
-            v
-            for v, d in voices_and_durations.items()
-            if not state.voices[v].in_chord and len(d) > 0
-        ]
-        voice_idx = sample_random_voice(valid_voice_idxs)
-        return cls(
-            duration=random.choice(voices_and_durations[voice_idx]),
-            voice_idx=voice_idx,
-        )
+    # @classmethod
+    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+    #     voices_and_durations = cls.get_allowed_voices_and_duration(state)
+    #     # Discard voices that are already in a chord
+    #     valid_voice_idxs = [
+    #         v
+    #         for v, d in voices_and_durations.items()
+    #         if not state.voices[v].in_chord and len(d) > 0
+    #     ]
+    #     voice_idx = sample_random_voice(valid_voice_idxs)
+    #     return cls(
+    #         duration=random.choice(voices_and_durations[voice_idx]),
+    #         voice_idx=voice_idx,
+    #     )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].chord = ChordState(self.duration)
@@ -919,14 +902,14 @@ class ChordEnd(Token, HasVoiceMixin):
             )
         )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        # Get voices with active chord
-        valid_voice_idxs = [
-            i for i, v in enumerate(state.voices) if v.in_chord and v.chord.can_resolve
-        ]
-        voice_idx = sample_random_voice(valid_voice_idxs)
-        return cls(voice_idx=voice_idx)
+    # @classmethod
+    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+    #     # Get voices with active chord
+    #     valid_voice_idxs = [
+    #         i for i, v in enumerate(state.voices) if v.in_chord and v.chord.can_resolve
+    #     ]
+    #     voice_idx = sample_random_voice(valid_voice_idxs)
+    #     return cls(voice_idx=voice_idx)
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
@@ -942,7 +925,7 @@ class TupletStart(Token, HasVoiceMixin):
     unit_duration: SymbolicDuration
 
     # _allowed_divisions = [3, 5]
-    _allowed_divisions = [2, 3, 5]
+    # _allowed_divisions = [2, 3, 5]
 
     def __post_init__(self):
         pass
@@ -966,48 +949,48 @@ class TupletStart(Token, HasVoiceMixin):
                 v.segment_remaining_duration > 0  # Space left in the measure
                 and not v.in_chord  # Not in chord
                 and not v.in_tuplet  # Not already in tuplet
-                and SymbolicDurationType.min().quarter_length * min(cls._allowed_divisions)
-                <= v.segment_remaining_duration  # At least 2 32nd notes left
+                and SymbolicDurationType.min().quarter_length * 2
+                <= v.segment_remaining_duration  # At least 2 (min_dur)th notes left
             )
         )
 
     def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
         return self.normal_duration <= state.voices[self.voice_idx].segment_remaining_duration
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        voices_and_unit_types = {
-            i: [
-                SymbolicDuration(d)
-                for d in SymbolicDurationType
-                if d.quarter_length * min(cls._allowed_divisions) <= v.segment_remaining_duration
-            ]
-            for i, v in enumerate(state.voices)
-            if (not v.in_chord and not v.in_tuplet)  # Not in chord  # Not already in tuplet
-        }
-        voices_and_unit_types = {k: v for k, v in voices_and_unit_types.items() if v}
-        voice_idx = sample_random_voice(list(voices_and_unit_types.keys()))
-        unit_duration = random.choice(voices_and_unit_types[voice_idx])
-        allowed_n_normal = [
-            n
-            for n in cls._allowed_divisions
-            if n * unit_duration.quarter_length
-            <= state.voices[voice_idx].segment_remaining_duration
-        ]
-        n_normal = random.choice(allowed_n_normal)
-        allowed_n_actual = [n for n in cls._allowed_divisions if n != n_normal]
-        n_actual = random.choice(allowed_n_actual)
-        return cls(
-            voice_idx=voice_idx,
-            n_actual=n_actual,
-            n_normal=n_normal,
-            unit_duration=unit_duration,
-        )
-        # return cls(
-        #     n_actual=3,
-        #     n_normal=2,
-        #     unit_duration=SymbolicDurationType.N32ND,
-        # )
+    # @classmethod
+    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+    #     voices_and_unit_types = {
+    #         i: [
+    #             SymbolicDuration(d)
+    #             for d in SymbolicDurationType
+    #             if d.quarter_length * min(cls._allowed_divisions) <= v.segment_remaining_duration
+    #         ]
+    #         for i, v in enumerate(state.voices)
+    #         if (not v.in_chord and not v.in_tuplet)  # Not in chord  # Not already in tuplet
+    #     }
+    #     voices_and_unit_types = {k: v for k, v in voices_and_unit_types.items() if v}
+    #     voice_idx = sample_random_voice(list(voices_and_unit_types.keys()))
+    #     unit_duration = random.choice(voices_and_unit_types[voice_idx])
+    #     allowed_n_normal = [
+    #         n
+    #         for n in cls._allowed_divisions
+    #         if n * unit_duration.quarter_length
+    #         <= state.voices[voice_idx].segment_remaining_duration
+    #     ]
+    #     n_normal = random.choice(allowed_n_normal)
+    #     allowed_n_actual = [n for n in cls._allowed_divisions if n != n_normal]
+    #     n_actual = random.choice(allowed_n_actual)
+    #     return cls(
+    #         voice_idx=voice_idx,
+    #         n_actual=n_actual,
+    #         n_normal=n_normal,
+    #         unit_duration=unit_duration,
+    #     )
+    #     # return cls(
+    #     #     n_actual=3,
+    #     #     n_normal=2,
+    #     #     unit_duration=SymbolicDurationType.N32ND,
+    #     # )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].tuplet = TupletCompletionState(
@@ -1035,16 +1018,16 @@ class TupletEnd(Token, HasVoiceMixin):
             )
         )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        # Get voices with active tuplet
-        valid_voice_idxs = [
-            i
-            for i, v in enumerate(state.voices)
-            if v.in_tuplet and not v.tuplet.has_space_left and not v.in_chord
-        ]
-        voice_idx = sample_random_voice(valid_voice_idxs)
-        return cls(voice_idx=voice_idx)
+    # @classmethod
+    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
+    #     # Get voices with active tuplet
+    #     valid_voice_idxs = [
+    #         i
+    #         for i, v in enumerate(state.voices)
+    #         if v.in_tuplet and not v.tuplet.has_space_left and not v.in_chord
+    #     ]
+    #     voice_idx = sample_random_voice(valid_voice_idxs)
+    #     return cls(voice_idx=voice_idx)
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].tuplet = None
