@@ -123,16 +123,13 @@ def get_voice_mapping(notes_and_rests: list[pt.score.GenericNote]) -> dict[int, 
 
     # Remaining ambiguities are due to voices being exactly identical
     # In those cases, we arbitrarily choose voice with the lowest index and drop the others
+    staffs_to_fix_order = set()  # Keep track of staffs to be fixed after discarding voices
     if groups_to_resolve:
-        # Keep track of staff that will need to be fixed to avoid going through all of them
-        # (probably not very useful in practice)
-        staffs_to_fix = set()
-
         # Go through the groups to resolve, choose the first voice each time, and drop the others
         for old_voices, new_voices in groups_to_resolve:
             # Arbitrary take the lowest voice in the original score
             chosen = sorted(old_voices)[0]
-            staffs_to_fix.add(
+            staffs_to_fix_order.add(
                 voice_absolute_into_voice_relative_to_staff(chosen, one_based=True)[1]
             )
             mapping[chosen] = new_voices[0]
@@ -141,33 +138,48 @@ def get_voice_mapping(notes_and_rests: list[pt.score.GenericNote]) -> dict[int, 
                 if e != chosen:
                     mapping.pop(e)
 
-        # Shift mapping to fill holes introduced by removing some voices (staff-wise)
-        for staff in staffs_to_fix:
-            first_voice_of_staff = voice_relative_to_staff_into_voice_absolute(
-                1,
-                staff,
-                one_based=True,
-            )
-            # The following statement does:
-            #   - Take all pairs (old_voice, new_voice) that are in the staff (e.g. 5-8 for staff 2)
-            #   - Sort them by new_voice (e.g. 5, 7, 8, if voice 6 is missing)
-            #   - Enumerate this list, starting with the first voice of the staff (e.g. 5)
-            #   - Modify the mapping associating the old voice with this new enumerated value,
-            #     therefore without any holes
-            staff_mapping = {
-                old: new_without_holes
-                for new_without_holes, (old, new) in enumerate(
-                    sorted(
-                        filter(
-                            lambda item: first_voice_of_staff <= item[0] < first_voice_of_staff + 4,
-                            mapping.items(),
-                        ),
-                        key=operator.itemgetter(1),
+    # Remove voices with a single measure-rest (except it's the only voice of the staff)
+    voices_with_full_rests_to_remove = set(
+        (r.voice, r.staff)
+        for r in notes_and_rests
+        if isinstance(r, pt.score.Rest)  # Get rests
+        and not r.symbolic_duration  # Only measure-rests (they do not have symbolic duration)
+        and r.voice in mapping  # Discard if the voice have been deleted before
+        and voice_absolute_into_voice_relative_to_staff(mapping[r.voice], one_based=True)[0]
+        != 1  # They are not the first (and only because of sorting) voice of the staff
+    )
+    print(voices_with_full_rests_to_remove)
+    for voice, staff in voices_with_full_rests_to_remove:
+        mapping.pop(voice)
+        staffs_to_fix_order.add(staff)
+
+    # Shift mapping to fill holes introduced by removing some voices (staff-wise)
+    for staff in staffs_to_fix_order:
+        first_voice_of_staff = voice_relative_to_staff_into_voice_absolute(
+            1,
+            staff,
+            one_based=True,
+        )
+        # The following statement does:
+        #   - Take all pairs (old_voice, new_voice) that are in the staff (e.g. 5-8 for staff 2)
+        #   - Sort them by new_voice (e.g. 5, 7, 8, if voice 6 is missing)
+        #   - Enumerate this list, starting with the first voice of the staff (e.g. 5)
+        #   - Modify the mapping associating the old voice with this new enumerated value,
+        #     therefore without any holes
+        staff_mapping = {
+            old: new_without_holes
+            for new_without_holes, (old, new) in enumerate(
+                sorted(
+                    filter(
+                        lambda item: first_voice_of_staff <= item[0] < first_voice_of_staff + 4,
+                        mapping.items(),
                     ),
-                    start=first_voice_of_staff,
-                )
-            }
-            mapping.update(staff_mapping)
+                    key=operator.itemgetter(1),
+                ),
+                start=first_voice_of_staff,
+            )
+        }
+        mapping.update(staff_mapping)
 
     # Sort mapping (not needed, only for debugging)
     # mapping = {e: i for e, i in sorted(mapping.items(), key=operator.itemgetter(0))}
@@ -210,8 +222,11 @@ def reorder_voices(part: pt.score.Part) -> pt.score.Part:
 if __name__ == '__main__':
     from pathlib import Path
 
-    # path = Path("/home/gerel/Documents/datasets/bach-dataset/Bach/Fugue/bwv_868/xml_score.musicxml")
-    path = Path("/home/gerel/Documents/MuseScore4/Scores/voices_to_reorder.musicxml")
+    # fmt: off
+    path = Path("~/Documents/datasets/bach-dataset/Bach/Fugue/bwv_868/xml_score.musicxml").expanduser()
+    # path = Path("~/Documents/MuseScore4/Scores/voices_to_reorder.musicxml").expanduser()
+    # fmt: on
+
     score = pt.load_musicxml(path)
     assert len(score.parts) == 1
     score = score.parts[0]
