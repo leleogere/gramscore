@@ -43,19 +43,18 @@ class TokenTensor(torch.Tensor):
         "token_type": len(TOKEN_INDEXER),
         "bar_numerator": 1,
         "bar_denominator": len(TS_DENOMINATOR_INDEXER),
-        "bar_actual_duration_numerator": 1,
-        "bar_actual_duration_denominator": 1,
-        "key_signature": 15,
-        "clef_type": 1,
-        "staff_idx": 4,
-        "voice_idx": 16,
+        "bar_is_nominal": 1,  # Boolean
+        "key_signature": 15,  # -7 to 7
+        "clef_type": 1,  # G or F
+        "staff_idx": 4,  # Max 4 staves
+        "voice_idx": 16,  # Max 4 voices per staff
         "duration_type": len(DURATION_INDEXER),
-        "duration_dots": 1,
+        "duration_dots": 4,  # Max 3 dots
         "note_class": 7,
         "note_octave": 9,
         "note_accidental": 5,
         "note_tied": 1,
-        "note_stem_direction": 3,
+        "note_stem_direction": 3,  # up, down, or none
         "tuplet_actual_notes": 1,
         "tuplet_normal_notes": 1,
     }
@@ -114,7 +113,7 @@ class TokenTensor(torch.Tensor):
             num_classes=cls.DIMS[dim_name],
         )
 
-    def _onehot_decode(self, dim_name: str):
+    def _onehot_decode(self, dim_name: str) -> int:
         if dim_name not in self.DIMS:
             raise KeyError(f"Unknown dimension name {dim_name}")
         return (
@@ -145,15 +144,11 @@ class TokenTensor(torch.Tensor):
             numerator = self["bar_numerator"]
             denominator_idx = self._onehot_decode("bar_denominator")
             denominator = self.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
-            actual_duration_numerator = self["bar_actual_duration_numerator"]
-            actual_duration_denominator = self["bar_actual_duration_denominator"]
+            is_nominal = bool(self["bar_is_nominal"] > 0.5)
             return tk.Bar(
                 numerator=clip_cast(numerator, 1, type_=int),
-                denominator=clip_cast(denominator, 1, type_=int),
-                actual_duration=Fraction(
-                    clip_cast(actual_duration_numerator, 1, type_=int),
-                    clip_cast(actual_duration_denominator, 1, type_=int),
-                ),
+                denominator=denominator,
+                is_nominal=is_nominal,
             )
 
         # KeySignature
@@ -176,7 +171,7 @@ class TokenTensor(torch.Tensor):
         # Get eventual duration
         duration_type_idx = self._onehot_decode("duration_type")
         duration_type = self.DURATION_INDEXER_INV[duration_type_idx]
-        duration_dots = clip_cast(self["duration_dots"], 0, 3, type_=int)
+        duration_dots = self._onehot_decode("duration_dots")
 
         # Note
         if token_type == tk.Note:
@@ -195,7 +190,8 @@ class TokenTensor(torch.Tensor):
                 staff_idx=staff_idx,
                 voice_idx=voice_idx,
                 duration=tk.SymbolicDuration(
-                    type=tk.SymbolicDurationType(duration_type), dots=duration_dots
+                    type=tk.SymbolicDurationType(duration_type),
+                    dots=duration_dots,
                 ),
             )
 
@@ -205,7 +201,8 @@ class TokenTensor(torch.Tensor):
                 staff_idx=staff_idx,
                 voice_idx=voice_idx,
                 duration=tk.SymbolicDuration(
-                    type=tk.SymbolicDurationType(duration_type), dots=duration_dots
+                    type=tk.SymbolicDurationType(duration_type),
+                    dots=duration_dots,
                 ),
             )
 
@@ -214,7 +211,8 @@ class TokenTensor(torch.Tensor):
             return tk.ChordStart(
                 voice_idx=voice_idx,
                 duration=tk.SymbolicDuration(
-                    type=tk.SymbolicDurationType(duration_type), dots=duration_dots
+                    type=tk.SymbolicDurationType(duration_type),
+                    dots=duration_dots,
                 ),
             )
 
@@ -264,8 +262,7 @@ class TokenTensor(torch.Tensor):
             "bar_denominator",
             self.TS_DENOMINATOR_INDEXER[bar.denominator],
         )
-        self["bar_actual_duration_numerator"] = bar.actual_duration.numerator
-        self["bar_actual_duration_denominator"] = bar.actual_duration.denominator
+        self["bar_is_nominal"] = int(bar.is_nominal)
 
     def __embed_key_signature_information(self, key_signature: tk.KeySignature) -> Self:
         fifths = key_signature.accidentals + 7
@@ -281,7 +278,7 @@ class TokenTensor(torch.Tensor):
             "duration_type",
             self.DURATION_INDEXER[has_duration.duration.type.value],
         )
-        self["duration_dots"] = has_duration.duration.dots
+        self["duration_dots"] = self._create_onehot("duration_dots", has_duration.duration.dots)
 
     def __embed_staff_information(self, has_staff: tk.HasStaffMixin) -> Self:
         self["staff_idx"] = self._create_onehot("staff_idx", has_staff.staff_idx)
@@ -314,7 +311,10 @@ class TokenTensor(torch.Tensor):
             "duration_type",
             self.DURATION_INDEXER[tuplet_start.unit_duration.type.value],
         )
-        self["duration_dots"] = tuplet_start.unit_duration.dots
+        self["duration_dots"] = self._create_onehot(
+            "duration_dots",
+            tuplet_start.unit_duration.dots,
+        )
         self.__embed_voice_information(tuplet_start)
 
     def __embed_tuplet_end_information(self, tuplet_end: tk.TupletEnd) -> Self:
@@ -373,9 +373,9 @@ class TokenTensor(torch.Tensor):
 
 
 if __name__ == '__main__':
-    # token_tensor = TokenTensor(torch.arange(2 * 95, dtype=torch.float).reshape(2, 95))
-    token_tensor = TokenTensor(torch.randn(2, 95))
-    # token_tensor = TokenTensor(torch.zeros(2, 95))
+    # token_tensor = TokenTensor(torch.arange(2 * 97, dtype=torch.float).reshape(2, 97))
+    token_tensor = TokenTensor(torch.randn(2, 97))
+    # token_tensor = TokenTensor(torch.zeros(2, 97))
     print(token_tensor)
     print(f"{token_tensor[..., 5] = }")
     print(f"{token_tensor[0, 'token_type'] = }")
@@ -387,7 +387,7 @@ if __name__ == '__main__':
     print(token_tensor)
 
     # Test decoding
-    tokens = token_tensor.to_token()
+    tokens = token_tensor.to_tokens()
     for token in tokens:
         print(token)
 
@@ -413,8 +413,8 @@ if __name__ == '__main__':
     print(token_tensor)
 
     # Test encoding/decoding
-    random_token_tensor = TokenTensor(torch.randn(3, 100, 2, 95))
-    tokens = random_token_tensor.to_token()
+    random_token_tensor = TokenTensor(torch.randn(3, 100, 2, 97))
+    tokens = random_token_tensor.to_tokens()
     revectorized = TokenTensor.from_tokens(tokens)
-    retokenized = revectorized.to_token()
+    retokenized = revectorized.to_tokens()
     print(all(t == rt for t, rt in zip(tokens, retokenized)))

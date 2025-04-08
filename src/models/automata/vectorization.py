@@ -22,19 +22,18 @@ DIMS = {
     "token_type": len(TOKEN_INDEXER),
     "bar_numerator": 1,
     "bar_denominator": len(TS_DENOMINATOR_INDEXER),
-    "bar_actual_duration_numerator": 1,
-    "bar_actual_duration_denominator": 1,
-    "key_signature": 15,
-    "clef_type": 1,
-    "staff_idx": 4,
-    "voice_idx": 16,
+    "bar_is_nominal": 1,  # True or False
+    "key_signature": 15,  # -7 to 7
+    "clef_type": 1,  # G or F
+    "staff_idx": 4,  # 0 to 3 (max 4 staves)
+    "voice_idx": 16,  # 0 to 15 (max 4 voices per staff)
     "duration_type": len(DURATION_INDEXER),
-    "duration_dots": 1,
-    "note_class": 7,
-    "note_octave": 9,
-    "note_accidental": 5,
-    "note_tied": 1,
-    "note_stem_direction": 3,
+    "duration_dots": 4,  # Max 3 dots
+    "note_class": 7,  # A to G
+    "note_octave": 9,  # 0 to 8 (max 8 octaves)
+    "note_accidental": 5,  # -2 to 2 (double flat to double sharp)
+    "note_tied": 1,  # True or False
+    "note_stem_direction": 3,  # up, down, or none
     "tuplet_actual_notes": 1,
     "tuplet_normal_notes": 1,
 }
@@ -65,8 +64,7 @@ def vectorize_token(token: tk.Token):
     if isinstance(token, tk.Bar):
         vector[CUM_DIMS["bar_numerator"]] = token.numerator
         vector[CUM_DIMS["bar_denominator"] + TS_DENOMINATOR_INDEXER[token.denominator]] = 1
-        vector[CUM_DIMS["bar_actual_duration_numerator"]] = token.actual_duration.numerator
-        vector[CUM_DIMS["bar_actual_duration_denominator"]] = token.actual_duration.denominator
+        vector[CUM_DIMS["bar_is_nominal"]] = token.is_nominal
 
     # KeySignature
     if isinstance(token, tk.KeySignature):
@@ -89,7 +87,7 @@ def vectorize_token(token: tk.Token):
     # HasDurationMixin
     if isinstance(token, tk.HasDurationMixin):
         vector[CUM_DIMS["duration_type"] + DURATION_INDEXER[token.duration.type.value]] = 1
-        vector[CUM_DIMS["duration_dots"]] = token.duration.dots
+        vector[CUM_DIMS["duration_dots"] + token.duration.dots] = 1
 
     # Note
     if isinstance(token, tk.Note):
@@ -105,13 +103,13 @@ def vectorize_token(token: tk.Token):
         vector[CUM_DIMS["tuplet_actual_notes"]] = token.n_actual
         vector[CUM_DIMS["tuplet_normal_notes"]] = token.n_normal
         vector[CUM_DIMS["duration_type"] + DURATION_INDEXER[token.unit_duration.type.value]] = 1
-        vector[CUM_DIMS["duration_dots"]] = token.unit_duration.dots
+        vector[CUM_DIMS["duration_dots"] + token.unit_duration.dots] = 1
 
     return vector
 
 
 def unvectorize_token(vector: torch.Tensor):
-    def unvectorize_ohe(vector: torch.Tensor, key: str):
+    def unvectorize_ohe(vector: torch.Tensor, key: str) -> int:
         start, length = CUM_DIMS[key], DIMS[key]
         return vector[start : start + length].argmax().item()
 
@@ -130,15 +128,11 @@ def unvectorize_token(vector: torch.Tensor):
         numerator = vector[CUM_DIMS["bar_numerator"]]
         denominator_idx = unvectorize_ohe(vector, "bar_denominator")
         denominator = TS_DENOMINATOR_INDEXER_INV[denominator_idx]
-        actual_duration_numerator = vector[CUM_DIMS["bar_actual_duration_numerator"]]
-        actual_duration_denominator = vector[CUM_DIMS["bar_actual_duration_denominator"]]
+        is_nominal = bool(vector[CUM_DIMS["bar_is_nominal"]] > 0.5)
         return tk.Bar(
             numerator=clip_cast(numerator, 1, type_=int),
-            denominator=clip_cast(denominator, 1, type_=int),
-            actual_duration=Fraction(
-                clip_cast(actual_duration_numerator, 1, type_=int),
-                clip_cast(actual_duration_denominator, 1, type_=int),
-            ),
+            denominator=denominator,
+            is_nominal=is_nominal,
         )
 
     # KeySignature
@@ -161,7 +155,7 @@ def unvectorize_token(vector: torch.Tensor):
     # Get eventual duration
     duration_type_idx = unvectorize_ohe(vector, "duration_type")
     duration_type = DURATION_INDEXER_INV[duration_type_idx]
-    duration_dots = clip_cast(vector[CUM_DIMS["duration_dots"]], 0, 3, type_=int)
+    duration_dots = unvectorize_ohe(vector, "duration_dots")
 
     # Note
     if token_type == tk.Note:
@@ -278,5 +272,5 @@ if __name__ == '__main__':
         # print()
         # print(vector)
         unvectorized = unvectorize_token(vector)
-        print(str(unvectorized))
+        # print(str(unvectorized))
         assert unvectorize_token(vectorize_token(unvectorized)) == unvectorized
