@@ -33,7 +33,7 @@ chat_template = """
 # %%
 # Load dataset
 # dataset = load_dataset("lucasmccabe-lmi/CodeAlpaca-20k", split="train")
-dataset = load_dataset("eli5_category", split="train[:5000]")
+dataset = load_dataset("eli5_category", split="train")
 dataset = dataset.train_test_split(test_size=0.2)
 dataset = dataset.flatten()
 
@@ -332,8 +332,8 @@ training_args = SFTConfig(
     max_seq_length=model.config.max_position_embeddings,
     output_dir="/tmp",
     # remove_unused_columns=False,
-    per_gpu_train_batch_size=8,
-    per_gpu_eval_batch_size=8,
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=2,
     num_train_epochs=10,
     report_to="wandb",
 )

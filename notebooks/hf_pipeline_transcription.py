@@ -1,4 +1,9 @@
+from datetime import datetime
+from pathlib import Path
+import os
+
 import peft
+import torch
 import trl
 import datasets
 from loguru import logger
@@ -10,9 +15,8 @@ from data.components.patched_tokenizer import PatchedTokenizer
 transformers.set_seed(10)
 
 TEXT_DATASET = (
-    "/home/gerel/Documents/datasets/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6_TEXT"
+    "/local/DEEPLEARNING/EPR/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6_TEXT"
 ).removesuffix("/")
-
 
 # %%
 # Load dataset
@@ -42,29 +46,56 @@ chat_template = """
     {{- raise_exception('Template only supports one input type message, eventually followed by one output type message.') }}
 {%- endif %}
 """.strip()
+# chat_template = """
+# {%- if messages|length == 1 and messages[0]['type'] == 'input' %}
+#     {{- '<|user|>' + messages[0]['content'] }}
+# {%- elif messages|length == 2 and messages[0]['type'] == 'input' and messages[1]['type'] == 'output' %}
+#     {{- '<|user|>' + messages[0]['content'] + '<|assistant|>' }}
+#     {%- generation %}
+#         {{- messages[1]['content'] + eos_token }}
+#     {%- endgeneration %}
+# {%- else %}
+#     {{- raise_exception('Template only supports one input type message, eventually followed by one output type message.') }}
+# {%- endif %}
+# """.strip()
 
 
 # %%
 # Load tokenizer
-model_id = "facebook/opt-350m"
+# model_id = "facebook/opt-350m"
 # model_id = "mistralai/Mistral-7B-Instruct-v0.3"
-# model_id = "mistralai/Mistral-7B-v0.3"
-# tokenizer = PatchedTokenizer.from_pretrained(model_id)
-tokenizer = PatchedTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
+model_id = "mistralai/Mistral-7B-v0.3"
+# model_id = "bigcode/starcoderbase-1b"
+# model_id = "microsoft/Phi-3-mini-128k-instruct"
+tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
+# tokenizer = PatchedTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
 max_context_length = transformers.AutoConfig.from_pretrained(model_id).max_position_embeddings
 print(f"Max context length: {max_context_length}")
 
-if tokenizer.pad_token is None:
-    print("No pad token, use '[control_8]' mistral token as pad token")
-    assert tokenizer.name_or_path == 'mistralai/Mistral-7B-v0.3', "Only Mistral tokenizer supported"
-    tokenizer.pad_token = '[control_8]'
+# if tokenizer.name_or_path == "bigcode/starcoderbase-1b":
+#     print("Add special tokens to the StarCoder tokenizer")
+#     tokenizer.add_special_tokens(
+#         {"additional_special_tokens": ["<|input|>", "<|output|>", "<|end|>", "<pad>"]},
+#     )
+#     tokenizer.pad_token = "<pad>"
+#     tokenizer.eos_token = "<|end|>"
+#     tokenizer.chat_template = chat_template
 
-if tokenizer.chat_template is None:
-    print("No chat template, use the Mistral-7B-Instruct-v0.3 one (patched with generation tags)")
-    # tokenizer.chat_template = PatchedTokenizer.from_pretrained(
-    #     "mistralai/Mistral-7B-Instruct-v0.3"
-    # ).chat_template
+# if tokenizer.name_or_path == "microsoft/Phi-3-mini-128k-instruct":
+#     tokenizer.pad_token = "<unk>"
+#     tokenizer.chat_template = chat_template
+
+if tokenizer.name_or_path == 'mistralai/Mistral-7B-v0.3':
+    print("Using '[control_8]' mistral token as pad token")
+    tokenizer.pad_token = '[control_8]'
     tokenizer.chat_template = chat_template
+
+# if tokenizer.chat_template is None:
+#     print("No chat template, use the Mistral-7B-Instruct-v0.3 one (patched with generation tags)")
+#     # tokenizer.chat_template = PatchedTokenizer.from_pretrained(
+#     #     "mistralai/Mistral-7B-Instruct-v0.3"
+#     # ).chat_template
+#     tokenizer.chat_template = chat_template
 
 
 # %%
@@ -105,50 +136,88 @@ def preprocess_function(samples):
 tokenized_dataset = dataset.map(
     preprocess_function,
     batched=True,
-    remove_columns=dataset["train"].column_names,
+    remove_columns=dataset["validation"].column_names,
 )
+
+
+if False:
+    lengths = [len(x) for x in tokenized_dataset["validation"]["input_ids"]]
+    print("Min: ", min(lengths))
+    print("Max: ", max(lengths))
+    print("Mean:", sum(lengths) / len(lengths))
 
 data_collator = trl.DataCollatorForCompletionOnlyLM(
     tokenizer=tokenizer,
     response_template="[/INST]",
     instruction_template="[INST]",
+    # response_template="<|assistant|>",
+    # instruction_template="<|user|>",
 )
+
+# %%
+# Prepare model
+model = transformers.AutoModelForCausalLM.from_pretrained(
+    model_id,
+    torch_dtype=torch.bfloat16,
+    quantization_config=transformers.BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype="bfloat16",
+        bnb_4bit_quant_storage="bfloat16",
+    ),
+)
+# Fix the token embeddings size as we added tokens
+# model.resize_token_embeddings(len(tokenizer))
+# Create the PEFT model
+model = peft.get_peft_model(
+    model,
+    peft_config=peft.LoraConfig(
+        r=8,
+        lora_alpha=8,
+        lora_dropout=0.1,
+        task_type="CAUSAL_LM",
+        inference_mode=False,
+        #target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        target_modules=["q_proj", "v_proj"],
+        layers_to_transform=list(range(24, 32)),
+        layers_pattern="layers",
+        # target_modules="all-linear",
+        # init_lora_weights="pissa",
+    ),
+)
+model = peft.prepare_model_for_kbit_training(model)
 
 
 # %%
 # Prepare the training configuration
+output_dir = Path(f"./outputs/{datetime.now().strftime('%Y%m%d_%H%M')}")
+output_dir.mkdir(parents=True, exist_ok=False)
 training_args = SFTConfig(
     max_seq_length=max_context_length,
-    output_dir="/tmp",
     per_device_train_batch_size=1,
     per_device_eval_batch_size=1,
+    gradient_accumulation_steps=4,
     num_train_epochs=10,
+    gradient_checkpointing=True,
+    optim="adafactor",
+    evaluation_strategy="steps",
+    eval_steps=5,
+    save_steps=10,
     report_to="wandb",
+    output_dir=output_dir,
+    logging_dir=output_dir / "logs",
 )
 trainer = SFTTrainer(
-    model_id,
+    model,
     train_dataset=tokenized_dataset["train"],
     eval_dataset=tokenized_dataset["validation"],
     data_collator=data_collator,
     args=training_args,
-    peft_config=peft.LoraConfig(
-        r=128,
-        lora_alpha=128,
-        lora_dropout=0.1,
-        inference_mode=False,
-    ),
-    # deal with quantization
-    model_init_kwargs=dict(
-        quantization_config=transformers.BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype="bfloat16",
-            bnb_4bit_quant_storage="bfloat16",
-        )
-    ),
 )
 
 # %%
 # Train the model
 trainer.train()
+
+trainer.save_model(output_dir / "final_model")

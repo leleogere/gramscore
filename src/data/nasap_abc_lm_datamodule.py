@@ -226,8 +226,8 @@ class AsapABCLanguageModelDataModule(LightningDataModule):
 
 if __name__ == "__main__":
     data_module = AsapABCLanguageModelDataModule(
-        data_dir=Path("./data/nasap"),
-        tokenizer="mistralai/Codestral-22B-v0.1",
+        data_dir=Path("/local/DEEPLEARNING/EPR/nasap"),
+        tokenizer="./weights/Codestral-22B-v0.1",
         chunking_config=ChunkingConfig(
             num_measures_per_chunk=4,
             new_dataset_path=Path("./data/nasap_chunked"),

@@ -9,8 +9,9 @@ from src.data.components.chunking_utils import ChunkingConfig
 
 # fmt: off
 SEPARATOR = "\n\n" + "#" * 60 + "\n" + "#" * 60 + "\n\n"
-NASAP_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset")
-SPLIT_NASAP_PATH = Path("/home/gerel/Documents/datasets/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6")
+NASAP_PATH = Path("/local/DEEPLEARNING/EPR/nasap-dataset")
+# SPLIT_NASAP_PATH = Path("/local/DEEPLEARNING/EPR/nasap-dataset_chunks=32_overlap=True_min-ratio=0.6")
+SPLIT_NASAP_PATH = Path("/local/DEEPLEARNING/EPR/nasap-dataset_chunks=16_overlap=True_min-ratio=0.6")
 TEXT_DATASET_PATH = SPLIT_NASAP_PATH.parent / (SPLIT_NASAP_PATH.name + "_TEXT")
 N_JOBS = 63
 # fmt: on

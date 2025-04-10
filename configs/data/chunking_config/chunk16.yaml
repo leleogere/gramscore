@@ -6,5 +6,5 @@ num_measures_per_chunk: 16
 overlap: True
 min_matched_notes_ratio: 0.6
 skip_already_chunked: True
-n_jobs: 4
-progress: False
+n_jobs: 20
+progress: True
