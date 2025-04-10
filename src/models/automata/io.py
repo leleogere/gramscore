@@ -526,8 +526,8 @@ if __name__ == '__main__':
     import warnings
 
     path = Path(
-        # "~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_860/xml_score.musicxml"
-        "~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_883/xml_score.musicxml"
+        "~/Documents/datasets/asap-dataset/Bach/Fugue/bwv_860/xml_score.musicxml"
+        # "~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_883/xml_score.musicxml"
     ).expanduser()
 
     with warnings.catch_warnings():
@@ -541,6 +541,7 @@ if __name__ == '__main__':
 
     detokenized_score = token_sequence_to_partitura(tokens)
     # print(detokenized_score.pretty())
+    # pt.save_musicxml(detokenized_score, "/tmp/regenerated_score.musicxml")
 
     retokenized_tokens = partitura_to_token_sequence(detokenized_score)
 
