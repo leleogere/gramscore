@@ -2,6 +2,8 @@
 Test the chunking process
 """
 
+# TODO: to fix after chunking refactoring
+
 import copy
 import itertools
 from importlib.resources import files
