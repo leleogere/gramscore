@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 from src.models.automata.tokens import fill_rests
 from src.models.automata.automata import ConstrainedAutomata
 from src.models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
+from src.models.automata.voice_reordering import reorder_voices
 
 # asap_path = Path("/home/gerel/Documents/datasets/asap-dataset")
 # output_path = Path("/home/gerel/Documents/datasets/asap-dataset-tokenized")
@@ -39,7 +40,7 @@ for score_path in (pbar := tqdm(score_paths, position=0, leave=True)):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            score = pt.load_musicxml(score_path, ignore_invisible_objects=False)
+            score = pt.load_musicxml(score_path, force_note_ids=True)
     except Exception as e:
         pbar.write(f"Failed to load {score_path}: {e}")
         errors[f"Loading error [{str(e)}]"].append(score_path)
@@ -55,7 +56,7 @@ for score_path in (pbar := tqdm(score_paths, position=0, leave=True)):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            score = pt.score.unfold_part_maximal(score)
+            score = pt.score.unfold_part_maximal(score, ignore_leaps=False)
     except Exception as e:
         pbar.write(f"Failed to unfold {score_path}: {e}")
         errors[f"Unfolding error [{str(e)}]"].append(score_path)
@@ -68,6 +69,8 @@ for score_path in (pbar := tqdm(score_paths, position=0, leave=True)):
         pbar.write(f"Failed to fill rests {score_path}: {e}")
         errors[f"Rest filling error [{str(e)}]"].append(score_path)
         continue
+
+    score = reorder_voices(score)
 
     try:
         tokens = partitura_to_token_sequence(score)
@@ -83,9 +86,34 @@ for score_path in (pbar := tqdm(score_paths, position=0, leave=True)):
         errors[f"Transition error [{str(e)}]"].append(score_path)
         continue
 
+    # regenerated_score = token_sequence_to_partitura(tokens)
+    # pt.save_musicxml(regenerated_score, "/tmp/regenerated_score.musicxml")
+
     for token in tokens:
         if hasattr(token, "_partitura_elements"):
             del token._partitura_elements
+
+    # print(score_path)
+    # for token, retbug with okenized_token in zip(
+    #     tokens, partitura_to_token_sequence(token_sequence_to_partitura(tokens))
+    # ):
+    #     if token == retokenized_token:
+    #         print("  ", end="")
+    #     else:
+    #         print("* ", end="")
+    #     print(f"{token}     {retokenized_token}")
+    # if token != retokenized_token:
+    #     print(f"* {token} [{str(token._partitura_elements)[0]}]")
+    #     print(f"  {retokenized_token} [{str(retokenized_token._partitura_elements[0])}]")
+
+    assert all(
+        token == retokenized_token
+        for token, retokenized_token in zip(
+            tokens,
+            partitura_to_token_sequence(token_sequence_to_partitura(tokens)),
+        )
+    ), "Retokenization failed"
+
     save_path.parent.mkdir(parents=True, exist_ok=True)
     with open(save_path, "wb") as f:
         pickle.dump(tokens, f)
