@@ -1,0 +1,14 @@
+_target_: src.data.asap_tokens_datamodule.AsapTokensDataModule
+
+defaults:
+    - _self_
+
+data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset
+
+batch_size: 5
+include_midi_scores: true
+filter_fn: 'lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score"'
+num_workers: 4

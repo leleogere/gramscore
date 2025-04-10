@@ -443,6 +443,14 @@ class AsapTokensDataModule(LightningDataModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters()
 
+        # Hydra does not support lambda functions, so it is loaded as string
+        # Make sure to only pass trusted code in here as it will be executed as is
+        if isinstance(filter_fn, str):
+            if not filter_fn.startswith("lambda"):
+                raise ValueError("filter_fn must start with 'lambda'")
+            self.hparams.filter_fn = eval(filter_fn)
+            print(self.hparams.filter_fn)
+
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
@@ -457,7 +465,7 @@ class AsapTokensDataModule(LightningDataModule):
     @line_profiler.profile
     def collate_fn(
         batch: list[dict[str, Any]],
-    ) -> tuple[TokenTensor, dict[str, torch.Tensor]]:
+    ) -> dict[str, Any]:
         """
         Collate function for the `DataLoader`.
 
@@ -478,14 +486,17 @@ class AsapTokensDataModule(LightningDataModule):
                 padding_value=0,  # Zero as in MIDI2ScoreTransformer
             )
             for stream in streams
-        }
+        }  # shape of values: batch * num_notes * num_features
         # Security check to catch bug
         assert all(
             performances_collated[streams[0]].shape[0:2] == performances_collated[stream].shape[0:2]
             for stream in streams[1:]
         ), "All streams should have the same batch size and number of notes"
 
-        return scores_collated, performances_collated
+        return {
+            "performance_streams": performances_collated,
+            "score_tensor": scores_collated,
+        }
 
     def prepare_data(self) -> None:
         """
@@ -539,37 +550,34 @@ class AsapTokensDataModule(LightningDataModule):
         # Setup transforms
         transforms = {
             "train": [
-                TmpTrainTransform(
-                    num_performed_notes=500,
-                    annotations=self.hparams.data_dir / "asap_annotations.json",
-                )
-                # # MusicReader(),
-                # # VoiceRestFiller(),
-                # # VoiceReorderer(),
-                # Cache(
-                #     transforms=[
-                #         MusicReader(),
-                #         VoiceRestFiller(),
-                #         VoiceReorderer(),
-                #     ],
-                #     key=lambda entry: entry.midi_performance,
-                # ),
-                # # # Debugger(lambda s: print("DEBUG", s["entry"])),
-                # MusicChunker(
+                # TmpTrainTransform(
                 #     num_performed_notes=500,
                 #     annotations=self.hparams.data_dir / "asap_annotations.json",
+                # )
+                Cache(
+                    transforms=[
+                        MusicReader(),
+                        VoiceRestFiller(),
+                        VoiceReorderer(),
+                    ],
+                    key=lambda entry: entry.midi_performance,
+                ),
+                # # Debugger(lambda s: print("DEBUG", s["entry"])),
+                MusicChunker(
+                    num_performed_notes=500,
+                    annotations=self.hparams.data_dir / "asap_annotations.json",
+                ),
+                # RandomTransposer(
+                #     intervals=[
+                #         pt.score.Interval(
+                #             number=int(inter[0]), quality=inter[1:], direction=direction
+                #         )
+                #         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d", "5P", "5A", "5d"]
+                #         for direction in ["up", "down"]
+                #     ]
                 # ),
-                # # RandomTransposer(
-                # #     intervals=[
-                # #         pt.score.Interval(
-                # #             number=int(inter[0]), quality=inter[1:], direction=direction
-                # #         )
-                # #         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d", "5P", "5A", "5d"]
-                # #         for direction in ["up", "down"]
-                # #     ]
-                # # ),
-                # ScoreVectorizer(),
-                # PerformanceVectorizer(),
+                ScoreVectorizer(),
+                PerformanceVectorizer(),
             ],
             "validation": [
                 Cache(
@@ -694,9 +702,9 @@ if __name__ == "__main__":
     size = len(data_module.train_dataloader())
     print(f"{size = }")
 
-    # for i, (scores, performances) in enumerate(data_module.train_dataloader(), start=1):
-    # for i, sample in enumerate(data_module.data_train, start=1):
-    #     print(f"{i}/{size}")
+    for i, (scores, performances) in enumerate(data_module.train_dataloader(), start=1):
+        # for i, sample in enumerate(data_module.data_train, start=1):
+        print(f"{i}/{size}")
 
     # print(f"{performances["onset"].shape = }\t{scores.shape = }")
     # print(
@@ -711,18 +719,18 @@ if __name__ == "__main__":
     #     # print(sample)
     #     print(sample["entry"])
 
-    diffs = []
-    for _ in range(10):
-        print(_)
-        start = time.time()
-        # for i, sample in enumerate(data_module.train_dataloader(), start=1):
-        for i, sample in enumerate(data_module.data_train, start=1):
-            # AsapTokensDataModule.collate_fn([sample])
-            # print(f"{i}/{size}")
-            pass
-        diff = time.time() - start
-        diffs.append(diff)
-        print(f"{diff:.3f}s  [{diff/len(data_module.data_train):.3f}s/sample]")
+    # diffs = []
+    # for _ in range(10):
+    #     print(_)
+    #     start = time.time()
+    #     # for i, sample in enumerate(data_module.train_dataloader(), start=1):
+    #     for i, sample in enumerate(data_module.data_train, start=1):
+    #         # AsapTokensDataModule.collate_fn([sample])
+    #         # print(f"{i}/{size}")
+    #         pass
+    #     diff = time.time() - start
+    #     diffs.append(diff)
+    #     print(f"{diff:.3f}s  [{diff/len(data_module.data_train):.3f}s/sample]")
     #
     # # fmt: off
     # print(f"Avg:  {sum(diffs)/len(diffs):.3f}s  [{sum(diffs)/len(diffs)/len(data_module.data_train):.3f}s/sample]")
