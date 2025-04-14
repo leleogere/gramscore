@@ -80,7 +80,7 @@ class TokenTensor(torch.Tensor):
         tensor = tensor.as_subclass(self.__class__)
         return tensor
 
-    def __getitem__(self, item: int | str | tuple):
+    def __getitem__(self, item: int | str | tuple) -> Self | torch.Tensor:
         # If query is a string, then it is a dimension name
         # -> return the corresponding slice in the last dimension
         # If query is a tuple and the last element is a string, then it is a dimension name
