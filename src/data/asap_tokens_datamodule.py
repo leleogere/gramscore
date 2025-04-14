@@ -448,8 +448,10 @@ class AsapTokensDataModule(LightningDataModule):
         if isinstance(filter_fn, str):
             if not filter_fn.startswith("lambda"):
                 raise ValueError("filter_fn must start with 'lambda'")
-            self.hparams.filter_fn = eval(filter_fn)
-            print(self.hparams.filter_fn)
+            self.filter_fn = eval(filter_fn)
+            print(self.filter_fn)
+        else:
+            self.filter_fn = filter_fn
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
