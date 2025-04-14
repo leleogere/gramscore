@@ -4,8 +4,8 @@ from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from datasets import tqdm
 
-from src.data.nasap_abc_lm_datamodule import AsapABCLanguageModelDataModule
-from src.data.components.chunking_utils import ChunkingConfig
+from data.nasap_abc_lm_datamodule import AsapABCLanguageModelDataModule
+from data.components.chunking_utils import ChunkingConfig
 
 # fmt: off
 SEPARATOR = "\n\n" + "#" * 60 + "\n" + "#" * 60 + "\n\n"

@@ -4,7 +4,7 @@ from typing import Self
 
 import torch
 
-from src.models.automata import tokens as tk
+from models.automata import tokens as tk
 
 
 def clip_cast(x, lower=None, upper=None, type_=None):

@@ -346,7 +346,7 @@ def fix_final_xml(original_xml: str, fixed_xml: str) -> str:
 
 if __name__ == '__main__':
     import partitura as pt
-    from src.models.automata.tokens import fill_rests
+    from models.automata.tokens import fill_rests
 
     # path = Path(
     #     # "/home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/17-2/xml_score.musicxml"

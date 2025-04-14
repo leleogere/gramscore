@@ -520,7 +520,7 @@ class AsapDataset(ScorePerformanceDataset):
 
 
 if __name__ == '__main__':
-    from src.data.components.patched_tokenizer import PatchedTokenizer
+    from data.components.patched_tokenizer import PatchedTokenizer
 
     tokenizer = PatchedTokenizer.from_pretrained("mistralai/Codestral-22B-v0.1")
     ds = AsapDataset(Path("data/nasap"), "test", modality=Modality.TEXT, text_tokenizer=tokenizer)

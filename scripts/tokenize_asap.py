@@ -9,10 +9,10 @@ import partitura as pt
 import partitura.score
 from tqdm.auto import tqdm
 
-from src.models.automata.tokens import fill_rests
-from src.models.automata.automata import ConstrainedAutomata
-from src.models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
-from src.models.automata.voice_reordering import reorder_voices
+from models.automata.tokens import fill_rests
+from models.automata.automata import ConstrainedAutomata
+from models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
+from models.automata.voice_reordering import reorder_voices
 
 # asap_path = Path("/home/gerel/Documents/datasets/asap-dataset")
 # output_path = Path("/home/gerel/Documents/datasets/asap-dataset-tokenized")

@@ -1,7 +1,7 @@
 import random
 
-from src.models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
-from src.models.automata.tokens import *
+from models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
+from models.automata.tokens import *
 
 
 class ConstrainedAutomata:

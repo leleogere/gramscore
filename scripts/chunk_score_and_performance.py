@@ -10,13 +10,13 @@ import partitura as pt
 import partitura.score
 import symusic
 
-import src.models.automata.tokens as tk
-from src.models.automata.automata import ConstrainedAutomata
-from src.models.automata.io import token_sequence_to_partitura
-from src.models.automata.tokens import fill_rests
-from src.models.automata.utils import voice_absolute_into_voice_relative_to_staff
-from src.models.automata.io import partitura_to_token_sequence
-from src.models.automata.tokens import HasStaffMixin
+import models.automata.tokens as tk
+from models.automata.automata import ConstrainedAutomata
+from models.automata.io import token_sequence_to_partitura
+from models.automata.tokens import fill_rests
+from models.automata.utils import voice_absolute_into_voice_relative_to_staff
+from models.automata.io import partitura_to_token_sequence
+from models.automata.tokens import HasStaffMixin
 
 
 def clip_midi(

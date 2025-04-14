@@ -3,7 +3,7 @@ from fractions import Fraction
 
 import torch
 
-from src.models.automata import tokens as tk
+from models.automata import tokens as tk
 
 
 TOKEN_INDEXER = {token: i for i, token in enumerate(tk.TOKEN_TYPES)}

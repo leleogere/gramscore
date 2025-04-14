@@ -5,8 +5,8 @@ Test the tokens vectorization process
 import pytest
 import torch
 
-import src.models.automata.tokens as tk
-from src.models.automata.vectorization_torch import TokenTensor
+import models.automata.tokens as tk
+from models.automata.vectorization_torch import TokenTensor
 
 
 @pytest.fixture

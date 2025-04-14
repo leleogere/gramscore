@@ -4,9 +4,9 @@ import partitura as pt
 import partitura.score
 
 from models.automata.tokens import fill_rests
-from src.models.automata.tokens import Bar
-from src.models.automata.automata import ConstrainedAutomata
-from src.models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
+from models.automata.tokens import Bar
+from models.automata.automata import ConstrainedAutomata
+from models.automata.io import token_sequence_to_partitura, partitura_to_token_sequence
 
 # fmt: off
 # score_path = Path("~/Documents/datasets/asap-dataset/Chopin/Sonata_2/1st_no_repeat/xml_score.musicxml").expanduser()

@@ -12,11 +12,11 @@ import partitura.score
 import symusic
 from loguru import logger
 
-import src.models.automata.tokens as tk
-from src.models.automata.io import partitura_to_token_sequence
-from src.models.automata.io import token_sequence_to_partitura
-from src.models.automata.tokens import HasStaffMixin
-from src.models.automata.utils import voice_absolute_into_voice_relative_to_staff
+import models.automata.tokens as tk
+from models.automata.io import partitura_to_token_sequence
+from models.automata.io import token_sequence_to_partitura
+from models.automata.tokens import HasStaffMixin
+from models.automata.utils import voice_absolute_into_voice_relative_to_staff
 
 
 def read_chunk_file(path: Path) -> pd.DataFrame:

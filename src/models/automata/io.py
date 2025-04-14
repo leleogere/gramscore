@@ -12,12 +12,12 @@ import partitura.score
 from loguru import logger
 
 from models.automata.voice_reordering import reorder_voices
-from src.models.automata.tokens import HasVoiceMixin
-from src.models.automata.tokens import SymbolicDurationType
-from src.models.automata.tokens import SymbolicDuration
-from src.models.automata.tokens import Token
-from src.models.automata.tokens import TranscriptionState
-from src.models.automata.tokens import (
+from models.automata.tokens import HasVoiceMixin
+from models.automata.tokens import SymbolicDurationType
+from models.automata.tokens import SymbolicDuration
+from models.automata.tokens import Token
+from models.automata.tokens import TranscriptionState
+from models.automata.tokens import (
     StartOfScore,
     EndOfScore,
     Bar,
@@ -30,7 +30,7 @@ from src.models.automata.tokens import (
     TupletStart,
     TupletEnd,
 )
-from src.utils.ansi_colors import Colors
+from utils.ansi_colors import Colors
 
 
 def token_sequence_to_partitura(
@@ -522,7 +522,7 @@ def partitura_to_token_sequence(
 
 if __name__ == '__main__':
     from pathlib import Path
-    from src.models.automata.tokens import fill_rests
+    from models.automata.tokens import fill_rests
     import warnings
 
     path = Path(

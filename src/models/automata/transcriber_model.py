@@ -5,8 +5,8 @@ import torch.nn as nn
 from einops import rearrange
 from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
 
-from src.models.automata.vectorization_torch import TokenTensor
-import src.models.automata.tokens as tk
+from models.automata.vectorization_torch import TokenTensor
+import models.automata.tokens as tk
 
 
 # Implementation copied from torchtune:
