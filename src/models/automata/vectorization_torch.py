@@ -70,6 +70,16 @@ class TokenTensor(torch.Tensor):
             raise ValueError(f"Last dimension must be of size {cls.TOTAL_DIMENSIONS}")
         return tensor
 
+    def new_empty(
+        self, size, *, dtype=None, layout=None, device=None, pin_memory=False, requires_grad=False
+    ):
+        # Create a new empty tensor with the same class as this one
+        tensor = super().new_empty(
+            size, dtype=dtype, layout=layout, device=device, pin_memory=pin_memory
+        )
+        tensor = tensor.as_subclass(self.__class__)
+        return tensor
+
     def __getitem__(self, item: int | str | tuple):
         # If query is a string, then it is a dimension name
         # -> return the corresponding slice in the last dimension
