@@ -3,6 +3,7 @@ import itertools
 import torch
 import torch.nn as nn
 from einops import rearrange
+from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
 
 from src.models.automata.vectorization_torch import TokenTensor
 import src.models.automata.tokens as tk
@@ -132,6 +133,9 @@ class TokensTranscriberModel(nn.Module):
                 ]  # pitch/onset/duration/velocity (as in Beyer's paper)
             }
         )
+        # Question: should the PE be placed before or after the layer norm?
+        # self.performance_positional_encoding = RotaryPositionalEmbeddings(dim=self.embedding_size)
+        self.performance_positional_encoding = Summer(PositionalEncoding1D(self.embedding_size))
         self.layer_norm = nn.LayerNorm(self.embedding_size)
 
         # SCORE PROJECTOR
@@ -224,6 +228,8 @@ class TokensTranscriberModel(nn.Module):
             dim=0,
         )  # 4 * B * N * E
         src_emb = torch.sum(stream_projected, dim=0)  # B * N * E
+        # Question: should the PE be placed before or after the layer norm?
+        src_emb = self.performance_positional_encoding(src_emb)  # B * N * E
         src_emb = self.layer_norm(src_emb)  # B * N * E
         assert src_emb.shape[2] == self.embedding_size
         assert src_emb.shape[0] == tgt_tokens.shape[0]

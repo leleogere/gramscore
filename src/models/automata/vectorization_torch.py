@@ -39,6 +39,8 @@ class TokenTensor(torch.Tensor):
     DURATION_INDEXER_INV = {i: dur for dur, i in DURATION_INDEXER.items()}
     NOTE_INDEXER = {note: i for i, note in enumerate("CDEFGAB")}
     NOTE_INDEXER_INV = {i: note for note, i in NOTE_INDEXER.items()}
+    STEM_INDEXER = {i: stem for i, stem in enumerate(["up", "down", None])}
+    STEM_INDEXER_INV = {stem: i for i, stem in STEM_INDEXER.items()}
     DIMS = {
         "token_type": len(TOKEN_INDEXER),
         "bar_numerator": 1,
@@ -54,7 +56,7 @@ class TokenTensor(torch.Tensor):
         "note_octave": 9,
         "note_accidental": 5,
         "note_tied": 1,
-        "note_stem_direction": 3,  # up, down, or none
+        "note_stem_direction": len(STEM_INDEXER),
         "tuplet_actual_notes": 1,
         "tuplet_normal_notes": 1,
     }
