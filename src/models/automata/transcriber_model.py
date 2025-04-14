@@ -133,7 +133,6 @@ class TokensTranscriberModel(nn.Module):
             }
         )
         self.layer_norm = nn.LayerNorm(self.embedding_size)
-        self.performance_projector = nn.Linear(self.embedding_size, TokenTensor.TOTAL_DIMENSIONS)
 
         # SCORE PROJECTOR
         self.score_projector = nn.Linear(TokenTensor.TOTAL_DIMENSIONS, self.embedding_size)
