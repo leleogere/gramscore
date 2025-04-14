@@ -621,7 +621,7 @@ class AsapTokensDataModule(LightningDataModule):
                     split=split,
                     include_midi_scores=self.hparams.include_midi_scores,
                     transforms=transforms[split],
-                    filter_fn=self.hparams.filter_fn,
+                    filter_fn=self.filter_fn,
                 )
                 for split in self.splits
             }
