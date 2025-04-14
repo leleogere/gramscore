@@ -7,23 +7,28 @@ authors = [
 ]
 urls = { "Homepage" = "https://github.com/leleogere/gramscore" }
 dependencies = [
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "torchmetrics>=0.11.4",
-    "lightning>=2.0.0",
-    "hydra-core>=1.3.2",
-    "hydra-colorlog>=1.2.0",
-    "loguru",
-    "wandb",
-    "sentencepiece",
-    "transformers",
-    "peft",
-    "bitsandbytes",
-    "accelerate",
-    "partitura @ git+https://github.com/leleogere/partitura.git@main_patched",  # custom version, see issues/PR 384, 387, 389, 390, 392
-    "verovio",
-    "Pillow",
-    "cairosvg",
+    'Pillow',
+    'accelerate',
+    'bitsandbytes',
+    'cairosvg',
+    'einops',
+    'hydra-colorlog>=1.2.0',
+    'hydra-core>=1.3.2',
+    'lightning>=2.0.0',
+    'loguru',
+    'pandas',
+    'partitura @ git+https://github.com/leleogere/partitura.git@main_patched',
+    'peft',
+    'positional-encodings',
+    'sentencepiece',
+    'symusic',
+    'torch>=2.0.0',
+    'torchmetrics>=0.11.4',
+    'torchvision>=0.15.0',
+    'tqdm',
+    'transformers',
+    'verovio',
+    'wandb'
 ]
 
 [project.optional-dependencies]
