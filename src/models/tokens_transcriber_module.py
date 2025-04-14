@@ -1,22 +1,15 @@
 from collections.abc import Callable
 from typing import Any
 
-import hydra.utils
 import lightning as L
-import litgpt.utils
 import torch
-import transformers
-import wandb
 from einops import rearrange
-from loguru import logger
 from torch import nn
 
 from data.asap_tokens_datamodule import AsapTokensDataModule
 from models.automata.transcriber_model import TokensTranscriberModel
-from data.components.chunking_utils import ChunkingConfig
 from models.automata.vectorization_torch import TokenTensor
-from utils.abc_xml_conversion import conversion
-from utils.score_rendering import render_score
+import models.automata.tokens as tk
 
 
 class TokensTranscriberModule(L.LightningModule):
