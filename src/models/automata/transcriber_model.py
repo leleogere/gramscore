@@ -156,7 +156,6 @@ class TokensTranscriberModel(nn.Module):
             nn.Linear(self.embedding_size, 128),
             nn.ReLU(),
             nn.Linear(128, len(TokenTensor.TOKEN_INDEXER)),
-            nn.Softmax(dim=-1),
         )
 
         # # TOKEN-SPECIFIC PREDICTORS
