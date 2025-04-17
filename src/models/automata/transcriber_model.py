@@ -140,6 +140,7 @@ class TokensTranscriberModel(nn.Module):
 
         # SCORE PROJECTOR
         self.score_projector = nn.Linear(TokenTensor.TOTAL_DIMENSIONS, self.embedding_size)
+        self.score_layer_norm = nn.LayerNorm(self.embedding_size)
 
         # TRANSFORMER
         self.transformer: nn.Transformer = nn.Transformer(
@@ -233,6 +234,7 @@ class TokensTranscriberModel(nn.Module):
 
         # Project the tokens into a 512-dim space
         tgt_emb = self.score_projector(tgt_tokens)  # B * T * E
+        tgt_emb = self.score_layer_norm(tgt_emb)
         assert tgt_emb.shape[2] == self.embedding_size
 
         # Pass the performance and the score through the transformer
