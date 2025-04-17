@@ -153,9 +153,7 @@ class TokensTranscriberModel(nn.Module):
 
         # TOKEN TYPE CLASSIFIER
         self.router = nn.Sequential(
-            nn.Linear(self.embedding_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, len(TokenTensor.TOKEN_INDEXER)),
+            nn.Linear(self.embedding_size, len(TokenTensor.TOKEN_INDEXER)),
         )
 
         # # TOKEN-SPECIFIC PREDICTORS
