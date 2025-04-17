@@ -9,3 +9,5 @@ defaults:
   - trainer: cpu
   - logger: wandb
   - paths: default
+
+log_level: DEBUG

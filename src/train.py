@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 import os
 
@@ -51,6 +52,8 @@ def main(cfg: DictConfig) -> None:
 
     # Redirect loguru logs to hydra output directory
     hydra_path = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    logger.remove()
+    logger.add(sys.stderr, level=cfg.get("log_level", "INFO").upper())
     logger.add(hydra_path / "train.log")
 
     load_dotenv()
