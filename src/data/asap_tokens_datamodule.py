@@ -418,7 +418,7 @@ class TmpTrainTransform:
 
 class AsapTokensDataModule(LightningDataModule):
     """
-    LightningDataModule for the (n)-ASAP dataset, formatted to be used with a LLM.
+    LightningDataModule for the ASAP dataset, formatted as tokens.
     """
 
     def __init__(
@@ -429,7 +429,7 @@ class AsapTokensDataModule(LightningDataModule):
         filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
         num_workers: int = 4,
     ) -> None:
-        """Initialize a `AsapLMDataModule`
+        """Initialize a `AsapTokensDataModule`
 
         :param data_dir: The data directory.
         :param batch_size: The batch size.
@@ -514,15 +514,9 @@ class AsapTokensDataModule(LightningDataModule):
             logger.info("Cloning the ASAP dataset")
             if not self.hparams.data_dir.exists():
                 git.Repo.clone_from(
-                    url="https://github.com/CPJKU/asap-dataset.git",
+                    url="https://github.com/leleogere/asap-dataset.git",
                     to_path=self.hparams.data_dir,
-                )
-            # Download ACPAS metadata_{R,S}.csv files
-            for key in ["R", "S"]:
-                logger.info(f"Downloading ACPAS metadata_{key}.csv")
-                urllib.request.urlretrieve(
-                    f"https://cheriell.github.io/research/ACPAS_dataset/metadata_{key}.csv",
-                    self.hparams.data_dir / f"metadata_{key}.csv",
+                    branch="develop_with_bwv874_bwv846_beeth17-2_merged",
                 )
             # Create the success file
             success_file.touch()
