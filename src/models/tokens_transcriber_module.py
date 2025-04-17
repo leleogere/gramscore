@@ -206,10 +206,13 @@ class TokensTranscriberModule(L.LightningModule):
         self.logger.experiment.log({f"val/confusion_matrix": cm})
 
         # Log per-class metrics
-        for i, (name, metric) in enumerate(self.per_class_metrics.items()):
+        for name, metric in self.per_class_metrics.items():
+            # Very hacky (needed bc MetricCollection reorders keys), I should probably index the
+            # tokens types by string rather than class
+            index = TokenTensor.TOKEN_INDEXER[getattr(tk, name.split("/")[-1])]
             metric(
-                preds=(flattened_true_token_types == i),
-                target=(flattened_pred_token_types == i),
+                preds=(flattened_true_token_types == index),
+                target=(flattened_pred_token_types == index),
             )
             self.log(name, metric)
 
