@@ -147,7 +147,7 @@ class TokensTranscriberModel(nn.Module):
             nhead=8,
             num_encoder_layers=4,
             num_decoder_layers=4,
-            dim_feedforward=512,
+            dim_feedforward=3072,
             batch_first=True,
         )
 
