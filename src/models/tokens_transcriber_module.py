@@ -3,8 +3,13 @@ from typing import Any
 
 import lightning as L
 import torch
+import wandb.plot
+from torchmetrics import MetricCollection
+from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, BinaryF1Score
 from einops import rearrange
+from lightning.pytorch.utilities.types import STEP_OUTPUT
 from torch import nn
+from loguru import logger
 
 from data.asap_tokens_datamodule import AsapTokensDataModule
 from models.automata.transcriber_model import TokensTranscriberModel
@@ -22,11 +27,55 @@ class TokensTranscriberModule(L.LightningModule):
         self.save_hyperparameters()
         self.transcriber_model = TokensTranscriberModel()
         self.optimizer = optimizer
-        self.loss = nn.NLLLoss()
+        # self.loss = nn.NLLLoss()
+        self.loss = nn.CrossEntropyLoss(
+            # See scripts/estimate_tokens_distribution.py for the weights
+            weight=torch.Tensor(
+                [
+                    48.63,  # SOS (not needed)
+                    2.12,  # Bar
+                    21.77,  # Clef
+                    48.63,  # KeySignature
+                    0.11,  # Note
+                    1.24,  # Rest
+                    10.53,  # ChordStart
+                    10.53,  # ChordEnd
+                    48.63,  # EOS
+                    21.50,  # TupletStart
+                    21.50,  # TupletEnd
+                ]
+            )
+        )
 
-    def training_step(self, batch: dict[str, Any], batch_idx: int):
+        self.global_metrics = MetricCollection(
+            dict(
+                macro_accuracy=MulticlassAccuracy(
+                    num_classes=len(TokenTensor.TOKEN_INDEXER),
+                    average="macro",
+                ),
+                micro_accuracy=MulticlassAccuracy(
+                    num_classes=len(TokenTensor.TOKEN_INDEXER),
+                    average="micro",
+                ),
+                macro_f1=MulticlassF1Score(
+                    num_classes=len(TokenTensor.TOKEN_INDEXER),
+                    average="macro",
+                ),
+                micro_f1=MulticlassF1Score(
+                    num_classes=len(TokenTensor.TOKEN_INDEXER),
+                    average="micro",
+                ),
+            ),
+            prefix="val/",
+        )
+        self.per_class_metrics = MetricCollection(
+            {k.__name__: BinaryF1Score() for k in TokenTensor.TOKEN_INDEXER.keys()},
+            prefix="val/class_accuracy/",
+        )
+
+    def common_step(self, batch: dict[str, Any]):
         """
-        Forward pass of the model.
+        Common part between training_step and validation_step
 
         :param batch: A dictionary containing the input data in the structure:
             {
@@ -37,27 +86,58 @@ class TokensTranscriberModule(L.LightningModule):
         performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]
         score_tensor: TokenTensor = batch["score_tensor"]
 
+        # Make sure the first token of all sequences is StartOfScore
+        assert all(
+            score_tensor[:, 0, "token_type"][..., TokenTensor.TOKEN_INDEXER[tk.StartOfScore]] == 1
+        ), "First token should be StartOfScore"
+        # Same for EOS, but last token NOT padded should be EndOfScore
+        last_not_padded: torch.Tensor = (score_tensor[:, :, 0] == -100).int().argmax(-1) - 1
+        last_not_padded[last_not_padded == -1] = score_tensor.shape[1] - 1
+        assert all(
+            score_tensor[
+                torch.arange(score_tensor.shape[0]),  # needed or torch broadcasts
+                last_not_padded,
+                "token_type",
+            ][..., TokenTensor.TOKEN_INDEXER[tk.EndOfScore]]
+            == 1
+        ), "Last token should be EndOfScore"
+
+        # Shift score tensors to the right
+        score_tensor_input: TokenTensor = score_tensor[:, :-1]
+        score_tensor_expected: TokenTensor = score_tensor[:, 1:]
+
+        # Pass the input through the model
         router_logits = self.transcriber_model.forward(
             src_streams=performance_streams,
-            tgt_tokens=score_tensor,
+            tgt_tokens=score_tensor_input,
         )  # (batch_size, num_tokens, num_token_types)
 
-        true_token_types = score_tensor["token_type"]  # (batch_size, num_tokens, num_token_types)
+        true_token_types: torch.Tensor = score_tensor_expected[
+            "token_type"
+        ]  # (batch, tokens, num_token_types)
+
+        # Make sure the sequence length match
+        assert (
+            router_logits.shape[1] == true_token_types.shape[1]
+        ), f"Router logits shape {router_logits.shape} does not match true token types shape {true_token_types.shape}"
 
         flattened_true_token_types = rearrange(true_token_types, "b t k -> (b t) k")
         flattened_router_logits = rearrange(router_logits, "b t k -> (b t) k")
 
-        pad_mask = flattened_true_token_types[:, 0] != -100
         # Would be better if we could get the mask directly from the pad_sequence function
+        not_padded = flattened_true_token_types[:, 0] != -100
+        assert torch.all(flattened_true_token_types[not_padded] != -100), "Error in padding mask"
 
+        # Compute the router loss
         loss = self.loss(
-            input=flattened_router_logits[pad_mask],
-            # Could be more efficient if NLLLoss would accept OHE vectors as targets...
-            target=flattened_true_token_types[pad_mask].argmax(dim=-1),
+            input=flattened_router_logits[not_padded],
+            target=flattened_true_token_types[not_padded],
         )
-
-        self.log("train/loss", loss)
-        return loss
+        return loss, {
+            "flattened_router_logits": flattened_router_logits,
+            "not_padded": not_padded,
+            "flattened_true_token_types": flattened_true_token_types,
+        }
 
         # input_ids = batch["input_ids"]
         # assistant_masks = batch["assistant_masks"]
@@ -71,30 +151,68 @@ class TokensTranscriberModule(L.LightningModule):
         # self.log("train/loss", loss)
         # return loss
 
-    def validation_step(self, batch: dict[str, Any], batch_idx: int):
-        performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]
-        score_tensor: TokenTensor = batch["score_tensor"]
+    def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
+        loss, _ = self.common_step(batch)
+        self.log("train/loss", loss)
+        return loss
 
-        router_logits = self.transcriber_model.forward(
-            src_streams=performance_streams,
-            tgt_tokens=score_tensor,
-        )  # (batch_size, num_tokens, num_token_types)
+    def validation_step(self, batch: dict[str, Any], batch_idx: int = None):
+        loss, results = self.common_step(batch)
+        self.log("val/loss", loss)
 
-        true_token_types = score_tensor["token_type"]  # (batch_size, num_tokens, num_token_types)
+        flattened_router_logits = results["flattened_router_logits"]
+        flattened_true_token_types_ohe = results["flattened_true_token_types"]
+        not_padded = results["not_padded"]
 
-        flattened_true_token_types = rearrange(true_token_types, "b t k -> (b t) k")
-        flattened_router_logits = rearrange(router_logits, "b t k -> (b t) k")
+        flattened_pred_token_types = flattened_router_logits[not_padded].argmax(-1)
+        flattened_true_token_types = flattened_true_token_types_ohe[not_padded].argmax(-1)
 
-        pad_mask = flattened_true_token_types[:, 0] != -100
-        # Would be better if we could get the mask directly from the pad_sequence function
-
-        loss = self.loss(
-            input=flattened_router_logits[pad_mask],
-            # Could be more efficient if NLLLoss would accept OHE vectors as targets...
-            target=flattened_true_token_types[pad_mask].argmax(dim=-1),
+        # Count each token type
+        bincount = torch.bincount(flattened_pred_token_types, minlength=11)
+        self.logger.log_metrics(
+            {
+                f"val/tokens_distribution/{k.__name__}": v.item()
+                for k, v in zip(
+                    TokenTensor.TOKEN_INDEXER.keys(),
+                    bincount,
+                )
+            },
+            step=self.global_step,
         )
 
-        self.log("val/loss", loss)
+        # Compute entropy of predictions (to see if always predicting the same token type)
+        prob = bincount / bincount.sum()
+        prob = prob[prob > 0]
+        entropy = -torch.sum(prob * torch.log(prob))
+        self.log("val/tokens_entropy", entropy)
+        logger.debug(f"Entropy: {entropy.item()}")
+        logger.debug(f"Bincount: {bincount.tolist()}")
+        logger.debug(f"Prob: {prob.tolist()}")
+
+        # Log metrics
+        for name, metric in self.global_metrics.items():
+            metric(
+                preds=flattened_pred_token_types,
+                target=flattened_true_token_types,
+            )
+            self.log(name, metric)
+
+        # Log confusion matrix
+        cm = wandb.plot.confusion_matrix(
+            y_true=flattened_true_token_types.cpu().numpy(),
+            preds=flattened_pred_token_types.cpu().numpy(),
+            class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
+        )
+        self.logger.experiment.log({f"val/confusion_matrix": cm})
+
+        # Log per-class metrics
+        for i, (name, metric) in enumerate(self.per_class_metrics.items()):
+            metric(
+                preds=(flattened_true_token_types == i),
+                target=(flattened_pred_token_types == i),
+            )
+            self.log(name, metric)
+
         return loss
 
         # input_ids = batch["input_ids"]
@@ -148,17 +266,15 @@ if __name__ == '__main__':
     )
     logger.info("Model instantiated")
 
-    for score_tensor, performance_streams in data_module.train_dataloader():
+    for batch in data_module.train_dataloader():
+        performance_streams = batch["performance_streams"]
+        score_tensor = batch["score_tensor"]
+
         logger.debug(f"{score_tensor.shape = }")
         logger.debug(
             f"performance_streams = { {k: v.shape for k, v in performance_streams.items() } }"
         )
         logger.debug("Feeding batch to the model...")
-        res = model.training_step(
-            {
-                "score_tensor": score_tensor,
-                "performance_streams": performance_streams,
-            }
-        )
+        res = model.training_step(batch)
         logger.debug(res)
         break
