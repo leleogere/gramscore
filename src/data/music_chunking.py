@@ -89,7 +89,7 @@ def read_chunk_file(path: Path) -> pd.DataFrame:
 
 
 def clip_midi(
-    midi: symusic.core.ScoreSecond,
+    midi: symusic.core.ScoreSecond | symusic.core.ScoreTick | symusic.core.ScoreQuarter,
     chunks: pd.DataFrame,
     start_measure: int,
     num_notes: int | None = None,
