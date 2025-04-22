@@ -15,6 +15,7 @@ from data.asap_tokens_datamodule import AsapTokensDataModule
 from models.automata.transcriber_model import TokensTranscriberModel
 from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
+from models.components.roformer import Roformer
 
 
 class TokensTranscriberModule(L.LightningModule):
@@ -25,7 +26,17 @@ class TokensTranscriberModule(L.LightningModule):
         super().__init__()
 
         self.save_hyperparameters()
-        self.transcriber_model = TokensTranscriberModel()
+        self.transcriber_model = Roformer(
+            stream_dimensions={
+                "pitch": 128,
+                "onset": 200,
+                "duration": 200,
+                "velocity": 8,
+            },
+            embedding_dimension=512,
+            layer_norm_eps=1.0e-12,
+            dropout_prob=0.1,
+        )
         self.optimizer = optimizer
         # self.loss = nn.NLLLoss()
         self.loss = nn.CrossEntropyLoss(
@@ -107,10 +118,16 @@ class TokensTranscriberModule(L.LightningModule):
         score_tensor_expected: TokenTensor = score_tensor[:, 1:]
 
         # Pass the input through the model
-        router_logits = self.transcriber_model.forward(
-            src_streams=performance_streams,
-            tgt_tokens=score_tensor_input,
+        encoder_outputs = self.transcriber_model.forward_enc(
+            input_streams=performance_streams,
+            attention_mask=None,  # TODO: replace with padding mask
         )  # (batch_size, num_tokens, num_token_types)
+        decoder_outputs = self.transcriber_model.forward_dec(
+            input_tokens=score_tensor_input,
+            encoder_hidden_states=encoder_outputs,
+            encoder_attention_mask=None,  # TODO: replace with padding mask
+        )
+        router_logits = self.transcriber_model.forward_router(decoder_outputs.last_hidden_state)
 
         true_token_types: torch.Tensor = score_tensor_expected[
             "token_type"
