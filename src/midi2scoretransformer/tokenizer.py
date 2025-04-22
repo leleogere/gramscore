@@ -1,12 +1,14 @@
 """Tokenizer for music21 streams and pretty_midi objects."""
 
 import math
+
 # from fractions import Fraction
 from typing import Dict, List
 
 # import pretty_midi
 import torch
 import torch.nn.functional as F
+
 # from music21 import (
 #     articulations,
 #     clef,
