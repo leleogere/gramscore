@@ -583,6 +583,7 @@ class AsapTokensDataModule(LightningDataModule):
                 MusicChunker(
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
+                    start_measure=0,
                 ),
                 # RandomTransposer(
                 #     intervals=[
@@ -641,6 +642,9 @@ class AsapTokensDataModule(LightningDataModule):
                 for split in self.splits
             }
             self.data_train = sets["train"]
+            self.data_train.entries = self.data_train.entries[
+                : self.batch_size_per_device
+            ]  # TODO: remove
             self.data_val = sets["validation"]
             self.data_test = sets["test"]
 
@@ -663,7 +667,8 @@ class AsapTokensDataModule(LightningDataModule):
         :return: The validation dataloader.
         """
         return DataLoader(
-            dataset=self.data_val,
+            # dataset=self.data_val,
+            dataset=self.data_train,
             batch_size=self.batch_size_per_device,
             shuffle=False,
             collate_fn=self.collate_fn,
