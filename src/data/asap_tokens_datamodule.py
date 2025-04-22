@@ -429,7 +429,7 @@ class AsapTokensDataModule(LightningDataModule):
         include_midi_scores: bool = False,
         filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
         num_workers: int = 4,
-        prefetch_factor: int = None
+        prefetch_factor: int = None,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
