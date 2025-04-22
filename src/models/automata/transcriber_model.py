@@ -2,12 +2,10 @@ import itertools
 
 import torch
 import torch.nn as nn
-from einops import rearrange
 from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
 
 from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
-from models.components.roformer import Roformer
 
 
 class TokensTranscriberModel(nn.Module):

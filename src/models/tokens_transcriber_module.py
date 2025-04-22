@@ -12,7 +12,7 @@ from torch import nn
 from loguru import logger
 
 from data.asap_tokens_datamodule import AsapTokensDataModule
-from models.automata.transcriber_model import TokensTranscriberModel
+# from models.automata.transcriber_model import TokensTranscriberModel
 from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
 from models.components.roformer import Roformer
