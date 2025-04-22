@@ -38,6 +38,7 @@ from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
+from utils.constants import PADDING_VALUE
 from utils.constants import SUCCESS_FILENAME
 
 
@@ -475,29 +476,49 @@ class AsapTokensDataModule(LightningDataModule):
         :return: The collated batch.
         """
         # Pad and collate score tensors
-        scores = [x["score_tensor"] for x in batch]
-        scores_collated: TokenTensor = pad_sequence(scores, batch_first=True, padding_value=-100)
+        scores = [x["score_tensor"] for x in batch]  # each N_TOKENS * TOTAL_DIMENSIONS
+        scores_collated: TokenTensor = pad_sequence(
+            scores,
+            batch_first=True,
+            padding_value=PADDING_VALUE,
+        )  # B * N_TOKENS_MAX * TOTAL_DIMENSIONS
+        score_padding_mask = scores_collated[:, :, 0] == PADDING_VALUE  # B * N_TOKENS_MAX
+        score_lengths = torch.LongTensor([s.size(0) for s in scores])
 
         # Pad and collate performance tensor streams
-        performances = [x["performance_streams"] for x in batch]
+        performances = [x["performance_streams"] for x in batch]  # each N_NOTES * N_FEATURES_VALUE
         streams = ["onset", "duration", "pitch", "velocity"]
+        # Make sure all stream have same batch and num_notes
+        assert all(
+            performance[streams[0]].shape[0] == performance[stream].shape[0]
+            for performance in performances
+            for stream in streams[1:]
+        ), "All streams of a performance should have the same number of notes"
         performances_collated = {
             stream: pad_sequence(
                 [x[stream] for x in performances],
                 batch_first=True,
-                padding_value=0,  # Zero as in MIDI2ScoreTransformer
+                padding_value=PADDING_VALUE,
             )
             for stream in streams
-        }  # shape of values: batch * num_notes * num_features
+        }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
+        performance_padding_mask = (
+            performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
+        )  # B * N_NOTES_MAX
+        performance_lengths = torch.LongTensor([p[streams[0]].size(0) for p in performances])
         # Security check to catch bug
         assert all(
             performances_collated[streams[0]].shape[0:2] == performances_collated[stream].shape[0:2]
             for stream in streams[1:]
-        ), "All streams should have the same batch size and number of notes"
+        ), "All streams should have the same batch size and number of notes after padding"
 
         return {
-            "performance_streams": performances_collated,
             "score_tensor": scores_collated,
+            "score_padding_mask": score_padding_mask,
+            "score_lengths": score_lengths,
+            "performance_streams": performances_collated,
+            "performance_padding_mask": performance_padding_mask,
+            "performance_lengths": performance_lengths,
         }
 
     def prepare_data(self) -> None:

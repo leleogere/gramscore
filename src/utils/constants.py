@@ -1,4 +1,5 @@
 SUCCESS_FILENAME = ".success"
+PADDING_VALUE = -100
 
 # ======================================================== #
 # Variables from MIDI2ScoreTransformer for fair comparison #

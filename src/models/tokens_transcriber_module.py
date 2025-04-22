@@ -16,6 +16,7 @@ from models.automata.transcriber_model import TokensTranscriberModel
 from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
 from models.components.roformer import Roformer
+from utils.constants import PADDING_VALUE
 
 
 class TokensTranscriberModule(L.LightningModule):
@@ -77,7 +78,7 @@ class TokensTranscriberModule(L.LightningModule):
                     average="micro",
                 ),
             ),
-            prefix="val/",
+            prefix="general/val_",
         )
         self.per_class_metrics = MetricCollection(
             {k.__name__: BinaryF1Score() for k in TokenTensor.TOKEN_INDEXER.keys()},
@@ -94,44 +95,48 @@ class TokensTranscriberModule(L.LightningModule):
                 "performance_streams": dict[str, torch.Tensor],  # dict of performance streams
             }
         """
-        performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]
-        score_tensor: TokenTensor = batch["score_tensor"]
+        performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]  # B * N * F_str
+        performance_padded_mask: torch.Tensor = batch["performance_padding_mask"]  # B * N
+        performance_not_padded_mask = torch.logical_not(performance_padded_mask)
+        performance_num_notes: torch.Tensor = batch["performance_lengths"]  # B
+        score_tensor: TokenTensor = batch["score_tensor"]  # B * T * K
+        score_padded_mask: torch.Tensor = batch["score_padding_mask"]  # B * T
+        score_not_padded_mask = torch.logical_not(score_padded_mask)
+        score_num_tokens: torch.Tensor = batch["score_lengths"]  # B
 
         # Make sure the first token of all sequences is StartOfScore
         assert all(
             score_tensor[:, 0, "token_type"][..., TokenTensor.TOKEN_INDEXER[tk.StartOfScore]] == 1
         ), "First token should be StartOfScore"
         # Same for EOS, but last token NOT padded should be EndOfScore
-        last_not_padded: torch.Tensor = (score_tensor[:, :, 0] == -100).int().argmax(-1) - 1
-        last_not_padded[last_not_padded == -1] = score_tensor.shape[1] - 1
         assert all(
             score_tensor[
                 torch.arange(score_tensor.shape[0]),  # needed or torch broadcasts
-                last_not_padded,
+                score_num_tokens - 1,
                 "token_type",
             ][..., TokenTensor.TOKEN_INDEXER[tk.EndOfScore]]
             == 1
         ), "Last token should be EndOfScore"
 
-        # Shift score tensors to the right
+        # Shift score tokens to the right
         score_tensor_input: TokenTensor = score_tensor[:, :-1]
         score_tensor_expected: TokenTensor = score_tensor[:, 1:]
 
         # Pass the input through the model
         encoder_outputs = self.transcriber_model.forward_enc(
             input_streams=performance_streams,
-            attention_mask=None,  # TODO: replace with padding mask
-        )  # (batch_size, num_tokens, num_token_types)
+            attention_mask=performance_not_padded_mask,
+        )  # (B, N, E)
         decoder_outputs = self.transcriber_model.forward_dec(
             input_tokens=score_tensor_input,
             encoder_hidden_states=encoder_outputs,
-            encoder_attention_mask=None,  # TODO: replace with padding mask
-        )
-        router_logits = self.transcriber_model.forward_router(decoder_outputs.last_hidden_state)
+            encoder_attention_mask=performance_not_padded_mask,
+        )  # (B, T, E)
+        router_logits = self.transcriber_model.forward_router(
+            decoder_outputs.last_hidden_state
+        )  # (B, T, K)
 
-        true_token_types: torch.Tensor = score_tensor_expected[
-            "token_type"
-        ]  # (batch, tokens, num_token_types)
+        true_token_types: torch.Tensor = score_tensor_expected["token_type"]  # (B, T, K)
 
         # Make sure the sequence length match
         assert (
@@ -140,19 +145,23 @@ class TokensTranscriberModule(L.LightningModule):
 
         flattened_true_token_types = rearrange(true_token_types, "b t k -> (b t) k")
         flattened_router_logits = rearrange(router_logits, "b t k -> (b t) k")
+        flattened_score_not_padded_mask = rearrange(score_not_padded_mask[..., 1:], "b t -> (b t)")
 
         # Would be better if we could get the mask directly from the pad_sequence function
-        not_padded = flattened_true_token_types[:, 0] != -100
-        assert torch.all(flattened_true_token_types[not_padded] != -100), "Error in padding mask"
+        assert torch.all(
+            flattened_true_token_types[~flattened_score_not_padded_mask] == PADDING_VALUE
+        ) and torch.all(
+            flattened_true_token_types[flattened_score_not_padded_mask] != PADDING_VALUE
+        ), "Error in padding mask"
 
         # Compute the router loss
         loss = self.loss(
-            input=flattened_router_logits[not_padded],
-            target=flattened_true_token_types[not_padded],
+            input=flattened_router_logits[flattened_score_not_padded_mask],
+            target=flattened_true_token_types[flattened_score_not_padded_mask],
         )
         return loss, {
             "flattened_router_logits": flattened_router_logits,
-            "not_padded": not_padded,
+            "flattened_score_not_padded_mask": flattened_score_not_padded_mask,
             "flattened_true_token_types": flattened_true_token_types,
         }
 
@@ -179,10 +188,14 @@ class TokensTranscriberModule(L.LightningModule):
 
         flattened_router_logits = results["flattened_router_logits"]
         flattened_true_token_types_ohe = results["flattened_true_token_types"]
-        not_padded = results["not_padded"]
+        flattened_score_not_padded_mask = results["flattened_score_not_padded_mask"]
 
-        flattened_pred_token_types = flattened_router_logits[not_padded].argmax(-1)
-        flattened_true_token_types = flattened_true_token_types_ohe[not_padded].argmax(-1)
+        flattened_pred_token_types = flattened_router_logits[
+            flattened_score_not_padded_mask
+        ].argmax(-1)
+        flattened_true_token_types = flattened_true_token_types_ohe[
+            flattened_score_not_padded_mask
+        ].argmax(-1)
 
         # Count each token type
         bincount = torch.bincount(flattened_pred_token_types, minlength=11)
