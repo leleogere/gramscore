@@ -81,7 +81,7 @@ class TokensTranscriberModule(L.LightningModule):
         )
         self.per_class_metrics = MetricCollection(
             {k.__name__: BinaryF1Score() for k in TokenTensor.TOKEN_INDEXER.keys()},
-            prefix="val/class_accuracy/",
+            prefix="val_class_accuracy/",
         )
 
     def common_step(self, batch: dict[str, Any]):
@@ -170,12 +170,12 @@ class TokensTranscriberModule(L.LightningModule):
 
     def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
         loss, _ = self.common_step(batch)
-        self.log("train/loss", loss)
+        self.log("general/train_loss", loss)
         return loss
 
     def validation_step(self, batch: dict[str, Any], batch_idx: int = None):
         loss, results = self.common_step(batch)
-        self.log("val/loss", loss)
+        self.log("general/val_loss", loss)
 
         flattened_router_logits = results["flattened_router_logits"]
         flattened_true_token_types_ohe = results["flattened_true_token_types"]
@@ -188,7 +188,7 @@ class TokensTranscriberModule(L.LightningModule):
         bincount = torch.bincount(flattened_pred_token_types, minlength=11)
         self.logger.log_metrics(
             {
-                f"val/tokens_distribution/{k.__name__}": v.item()
+                f"val_tokens_distribution/{k.__name__}": v.item()
                 for k, v in zip(
                     TokenTensor.TOKEN_INDEXER.keys(),
                     bincount,
@@ -201,7 +201,7 @@ class TokensTranscriberModule(L.LightningModule):
         prob = bincount / bincount.sum()
         prob = prob[prob > 0]
         entropy = -torch.sum(prob * torch.log(prob))
-        self.log("val/tokens_entropy", entropy)
+        self.log("general/val_tokens_entropy", entropy)
         logger.debug(f"Entropy: {entropy.item()}")
         logger.debug(f"Bincount: {bincount.tolist()}")
         logger.debug(f"Prob: {prob.tolist()}")
@@ -220,7 +220,7 @@ class TokensTranscriberModule(L.LightningModule):
             preds=flattened_pred_token_types.cpu().numpy(),
             class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
         )
-        self.logger.experiment.log({f"val/confusion_matrix": cm})
+        self.logger.experiment.log({f"others/val_confusion_matrix": cm})
 
         # Log per-class metrics
         for name, metric in self.per_class_metrics.items():
