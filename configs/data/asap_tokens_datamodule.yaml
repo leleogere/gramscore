@@ -11,4 +11,5 @@ data_dir:
 batch_size: 5
 include_midi_scores: true
 filter_fn: 'lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score"'
-num_workers: 4
+num_workers: 10
+prefetch_factor: 4
