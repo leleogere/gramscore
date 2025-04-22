@@ -406,18 +406,21 @@ class Roformer(nn.Module):
     def __init__(
         self,
         stream_dimensions: dict[str, int],
-        embedding_dimension: int,
-        layer_norm_eps: float,
-        dropout_prob: float,
+        hidden_size: int = 512,
+        num_hidden_layers: int = 4,
+        num_attention_heads: int = 8,
+        intermediate_size: int = 1536,
+        hidden_dropout_prob: float = 0.1,
+        layer_norm_eps: float = 1e-12,
     ):
         super().__init__()
         common_configuration = dict(
-            hidden_size=embedding_dimension,
+            hidden_size=hidden_size,
             layer_norm_eps=layer_norm_eps,
-            hidden_dropout_prob=dropout_prob,
-            num_hidden_layers=4,
-            num_attention_heads=8,
-            intermediate_size=1536,
+            hidden_dropout_prob=hidden_dropout_prob,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
             use_cache=True,
         )
         enc_configuration = MyModelConfig(
@@ -438,23 +441,23 @@ class Roformer(nn.Module):
 
         self.midi_embedding = MIDIEmbedding(
             stream_dimensions=stream_dimensions,
-            embedding_dimension=embedding_dimension,
+            embedding_dimension=hidden_size,
             layer_norm_eps=layer_norm_eps,
-            dropout_prob=dropout_prob,
+            dropout_prob=hidden_dropout_prob,
         )
         self.score_embedding = ScoreTokenEmbedding(
-            embedding_dimension=embedding_dimension,
+            embedding_dimension=hidden_size,
             layer_norm_eps=layer_norm_eps,
-            dropout_prob=dropout_prob,
+            dropout_prob=hidden_dropout_prob,
         )
 
         self.norm = nn.LayerNorm(
-            embedding_dimension,
+            hidden_size,
             eps=layer_norm_eps,
             bias=True,
         )
 
-        self.token_type_router = nn.Linear(embedding_dimension, len(TokenTensor.TOKEN_INDEXER))
+        self.token_type_router = nn.Linear(hidden_size, len(TokenTensor.TOKEN_INDEXER))
         self.specific_predictor = None  # TODO
 
     def forward_enc(

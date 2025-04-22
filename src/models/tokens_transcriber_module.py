@@ -12,6 +12,7 @@ from torch import nn
 from loguru import logger
 
 from data.asap_tokens_datamodule import AsapTokensDataModule
+
 # from models.automata.transcriber_model import TokensTranscriberModel
 from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
@@ -23,6 +24,12 @@ class TokensTranscriberModule(L.LightningModule):
     def __init__(
         self,
         optimizer: Callable[[Any], torch.optim.Optimizer],
+        embedding_dim: int = 512,
+        num_hidden_layers: int = 4,
+        num_attention_heads: int = 8,
+        intermediate_size: int = 1536,
+        hidden_dropout_prob: float = 0.1,
+        layer_norm_eps: float = 1e-12,
     ):
         super().__init__()
 
@@ -34,9 +41,12 @@ class TokensTranscriberModule(L.LightningModule):
                 "duration": 200,
                 "velocity": 8,
             },
-            embedding_dimension=512,
-            layer_norm_eps=1.0e-12,
-            dropout_prob=0.1,
+            hidden_size=embedding_dim,
+            layer_norm_eps=layer_norm_eps,
+            hidden_dropout_prob=hidden_dropout_prob,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
         )
         self.optimizer = optimizer
         # self.loss = nn.NLLLoss()
