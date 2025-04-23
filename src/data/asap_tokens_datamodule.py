@@ -24,16 +24,12 @@ import partitura.score
 import partitura.utils
 import line_profiler
 
-from data.components.chunking_utils import ChunkingConfig
-from data.components.patched_tokenizer import PatchedTokenizer
 from data.components.score_performance_dataset import AsapDataset
-from data.components.score_performance_dataset import ScorePerformanceDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.music_chunking import clip_midi
 from data.music_chunking import clip_score
 from data.music_chunking import read_chunk_file
 from midi2scoretransformer.tokenizer import MultistreamTokenizer
-from models.automata.automata import ConstrainedAutomata
 from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
