@@ -211,6 +211,22 @@ class MusicChunker:
         }
 
 
+class PerformanceSpeedAugmenter:
+    def __init__(self, min_factor: float, max_factor: float):
+        self.min_factor = min_factor
+        self.max_factor = max_factor
+
+    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+        # Randomly speed up or slow down the performance
+        factor = random.uniform(self.min_factor, self.max_factor)
+        performance: symusic.core.ScoreTick = sample["performance"]
+        performance.adjust_time(
+            original_times=[0, performance.end()],
+            new_times=[0, int(performance.end() * factor)],
+            inplace=True,
+        )
+
+
 class ScoreVectorizer:
     @line_profiler.profile
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
@@ -594,6 +610,7 @@ class AsapTokensDataModule(LightningDataModule):
                 #         for direction in ["up", "down"]
                 #     ]
                 # ),
+                PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 ScoreVectorizer(),
                 PerformanceVectorizer(),
             ],
