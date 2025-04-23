@@ -217,7 +217,6 @@ class TokensTranscriberModule(L.LightningModule):
                     bincount,
                 )
             },
-            step=self.global_step,
         )
 
         # Compute entropy of predictions (to see if always predicting the same token type)
