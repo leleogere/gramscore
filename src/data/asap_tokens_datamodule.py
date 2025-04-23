@@ -447,6 +447,7 @@ class AsapTokensDataModule(LightningDataModule):
         filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
         num_workers: int = 4,
         prefetch_factor: int = None,
+        persistent_workers: bool = False,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
@@ -675,6 +676,7 @@ class AsapTokensDataModule(LightningDataModule):
             collate_fn=self.collate_fn,
             num_workers=self.hparams.num_workers,
             prefetch_factor=self.hparams.prefetch_factor,
+            persistent_workers=self.hparams.persistent_workers,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -689,6 +691,7 @@ class AsapTokensDataModule(LightningDataModule):
             collate_fn=self.collate_fn,
             num_workers=self.hparams.num_workers,
             prefetch_factor=self.hparams.prefetch_factor,
+            persistent_workers=self.hparams.persistent_workers,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -703,6 +706,7 @@ class AsapTokensDataModule(LightningDataModule):
             collate_fn=self.collate_fn,
             num_workers=self.hparams.num_workers,
             prefetch_factor=self.hparams.prefetch_factor,
+            persistent_workers=self.hparams.persistent_workers,
         )
 
     def state_dict(self) -> Dict[Any, Any]:
