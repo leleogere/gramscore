@@ -225,6 +225,7 @@ class PerformanceSpeedAugmenter:
             new_times=[0, int(performance.end() * factor)],
             inplace=True,
         )
+        return sample
 
 
 class ScoreVectorizer:
