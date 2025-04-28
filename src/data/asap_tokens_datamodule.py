@@ -706,7 +706,7 @@ class AsapTokensDataModule(LightningDataModule):
                         ),
                     ],
                     key=lambda entry: entry.xml_score,
-                )
+                ),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 MusicChunker(
                     num_performed_notes=500,
