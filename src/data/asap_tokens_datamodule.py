@@ -125,7 +125,6 @@ class AllowedTranspositionComputer:
                 else:
                     raise
         else:
-            # No transposition possible, return the sample as is
             logger.debug(
                 f"Can't transpose {sample['entry'].xml_score.as_posix()} by any of the intervals"
             )
