@@ -124,10 +124,6 @@ class AllowedTranspositionComputer:
                     )
                 else:
                     raise
-        else:
-            logger.debug(
-                f"Can't transpose {sample['entry'].xml_score.as_posix()} by any of the intervals"
-            )
 
         # Set recursion limit back to normal
         sys.setrecursionlimit(recursion_limit)
