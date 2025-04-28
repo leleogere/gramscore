@@ -85,14 +85,16 @@ class RandomTransposer:
                 highest_note = note.pitch
             if note.pitch < lowest_note:
                 lowest_note = note.pitch
-        highest_note = max(note.pitch for note in sample["performance"].tracks[0].notes)
-        lowest_note = min(note.pitch for note in sample["performance"].tracks[0].notes)
+        # highest_note = max(note.pitch for note in sample["performance"].tracks[0].notes)
+        # lowest_note = min(note.pitch for note in sample["performance"].tracks[0].notes)
 
         # Sample interval (make sure that the transposed score fits in the pitch range)
         allowed_intervals = [
             inter
             for inter in self.intervals
-            if MAX_PITCH - highest_note >= inter.semitones >= MIN_PITCH - lowest_note
+            if MAX_PITCH - highest_note
+            >= -1 * (inter.direction == "down") * inter.semitones
+            >= MIN_PITCH - lowest_note
         ]
         if not allowed_intervals:
             # No transposition fits in the pitch range, do nothing
@@ -107,16 +109,12 @@ class RandomTransposer:
         semitones = interval.semitones * (1 if interval.direction == "up" else -1)
 
         # Transpose score
-        print("hello")
-        # sample["score"] = pt.utils.music.transpose(sample["score"], interval)
-        # import sys
-
-        # sys.setrecursionlimit(1_000_000_000)
-        sample["score"] = copy.deepcopy(sample["score"])
-        for note in sample["score"].notes_tied:
-            print(f"BEFORE {note.alter = }")
-            pt.utils.music._transpose_note_inplace(note, interval)
-            print(f"AFTER  {note.alter = }")
+        sample["score"] = pt.utils.music.transpose(
+            sample["score"],
+            interval,
+            transpose_key_signatures=True,
+            inplace=True,
+        )
 
         # Transpose performance
         for note in sample["performance"].tracks[0].notes:
@@ -599,15 +597,15 @@ class AsapTokensDataModule(LightningDataModule):
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                 ),
-                # RandomTransposer(
-                #     intervals=[
-                #         pt.score.Interval(
-                #             number=int(inter[0]), quality=inter[1:], direction=direction
-                #         )
-                #         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d", "5P", "5A", "5d"]
-                #         for direction in ["up", "down"]
-                #     ]
-                # ),
+                RandomTransposer(
+                    intervals=[
+                        pt.score.Interval(
+                            number=int(inter[0]), quality=inter[1:], direction=direction
+                        )
+                        for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                        for direction in ["up", "down"]
+                    ]
+                ),
                 PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 ScoreVectorizer(),
                 PerformanceVectorizer(),
