@@ -91,7 +91,6 @@ class AllowedTranspositionComputer:
         # Try all intervals
         allowed_intervals = []
         for interval in self.intervals:
-            semitones = interval.semitones * (1 if interval.direction == "up" else -1)
             try:
                 # Try transposing the score
                 pt.utils.music.transpose(
@@ -101,7 +100,7 @@ class AllowedTranspositionComputer:
                     inplace=False,
                 )
                 allowed_intervals.append(interval)
-                logger.trace(
+                logger.debug(
                     f"Score {sample['entry'].xml_score.as_posix()} can be transposed "
                     f"{interval.direction} by a {interval.number}{interval.quality} interval."
                 )
@@ -111,7 +110,7 @@ class AllowedTranspositionComputer:
                 if isinstance(e, AssertionError) and e.args[0].endswith(
                     "is not in the range -2 to 2."
                 ):
-                    logger.trace(
+                    logger.debug(
                         f"Can't transpose {sample['entry'].xml_score.as_posix()} "
                         f"{interval.direction} by a {interval.number}{interval.quality} interval "
                         f"(alterations > 2)."
@@ -119,7 +118,7 @@ class AllowedTranspositionComputer:
                 elif isinstance(e, ValueError) and e.args[0].endswith(
                     "The maximum number of fifths is +/- 7."
                 ):
-                    logger.trace(
+                    logger.debug(
                         f"Can't transpose {sample['entry'].xml_score.as_posix()} "
                         f"{interval.direction} by a {interval.number}{interval.quality} interval "
                         f"(key fifths > 7)."
@@ -128,7 +127,7 @@ class AllowedTranspositionComputer:
                     raise
         else:
             # No transposition possible, return the sample as is
-            logger.trace(
+            logger.debug(
                 f"Can't transpose {sample['entry'].xml_score.as_posix()} by any of the intervals"
             )
 
@@ -161,7 +160,7 @@ class RandomTransposer:
 
     @line_profiler.profile
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
-        # See if some allowed intervals have be precomputed
+        # See if some allowed intervals have been precomputed
         if "allowed_transpositions" in sample:
             intervals = sample["allowed_transpositions"]
         else:
@@ -195,7 +194,7 @@ class RandomTransposer:
         # Randomly sample an allowed interval
         interval = random.choice(non_overflowing_intervals)
         semitones = interval.semitones * (1 if interval.direction == "up" else -1)
-        logger.trace(
+        logger.debug(
             f"Transposing {sample['entry'].xml_score.as_posix()} by {interval} ({semitones} semitones)"
         )
         # Transpose score
