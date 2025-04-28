@@ -3,18 +3,32 @@ from pathlib import Path
 import os
 
 import hydra
+import lightning
 from dotenv import load_dotenv
 from loguru import logger
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
 
 
+@hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def train(cfg: DictConfig) -> None:
-    """
-    Train a transcriber model.
+    """Main entry point for training a transcriber model.
 
-    :param cfg: A DictConfig configuration composed by Hydra.
+    :param cfg: DictConfig configuration composed by Hydra.
     """
+    os.environ["HYDRA_FULL_ERROR"] = "1"
+    os.environ["OC_CAUSE"] = "1"
+
+    # Redirect loguru logs to hydra output directory
+    hydra_path = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    logger.remove()
+    logger.add(sys.stderr, level=cfg.get("log_level", "INFO").upper())
+    logger.add(hydra_path / "train.log")
+
+    load_dotenv()
+
+    lightning.seed_everything(10, workers=True)
+
     logger.info(f"Instantiating logger {cfg.logger._target_}")
     training_logger = hydra.utils.instantiate(cfg.logger)
     training_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
@@ -41,24 +55,5 @@ def train(cfg: DictConfig) -> None:
     trainer.fit(model, datamodule)
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
-def main(cfg: DictConfig) -> None:
-    """Main entry point for training a transcriber model.
-
-    :param cfg: DictConfig configuration composed by Hydra.
-    """
-    os.environ["HYDRA_FULL_ERROR"] = "1"
-    os.environ["OC_CAUSE"] = "1"
-
-    # Redirect loguru logs to hydra output directory
-    hydra_path = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
-    logger.remove()
-    logger.add(sys.stderr, level=cfg.get("log_level", "INFO").upper())
-    logger.add(hydra_path / "train.log")
-
-    load_dotenv()
-    train(cfg)
-
-
 if __name__ == "__main__":
-    main()
+    train()
