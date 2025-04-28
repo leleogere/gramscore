@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import Optional
+import sys
 
 import git
 import line_profiler
@@ -73,6 +74,10 @@ class RandomTransposer:
 
     @line_profiler.profile
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+        # Fix recursion limit to avoid RecursionError when deepcopying scores
+        recursion_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(10**6)
+
         # Get highest and lowest notes
         highest_note, lowest_note = MIN_PITCH, MAX_PITCH
         for note in sample["performance"].tracks[0].notes:
@@ -84,36 +89,62 @@ class RandomTransposer:
         # lowest_note = min(note.pitch for note in sample["performance"].tracks[0].notes)
 
         # Sample interval (make sure that the transposed score fits in the pitch range)
-        allowed_intervals = [
+        non_overflowing_intervals = [
             inter
             for inter in self.intervals
             if MAX_PITCH - highest_note
-            >= -1 * (inter.direction == "down") * inter.semitones
+            >= inter.semitones * (1 if inter.direction == "up" else -1)
             >= MIN_PITCH - lowest_note
         ]
-        if not allowed_intervals:
-            # No transposition fits in the pitch range, do nothing
-            return sample
-        interval: pt.score.Interval = random.choice(
-            [
-                inter
-                for inter in self.intervals
-                if MAX_PITCH - highest_note >= inter.semitones >= MIN_PITCH - lowest_note
-            ]
-        )
-        semitones = interval.semitones * (1 if interval.direction == "up" else -1)
 
-        # Transpose score
-        sample["score"] = pt.utils.music.transpose(
-            sample["score"],
-            interval,
-            transpose_key_signatures=True,
-            inplace=True,
-        )
+        # Randomy sample intervals until we get one without triple alterations
+        random.shuffle(non_overflowing_intervals)
+        for interval in non_overflowing_intervals:
+            semitones = interval.semitones * (1 if interval.direction == "up" else -1)
+            logger.trace(
+                f"Transposing {sample['entry'].xml_score.as_posix()} by {interval} ({semitones} semitones)"
+            )
+            try:
+                # Transpose score
+                transposed_score = pt.utils.music.transpose(
+                    sample["score"],
+                    interval,
+                    transpose_key_signatures=True,
+                    inplace=False,
+                )
+                break
+            except (AssertionError, ValueError) as e:
+                # Not ideal but easiest way to capture the correct exception
+                if isinstance(e, AssertionError) and e.args[0].endswith(
+                    "is not in the range -2 to 2."
+                ):
+                    logger.trace(
+                        f"Can't transpose {sample['entry'].xml_score.as_posix()} by {interval} (alterations > 2)"
+                    )
+                elif isinstance(e, ValueError) and e.args[0].endswith(
+                    "The maximum number of fifths is +/- 7."
+                ):
+                    logger.trace(
+                        f"Can't transpose {sample['entry'].xml_score.as_posix()} by {interval} (key fifths > 7)"
+                    )
+                else:
+                    raise
+        else:
+            # No transposition possible, return the sample as is
+            logger.trace(
+                f"Can't transpose {sample['entry'].xml_score.as_posix()} by any of the intervals"
+            )
+            return sample
+
+        # Save transposed score
+        sample["score"] = transposed_score
 
         # Transpose performance
         for note in sample["performance"].tracks[0].notes:
             note.pitch += semitones
+
+        # Set recursion limit back to normal
+        sys.setrecursionlimit(recursion_limit)
 
         return sample
 
