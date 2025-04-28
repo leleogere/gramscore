@@ -68,17 +68,106 @@ class MusicReader:
         }
 
 
-class RandomTransposer:
+class AllowedTranspositionComputer:
+    """
+    This class simply computes a list of allowed transpositions for a given score:
+        - it does not leads to triple alterations
+        - it does not leads to key signatures with more than 7 sharps/flats
+
+    This list is added to the sample as "allowed_transpositions".
+
+    This computation is quite heavy as each score needs to be deep-copied before transposing,
+    so it should better be wrapped in the Cache class to only compute it once per score.
+    """
+
     def __init__(self, intervals: list[pt.score.Interval]):
         self.intervals = intervals
 
-    @line_profiler.profile
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Fix recursion limit to avoid RecursionError when deepcopying scores
         recursion_limit = sys.getrecursionlimit()
         sys.setrecursionlimit(10**6)
 
-        # Get highest and lowest notes
+        # Try all intervals
+        allowed_intervals = []
+        for interval in self.intervals:
+            semitones = interval.semitones * (1 if interval.direction == "up" else -1)
+            try:
+                # Try transposing the score
+                pt.utils.music.transpose(
+                    sample["score"],
+                    interval,
+                    transpose_key_signatures=True,
+                    inplace=False,
+                )
+                allowed_intervals.append(interval)
+                logger.trace(
+                    f"Score {sample['entry'].xml_score.as_posix()} can be transposed "
+                    f"{interval.direction} by a {interval.number}{interval.quality} interval."
+                )
+                break
+            except (AssertionError, ValueError) as e:
+                # Not ideal but easiest way to capture the correct exception
+                if isinstance(e, AssertionError) and e.args[0].endswith(
+                    "is not in the range -2 to 2."
+                ):
+                    logger.trace(
+                        f"Can't transpose {sample['entry'].xml_score.as_posix()} "
+                        f"{interval.direction} by a {interval.number}{interval.quality} interval "
+                        f"(alterations > 2)."
+                    )
+                elif isinstance(e, ValueError) and e.args[0].endswith(
+                    "The maximum number of fifths is +/- 7."
+                ):
+                    logger.trace(
+                        f"Can't transpose {sample['entry'].xml_score.as_posix()} "
+                        f"{interval.direction} by a {interval.number}{interval.quality} interval "
+                        f"(key fifths > 7)."
+                    )
+                else:
+                    raise
+        else:
+            # No transposition possible, return the sample as is
+            logger.trace(
+                f"Can't transpose {sample['entry'].xml_score.as_posix()} by any of the intervals"
+            )
+
+        # Set recursion limit back to normal
+        sys.setrecursionlimit(recursion_limit)
+
+        sample["allowed_transpositions"] = allowed_intervals
+        return sample
+
+
+class RandomTransposer:
+    """
+    This class transposes a score and a performance by a random allowed interval.
+
+    It takes as input a list of allowed intervals. If the sample has a key "allowed_transpositions"
+    (see class AllowedTranspositionComputer), it will use this list to sample a random interval
+    rather than the one passed in the constructor.
+    """
+
+    def __init__(self, intervals: list[pt.score.Interval] = None):
+        if intervals is None:
+            # By default minor and major seconds and thirds, up and down
+            intervals = [
+                pt.score.Interval(n, q, d)
+                for n in [2, 3]
+                for q in ["m", "M"]
+                for d in ["up", "down"]
+            ]
+        self.intervals = intervals
+
+    @line_profiler.profile
+    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+        # See if some allowed intervals have be precomputed
+        if "allowed_transpositions" in sample:
+            intervals = sample["allowed_transpositions"]
+        else:
+            intervals = self.intervals
+
+        # Get highest and lowest notes in the performance
         highest_note, lowest_note = MIN_PITCH, MAX_PITCH
         for note in sample["performance"].tracks[0].notes:
             if note.pitch > highest_note:
@@ -91,60 +180,35 @@ class RandomTransposer:
         # Sample interval (make sure that the transposed score fits in the pitch range)
         non_overflowing_intervals = [
             inter
-            for inter in self.intervals
+            for inter in intervals
             if MAX_PITCH - highest_note
             >= inter.semitones * (1 if inter.direction == "up" else -1)
             >= MIN_PITCH - lowest_note
         ]
 
-        # Randomy sample intervals until we get one without triple alterations
-        random.shuffle(non_overflowing_intervals)
-        for interval in non_overflowing_intervals:
-            semitones = interval.semitones * (1 if interval.direction == "up" else -1)
-            logger.trace(
-                f"Transposing {sample['entry'].xml_score.as_posix()} by {interval} ({semitones} semitones)"
-            )
-            try:
-                # Transpose score
-                transposed_score = pt.utils.music.transpose(
-                    sample["score"],
-                    interval,
-                    transpose_key_signatures=True,
-                    inplace=False,
-                )
-                break
-            except (AssertionError, ValueError) as e:
-                # Not ideal but easiest way to capture the correct exception
-                if isinstance(e, AssertionError) and e.args[0].endswith(
-                    "is not in the range -2 to 2."
-                ):
-                    logger.trace(
-                        f"Can't transpose {sample['entry'].xml_score.as_posix()} by {interval} (alterations > 2)"
-                    )
-                elif isinstance(e, ValueError) and e.args[0].endswith(
-                    "The maximum number of fifths is +/- 7."
-                ):
-                    logger.trace(
-                        f"Can't transpose {sample['entry'].xml_score.as_posix()} by {interval} (key fifths > 7)"
-                    )
-                else:
-                    raise
-        else:
-            # No transposition possible, return the sample as is
-            logger.trace(
-                f"Can't transpose {sample['entry'].xml_score.as_posix()} by any of the intervals"
+        if not non_overflowing_intervals:
+            logger.warning(
+                f"No allowed intervals for {sample['entry'].xml_score.as_posix()}, returning as is"
             )
             return sample
 
-        # Save transposed score
-        sample["score"] = transposed_score
+        # Randomly sample an allowed interval
+        interval = random.choice(non_overflowing_intervals)
+        semitones = interval.semitones * (1 if interval.direction == "up" else -1)
+        logger.trace(
+            f"Transposing {sample['entry'].xml_score.as_posix()} by {interval} ({semitones} semitones)"
+        )
+        # Transpose score
+        sample["score"] = pt.utils.music.transpose(
+            sample["score"],
+            interval,
+            transpose_key_signatures=True,
+            inplace=True,
+        )
 
         # Transpose performance
         for note in sample["performance"].tracks[0].notes:
             note.pitch += semitones
-
-        # Set recursion limit back to normal
-        sys.setrecursionlimit(recursion_limit)
 
         return sample
 
@@ -615,6 +679,15 @@ class AsapTokensDataModule(LightningDataModule):
                         MusicReader(),
                         VoiceRestFiller(),
                         VoiceReorderer(),
+                        AllowedTranspositionComputer(
+                            intervals=[
+                                pt.score.Interval(
+                                    number=int(inter[0]), quality=inter[1:], direction=direction
+                                )
+                                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                                for direction in ["up", "down"]
+                            ]
+                        ),
                     ],
                     key=lambda entry: entry.midi_performance,
                 ),
@@ -623,15 +696,7 @@ class AsapTokensDataModule(LightningDataModule):
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                 ),
-                RandomTransposer(
-                    intervals=[
-                        pt.score.Interval(
-                            number=int(inter[0]), quality=inter[1:], direction=direction
-                        )
-                        for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-                        for direction in ["up", "down"]
-                    ]
-                ),
+                RandomTransposer(),
                 PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 ScoreVectorizer(),
                 PerformanceVectorizer(),
