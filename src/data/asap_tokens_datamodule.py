@@ -694,6 +694,20 @@ class AsapTokensDataModule(LightningDataModule):
                     ],
                     key=lambda entry: entry.midi_performance,
                 ),
+                Cache(
+                    transforms=[
+                        AllowedTranspositionComputer(
+                            intervals=[
+                                pt.score.Interval(
+                                    number=int(inter[0]), quality=inter[1:], direction=direction
+                                )
+                                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                                for direction in ["up", "down"]
+                            ]
+                        ),
+                    ],
+                    key=lambda entry: entry.xml_score,
+                )
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 MusicChunker(
                     num_performed_notes=500,
