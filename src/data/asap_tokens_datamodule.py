@@ -704,7 +704,7 @@ class AsapTokensDataModule(LightningDataModule):
                             ]
                         ),
                     ],
-                    key=lambda entry: entry.xml_score,
+                    key=lambda sample: sample["entry"].xml_score,
                 ),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 MusicChunker(
