@@ -100,7 +100,7 @@ class AllowedTranspositionComputer:
                     inplace=False,
                 )
                 allowed_intervals.append(interval)
-                logger.debug(
+                logger.trace(
                     f"Score {sample['entry'].xml_score.as_posix()} can be transposed "
                     f"{interval.direction} by a {interval.number}{interval.quality} interval."
                 )
@@ -109,7 +109,7 @@ class AllowedTranspositionComputer:
                 if isinstance(e, AssertionError) and e.args[0].endswith(
                     "is not in the range -2 to 2."
                 ):
-                    logger.debug(
+                    logger.trace(
                         f"Can't transpose {sample['entry'].xml_score.as_posix()} "
                         f"{interval.direction} by a {interval.number}{interval.quality} interval "
                         f"(alterations > 2)."
@@ -117,7 +117,7 @@ class AllowedTranspositionComputer:
                 elif isinstance(e, ValueError) and e.args[0].endswith(
                     "The maximum number of fifths is +/- 7."
                 ):
-                    logger.debug(
+                    logger.trace(
                         f"Can't transpose {sample['entry'].xml_score.as_posix()} "
                         f"{interval.direction} by a {interval.number}{interval.quality} interval "
                         f"(key fifths > 7)."
@@ -132,6 +132,11 @@ class AllowedTranspositionComputer:
 
         # Set recursion limit back to normal
         sys.setrecursionlimit(recursion_limit)
+
+        logger.debug(
+            f"Allowed transpositions for {sample['entry'].xml_score.as_posix()}: "
+            + ", ".join(f"{i.number}{i.quality}" for i in allowed_intervals)
+        )
 
         sample["allowed_transpositions"] = allowed_intervals
         return sample
