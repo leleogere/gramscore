@@ -134,7 +134,10 @@ class AllowedTranspositionComputer:
 
         logger.debug(
             f"Allowed transpositions for {sample['entry'].xml_score.as_posix()}: "
-            + ", ".join(f"{i.number}{i.quality}" for i in allowed_intervals)
+            + ", ".join(
+                f"{'-' if i.direction == 'down' else ''}{i.number}{i.quality}"
+                for i in allowed_intervals
+            )
         )
 
         sample["allowed_transpositions"] = allowed_intervals
