@@ -104,7 +104,6 @@ class AllowedTranspositionComputer:
                     f"Score {sample['entry'].xml_score.as_posix()} can be transposed "
                     f"{interval.direction} by a {interval.number}{interval.quality} interval."
                 )
-                break
             except (AssertionError, ValueError) as e:
                 # Not ideal but easiest way to capture the correct exception
                 if isinstance(e, AssertionError) and e.args[0].endswith(
