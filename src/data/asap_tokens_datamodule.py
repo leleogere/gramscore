@@ -1,17 +1,17 @@
-import copy
 import random
-import urllib.request
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-import typing
 from typing import Any
 from typing import Dict
 from typing import Optional
-import csv
 
 import git
+import line_profiler
 import pandas as pd
+import partitura as pt
+import partitura.score
+import partitura.utils
 import symusic
 import torch
 from lightning import LightningDataModule
@@ -19,10 +19,6 @@ from loguru import logger
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-import partitura as pt
-import partitura.score
-import partitura.utils
-import line_profiler
 
 from data.components.score_performance_dataset import AsapDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
@@ -36,7 +32,6 @@ from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
 from utils.constants import PADDING_VALUE
 from utils.constants import SUCCESS_FILENAME
-
 
 torch.serialization.add_safe_globals([TokenTensor])
 
