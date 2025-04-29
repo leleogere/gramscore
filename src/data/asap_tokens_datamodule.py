@@ -762,7 +762,6 @@ class AsapTokensDataModule(LightningDataModule):
                 for split in self.splits
             }
             self.data_train = sets["train"]
-            self.data_train.entries = self.data_train.entries[:3]  # TODO: HERE
             self.data_val = sets["validation"]
             self.data_test = sets["test"]
 
