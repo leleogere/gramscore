@@ -199,12 +199,19 @@ class RandomTransposer:
             f"{interval.number}{interval.quality} ({semitones} semitones)"
         )
         # Transpose score
-        sample["score"] = pt.utils.music.transpose(
-            sample["score"],
-            interval,
-            transpose_key_signatures=True,
-            inplace=True,
-        )
+        try:
+            sample["score"] = pt.utils.music.transpose(
+                sample["score"],
+                interval,
+                transpose_key_signatures=True,
+                inplace=True,
+            )
+        except Exception as e:
+            logger.error(
+                f"Error when transposing score {sample['entry'].xml_score.as_posix()} up by "
+                f"{interval.number}{interval.quality}: {e}"
+            )
+            raise
 
         # Transpose performance
         for note in sample["performance"].tracks[0].notes:
