@@ -224,9 +224,9 @@ class TokensTranscriberModule(L.LightningModule):
         prob = prob[prob > 0]
         entropy = -torch.sum(prob * torch.log(prob))
         self.log("general/val_tokens_entropy", entropy)
-        logger.debug(f"Entropy: {entropy.item()}")
-        logger.debug(f"Bincount: {bincount.tolist()}")
-        logger.debug(f"Prob: {prob.tolist()}")
+        logger.trace(f"Entropy: {entropy.item()}")
+        logger.trace(f"Bincount: {bincount.tolist()}")
+        logger.trace(f"Prob: {prob.tolist()}")
 
         # Log metrics
         for name, metric in self.global_metrics.items():
