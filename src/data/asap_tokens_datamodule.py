@@ -1,3 +1,4 @@
+import multiprocessing as mp
 import random
 import warnings
 from collections.abc import Callable
@@ -39,19 +40,27 @@ torch.serialization.add_safe_globals([TokenTensor])
 MAX_PITCH = 108
 MIN_PITCH = 21
 
+sys.setrecursionlimit(int(2**31 - 1))
 
-class MusicReader:
-    @line_profiler.profile
+
+class ToDict:
     def __call__(self, entry: ScorePerformanceEntry) -> dict[str, Any]:
-        # Read score
+        return {"entry": entry}
+
+
+class ScoreReader:
+    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            score = pt.load_musicxml(entry.xml_score, force_note_ids=True)
+            score = pt.load_musicxml(sample["entry"].xml_score, force_note_ids=True)
             assert len(score.parts) == 1
-            part = pt.score.unfold_part_maximal(score.parts[0])
+            sample["score"] = pt.score.unfold_part_maximal(score.parts[0])
+        return sample
 
-        # Read performance
-        performance = symusic.Score.from_file(entry.midi_performance)
+
+class PerformanceReader:
+    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+        performance = symusic.Score.from_file(sample["entry"].midi_performance)
         # Merge all tracks into first one if multiple ones
         if len(performance.tracks) > 1:
             track = performance.tracks[0]  # Only reference so OK modifying it
@@ -60,12 +69,8 @@ class MusicReader:
                     getattr(track, attr).extend(getattr(other, attr))
                 performance.tracks.remove(other)
         assert len(performance.tracks) == 1
-
-        return {
-            "entry": entry,
-            "score": part,
-            "performance": performance,
-        }
+        sample["performance"] = performance
+        return sample
 
 
 class AllowedTranspositionComputer:
@@ -84,10 +89,6 @@ class AllowedTranspositionComputer:
         self.intervals = intervals
 
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
-        # Fix recursion limit to avoid RecursionError when deepcopying scores
-        recursion_limit = sys.getrecursionlimit()
-        sys.setrecursionlimit(10**6)
-
         # Try all intervals
         allowed_intervals = []
         for interval in self.intervals:
@@ -124,9 +125,6 @@ class AllowedTranspositionComputer:
                     )
                 else:
                     raise
-
-        # Set recursion limit back to normal
-        sys.setrecursionlimit(recursion_limit)
 
         logger.debug(
             f"Allowed transpositions for {sample['entry'].xml_score.as_posix()}: "
@@ -197,7 +195,8 @@ class RandomTransposer:
         interval = random.choice(non_overflowing_intervals)
         semitones = interval.semitones * (1 if interval.direction == "up" else -1)
         logger.debug(
-            f"Transposing {sample['entry'].xml_score.as_posix()} by {interval} ({semitones} semitones)"
+            f"Transposing {sample['entry'].xml_score.as_posix()} {interval.direction} by "
+            f"{interval.number}{interval.quality} ({semitones} semitones)"
         )
         # Transpose score
         sample["score"] = pt.utils.music.transpose(
@@ -347,10 +346,14 @@ class Cache:
         self,
         transforms: list[Callable[[Any], Any]],
         key: Callable[[Any], Any] = lambda x: x,
+        cache: dict = None,  # Should better be a multiprocessing dict to share between workers
     ):
         self.transforms = transforms
         self.key = key
-        self.cache = {}
+        if cache is not None:
+            self.cache = cache
+        else:
+            self.cache = {}
 
     @line_profiler.profile
     def __call__(self, sample: Any) -> Any:
@@ -412,7 +415,7 @@ class TmpTrainTransform:
                 warnings.simplefilter("ignore")
                 score = pt.load_musicxml(entry.xml_score, force_note_ids=True)
                 assert len(score.parts) == 1
-                part = pt.score.unfold_part_maximal(score.parts[0])
+                part = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
 
             # Read performance
             performance = symusic.Score.from_file(entry.midi_performance)
@@ -669,28 +672,20 @@ class AsapTokensDataModule(LightningDataModule):
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # Setup transforms
+        # First setup the shared dicts (shared accross workers)
+        manager = mp.Manager()
+        allowed_transpositions_cache = manager.dict()
         transforms = {
             "train": [
-                # TmpTrainTransform(
-                #     num_performed_notes=500,
-                #     annotations=self.hparams.data_dir / "asap_annotations.json",
-                # )
+                ToDict(),
                 Cache(
                     transforms=[
-                        MusicReader(),
+                        ScoreReader(),
                         VoiceRestFiller(),
                         VoiceReorderer(),
-                        AllowedTranspositionComputer(
-                            intervals=[
-                                pt.score.Interval(
-                                    number=int(inter[0]), quality=inter[1:], direction=direction
-                                )
-                                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-                                for direction in ["up", "down"]
-                            ]
-                        ),
                     ],
-                    key=lambda entry: entry.midi_performance,
+                    key=lambda sample: sample["entry"].xml_score,
+                    # not shared across workers as some scores not picklable...
                 ),
                 Cache(
                     transforms=[
@@ -705,7 +700,9 @@ class AsapTokensDataModule(LightningDataModule):
                         ),
                     ],
                     key=lambda sample: sample["entry"].xml_score,
+                    cache=allowed_transpositions_cache,  # shared across workers
                 ),
+                Cache([PerformanceReader()], key=lambda p: p["entry"].midi_performance),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 MusicChunker(
                     num_performed_notes=500,
@@ -717,14 +714,16 @@ class AsapTokensDataModule(LightningDataModule):
                 PerformanceVectorizer(),
             ],
             "validation": [
+                ToDict(),
                 Cache(
                     transforms=[
-                        MusicReader(),
+                        ScoreReader(),
                         VoiceRestFiller(),
                         VoiceReorderer(),
                     ],
-                    key=lambda entry: entry.midi_performance,
+                    key=lambda sample: sample["entry"].xml_score,
                 ),
+                Cache([PerformanceReader()], key=lambda sample: sample["entry"].midi_performance),
                 # TODO: better way to evaluate than simply taking the start of the piece
                 MusicChunker(
                     num_performed_notes=500,
@@ -735,7 +734,9 @@ class AsapTokensDataModule(LightningDataModule):
                 PerformanceVectorizer(),
             ],
             "test": [
-                MusicReader(),
+                ToDict(),
+                ScoreReader(),
+                PerformanceReader(),
                 VoiceReorderer(),
                 VoiceRestFiller(),
                 MusicChunker(
@@ -761,6 +762,7 @@ class AsapTokensDataModule(LightningDataModule):
                 for split in self.splits
             }
             self.data_train = sets["train"]
+            self.data_train.entries = self.data_train.entries[:3]  # TODO: HERE
             self.data_val = sets["validation"]
             self.data_test = sets["test"]
 
@@ -831,7 +833,7 @@ if __name__ == "__main__":
     from tqdm import tqdm
 
     logger.remove()
-    logger.add(sink=sys.stderr, level="INFO")
+    logger.add(sink=sys.stderr, level="DEBUG")
 
     data_module = AsapTokensDataModule(
         data_dir=Path("~/Documents/datasets/asap-dataset").expanduser(),
@@ -839,13 +841,14 @@ if __name__ == "__main__":
         filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem == "midi_score",
         batch_size=4,
         num_workers=10,
+        persistent_workers=True,
     )
     data_module.prepare_data()
     data_module.setup()
     size = len(data_module.train_dataloader())
     print(f"{size = }")
 
-    for i, (scores, performances) in enumerate(data_module.train_dataloader(), start=1):
+    for i, sample in enumerate(data_module.train_dataloader(), start=1):
         # for i, sample in enumerate(data_module.data_train, start=1):
         print(f"{i}/{size}")
 

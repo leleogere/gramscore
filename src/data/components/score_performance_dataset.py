@@ -121,6 +121,10 @@ class ScorePerformanceDataset(Dataset):
         :return: The sample at the given index.
         """
         entry = self.entries[idx]
+        # worker = torch.utils.data.get_worker_info()
+        # logger.trace(
+        #     f"{worker.id+1}/{worker.num_workers}: Loading {entry.xml_score_relative} and {entry.midi_performance.name}"
+        # )
         if self.transforms:
             for transform in self.transforms:
                 entry = transform(entry)
