@@ -426,6 +426,7 @@ class AsapTokensDataModule(LightningDataModule):
         num_workers: int = 4,
         prefetch_factor: int = None,
         persistent_workers: bool = False,
+        pin_memory: bool = False,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
@@ -668,6 +669,7 @@ class AsapTokensDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
+            pin_memory=self.hparams.pin_memory,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -683,6 +685,7 @@ class AsapTokensDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
+            pin_memory=self.hparams.pin_memory,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -698,6 +701,7 @@ class AsapTokensDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
+            pin_memory=self.hparams.pin_memory,
         )
 
     def state_dict(self) -> Dict[Any, Any]:
