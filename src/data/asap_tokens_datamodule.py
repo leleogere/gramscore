@@ -1,7 +1,9 @@
+import copy
 import multiprocessing as mp
 import random
 import warnings
 from collections.abc import Callable
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -48,18 +50,32 @@ class ToDict:
         return {"entry": entry}
 
 
-class ScoreReader:
+class AbstractProcessor:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        """
+        This method takes a dict sample, and returns only the newly added/modified keys.
+
+        This avoid modifying the sample inplace, which cause issues with the Cache object.
+        """
+        raise NotImplementedError("Abstract method")
+
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+        new_keys = self._process(sample)
+        return {k: v for k, v in sample.items() if k not in new_keys} | new_keys
+
+
+class ScoreReader(AbstractProcessor):
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             score = pt.load_musicxml(sample["entry"].xml_score, force_note_ids=True)
             assert len(score.parts) == 1
-            sample["score"] = pt.score.unfold_part_maximal(score.parts[0])
-        return sample
+            score = pt.score.unfold_part_maximal(score.parts[0])
+        return {"score": score}
 
 
-class PerformanceReader:
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+class PerformanceReader(AbstractProcessor):
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         performance = symusic.Score.from_file(sample["entry"].midi_performance)
         # Merge all tracks into first one if multiple ones
         if len(performance.tracks) > 1:
@@ -69,11 +85,10 @@ class PerformanceReader:
                     getattr(track, attr).extend(getattr(other, attr))
                 performance.tracks.remove(other)
         assert len(performance.tracks) == 1
-        sample["performance"] = performance
-        return sample
+        return {"performance": performance}
 
 
-class AllowedTranspositionComputer:
+class AllowedTranspositionComputer(AbstractProcessor):
     """
     This class simply computes a list of allowed transpositions for a given score:
         - it does not leads to triple alterations
@@ -88,7 +103,7 @@ class AllowedTranspositionComputer:
     def __init__(self, intervals: list[pt.score.Interval]):
         self.intervals = intervals
 
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Try all intervals
         allowed_intervals = []
         for interval in self.intervals:
@@ -134,11 +149,10 @@ class AllowedTranspositionComputer:
             )
         )
 
-        sample["allowed_transpositions"] = allowed_intervals
-        return sample
+        return {"allowed_transpositions": allowed_intervals}
 
 
-class RandomTransposer:
+class RandomTransposer(AbstractProcessor):
     """
     This class transposes a score and a performance by a random allowed interval.
 
@@ -159,16 +173,21 @@ class RandomTransposer:
         self.intervals = intervals
 
     @line_profiler.profile
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # See if some allowed intervals have been precomputed
         if "allowed_transpositions" in sample:
             intervals = sample["allowed_transpositions"]
         else:
             intervals = self.intervals
 
+        # Get the score and performance
+        entry = sample["entry"]
+        score = sample["score"]
+        performance = sample["performance"]
+
         # Get highest and lowest notes in the performance
         highest_note, lowest_note = MIN_PITCH, MAX_PITCH
-        for note in sample["performance"].tracks[0].notes:
+        for note in performance.tracks[0].notes:
             if note.pitch > highest_note:
                 highest_note = note.pitch
             if note.pitch < lowest_note:
@@ -187,54 +206,54 @@ class RandomTransposer:
 
         if not non_overflowing_intervals:
             logger.warning(
-                f"No allowed intervals for {sample['entry'].xml_score.as_posix()}, returning as is"
+                f"No allowed intervals for {entry.xml_score.as_posix()}, returning as is"
             )
-            return sample
+            return {"score": score, "performance": performance}
 
         # Randomly sample an allowed interval
         interval = random.choice(non_overflowing_intervals)
         semitones = interval.semitones * (1 if interval.direction == "up" else -1)
         logger.debug(
-            f"Transposing {sample['entry'].xml_score.as_posix()} {interval.direction} by "
+            f"Transposing {entry.xml_score.as_posix()} {interval.direction} by "
             f"{interval.number}{interval.quality} ({semitones} semitones)"
         )
         # Transpose score
         try:
-            sample["score"] = pt.utils.music.transpose(
-                sample["score"],
+            transposed_score = pt.utils.music.transpose(
+                score,
                 interval,
                 transpose_key_signatures=True,
                 inplace=True,
             )
         except Exception as e:
             logger.error(
-                f"Error when transposing score {sample['entry'].xml_score.as_posix()} up by "
+                f"Error when transposing score {entry.xml_score.as_posix()} up by "
                 f"{interval.number}{interval.quality}: {e}"
             )
             raise
 
         # Transpose performance
-        for note in sample["performance"].tracks[0].notes:
+        for note in performance.tracks[0].notes:
             note.pitch += semitones
 
-        return sample
+        return {"score": transposed_score, "performance": performance}
 
 
-class VoiceReorderer:
+class VoiceReorderer(AbstractProcessor):
     @line_profiler.profile
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
-        sample["score"] = reorder_voices(sample["score"])
-        return sample
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        reordered_score = reorder_voices(sample["score"])
+        return {"score": reordered_score}
 
 
-class VoiceRestFiller:
+class VoiceRestFiller(AbstractProcessor):
     @line_profiler.profile
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         fill_rests(sample["score"])
-        return sample
+        return {"score": sample["score"]}
 
 
-class MusicChunker:
+class MusicChunker(AbstractProcessor):
     def __init__(
         self,
         num_performed_notes: int,
@@ -249,14 +268,25 @@ class MusicChunker:
         self.start_measure = start_measure
 
     @line_profiler.profile
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        # Get the score and performance
+        entry: ScorePerformanceEntry = sample["entry"]
+        score: pt.score.Part = sample["score"]
+        performance: symusic.core.ScoreSecond = sample["performance"]
 
         # If not enough notes, return the original score and performance
-        total_notes = len(sample["score"].notes)
+        # We copy them as chunking is supposed to be a copy
+        total_notes = len(score.notes)
         if total_notes <= self.num_performed_notes:
-            return sample
+            # Copy score
+            sv = pt.score.ScoreVariant(score)
+            sv.add_segment(score.first_point, score.last_point)
+            copy_score = sv.create_variant_part()
+            # Copy performance
+            copy_performance = performance.copy()
+            return {"score": copy_score, "performance": copy_performance}
 
-        num_measures = len(sample["score"].measures)
+        num_measures = len(score.measures)
         if self.start_measure is None:
             # Get a random measure between the first and a bit before the end
             start_measure = random.randint(0, num_measures - 10) if num_measures > 15 else 0
@@ -267,18 +297,15 @@ class MusicChunker:
 
         # Get the first num_performed_notes notes in the MIDI file starting from this measure
         # (and add notes until the end of the measure if not filled)
-        chunks_file = (
-            sample["entry"].xml_score.parent
-            / f"{sample['entry'].midi_performance.stem}_chunks.json"
-        )
+        chunks_file = entry.xml_score.parent / f"{entry.midi_performance.stem}_chunks.json"
         if not chunks_file.exists():
             logger.error(f"{chunks_file} does not exist, skipping the sample")
             raise FileNotFoundError(f"{chunks_file} does not exist, skipping the sample")
         chunks = read_chunk_file(chunks_file)
         # print("BEFORE clip_midi")
 
-        performance, (start_measure, end_measure) = clip_midi(
-            midi=sample["performance"],
+        clipped_performance, (start_measure, end_measure) = clip_midi(
+            midi=performance,
             chunks=chunks,
             start_measure=start_measure,
             num_notes=self.num_performed_notes,
@@ -288,26 +315,22 @@ class MusicChunker:
         # print("AFTER clip_midi")
 
         # Get the corresponding notes in the score
-        score = clip_score(
-            score=sample["score"],
+        clipped_score = clip_score(
+            score=score,
             start_measure=start_measure,
             end_measure=end_measure,
         )
         # print("AFTER clip_score")
 
-        return {
-            "score": score,
-            "performance": performance,
-            **{k: v for k, v in sample.items() if k not in ["score", "performance"]},
-        }
+        return {"score": clipped_score, "performance": clipped_performance}
 
 
-class PerformanceSpeedAugmenter:
+class PerformanceSpeedAugmenter(AbstractProcessor):
     def __init__(self, min_factor: float, max_factor: float):
         self.min_factor = min_factor
         self.max_factor = max_factor
 
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Randomly speed up or slow down the performance
         factor = random.uniform(self.min_factor, self.max_factor)
         performance: symusic.core.ScoreTick = sample["performance"]
@@ -316,21 +339,21 @@ class PerformanceSpeedAugmenter:
             new_times=[0, int(performance.end() * factor)],
             inplace=True,
         )
-        return sample
+        return {"performance": performance}
 
 
-class ScoreVectorizer:
+class ScoreVectorizer(AbstractProcessor):
     @line_profiler.profile
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Vectorize score
-        sample["score_tokens"] = partitura_to_token_sequence(sample["score"])
-        sample["score_tensor"] = TokenTensor.from_tokens(sample["score_tokens"])
-        return sample
+        score_tokens = partitura_to_token_sequence(sample["score"])
+        score_tensor = TokenTensor.from_tokens(score_tokens)
+        return {"score_tokens": score_tokens, "score_tensor": score_tensor}
 
 
-class PerformanceVectorizer:
+class PerformanceVectorizer(AbstractProcessor):
     @line_profiler.profile
-    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Vectorize performance
         # sample["performance_tensor"] = torch.FloatTensor(
         #     sample["performance"].pianoroll(modes=["frame"], pitch_range=(MIN_PITCH, MAX_PITCH))
@@ -344,16 +367,17 @@ class PerformanceVectorizer:
             "pitch": torch.LongTensor([n.pitch for n in midi_list]),
             "velocity": torch.LongTensor([n.velocity for n in midi_list]),
         }
-        sample["performance_streams"] = MultistreamTokenizer.bucket_midi(midi_streams)
-        return sample
+        performance_streams = MultistreamTokenizer.bucket_midi(midi_streams)
+        return {"performance_streams": performance_streams}
 
 
-class Cache:
+class Cache(AbstractProcessor):
     def __init__(
         self,
         transforms: list[Callable[[Any], Any]],
         key: Callable[[Any], Any] = lambda x: x,
-        cache: dict = None,  # Should better be a multiprocessing dict to share between workers
+        cache: Mapping = None,  # Can use a multiprocessing dict to share between workers
+        deep_copy_on_cache_hit: bool = False,
     ):
         self.transforms = transforms
         self.key = key
@@ -361,172 +385,31 @@ class Cache:
             self.cache = cache
         else:
             self.cache = {}
+        self.deep_copy_on_cache_hit = deep_copy_on_cache_hit
 
     @line_profiler.profile
-    def __call__(self, sample: Any) -> Any:
+    def _process(self, sample: Any) -> Any:
         key = self.key(sample)
-        if key in self.cache:
-            sample = self.cache[key]
-        else:
+        if key not in self.cache:
             for transform in self.transforms:
                 sample = transform(sample)
             self.cache[key] = sample
-        return sample
+        new_sample = (
+            copy.deepcopy(self.cache[key]) if self.deep_copy_on_cache_hit else self.cache[key]
+        )
+        return new_sample
 
 
-class Debugger:
+class Debugger(AbstractProcessor):
     def __init__(
         self,
         func: Callable[[Any], None],
     ):
         self.func = func
 
-    def __call__(self, sample: Any) -> Any:
+    def _process(self, sample: Any) -> Any:
         self.func(sample)
-        return sample
-
-
-class TmpTrainTransform:
-    """
-    This class regroup all transforms that are only used for training for easier profiling.
-    """
-
-    def __init__(
-        self,
-        num_performed_notes: int,
-        annotations: pd.DataFrame | Path,
-        start_measure: int | None = None,
-    ):
-        self.num_performed_notes = num_performed_notes
-        if isinstance(annotations, pd.DataFrame):
-            self.annotations = annotations
-        else:
-            self.annotations = pd.read_json(annotations, orient="index")
-        self.start_measure = start_measure
-        CACHE = True
-        if CACHE:
-            self.cache = {}
-        else:
-            self.cache = None
-
-    @line_profiler.profile
-    def __call__(self, entry: ScorePerformanceEntry) -> dict[str, Any]:
-        if self.cache is not None and entry.midi_performance in self.cache:
-            sample = self.cache[entry.midi_performance]
-        else:
-            # ===========
-            # MusicReader
-            # ===========
-            # Read score
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                score = pt.load_musicxml(entry.xml_score, force_note_ids=True)
-                assert len(score.parts) == 1
-                part = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
-
-            # Read performance
-            performance = symusic.Score.from_file(entry.midi_performance)
-            # Merge all tracks into first one if multiple ones
-            if len(performance.tracks) > 1:
-                track = performance.tracks[0]  # Only reference so OK modifying it
-                for other in performance.tracks[1:]:
-                    for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
-                        getattr(track, attr).extend(getattr(other, attr))
-                    performance.tracks.remove(other)
-            assert len(performance.tracks) == 1
-
-            sample = {
-                "entry": entry,
-                "score": part,
-                "performance": performance,
-            }
-
-            # ===============
-            # VoiceRestFiller
-            # ===============
-            fill_rests(sample["score"])
-
-            # ==============
-            # VoiceReorderer
-            # ==============
-            sample["score"] = reorder_voices(sample["score"])
-
-            if self.cache is not None:
-                self.cache[entry.midi_performance] = sample
-
-        # ============
-        # MusicChunker
-        # ============
-        # If not enough notes, return the original score and performance
-        total_notes = len(sample["score"].notes)
-        if total_notes <= self.num_performed_notes:
-            return sample
-
-        num_measures = len(sample["score"].measures)
-        if self.start_measure is None:
-            # Get a random measure between the first and a bit before the end
-            start_measure = random.randint(0, num_measures - 10) if num_measures > 15 else 0
-        else:
-            start_measure = self.start_measure
-
-        # print(f"{start_measure = }")
-
-        # Get the first num_performed_notes notes in the MIDI file starting from this measure
-        # (and add notes until the end of the measure if not filled)
-        chunks_file = (
-            sample["entry"].xml_score.parent
-            / f"{sample['entry'].midi_performance.stem}_chunks.json"
-        )
-        if not chunks_file.exists():
-            logger.error(f"{chunks_file} does not exist, skipping the sample")
-            raise FileNotFoundError(f"{chunks_file} does not exist, skipping the sample")
-        chunks = read_chunk_file(chunks_file)
-        # print("BEFORE clip_midi")
-
-        performance, (start_measure, end_measure) = clip_midi(
-            midi=sample["performance"],
-            chunks=chunks,
-            start_measure=start_measure,
-            num_notes=self.num_performed_notes,
-            inplace=False,
-            check_num_measures=num_measures,
-        )
-        # print("AFTER clip_midi")
-
-        # Get the corresponding notes in the score
-        score = clip_score(
-            score=sample["score"],
-            start_measure=start_measure,
-            end_measure=end_measure,
-        )
-
-        sample = {
-            "score": score,
-            "performance": performance,
-            **{k: v for k, v in sample.items() if k not in ["score", "performance"]},
-        }
-
-        # ===============
-        # ScoreVectorizer
-        # ===============
-        sample["score_tokens"] = partitura_to_token_sequence(sample["score"])
-        sample["score_tensor"] = TokenTensor.from_tokens(sample["score_tokens"])
-
-        # =====================
-        # PerformanceVectorizer
-        # =====================
-        assert len(sample["performance"].tracks) == 1, "Only one track supported"
-        midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
-        # This is directly from Beyer's MIDI2ScoreTransformer code
-        midi_streams = {
-            "onset": torch.FloatTensor([n.start for n in midi_list]),
-            "duration": torch.FloatTensor([n.duration for n in midi_list]),
-            "pitch": torch.LongTensor([n.pitch for n in midi_list]),
-            "velocity": torch.LongTensor([n.velocity for n in midi_list]),
-        }
-        sample["performance_streams"] = MultistreamTokenizer.bucket_midi(midi_streams)
-
-        return sample
+        return {}
 
 
 class AsapTokensDataModule(LightningDataModule):
