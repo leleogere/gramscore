@@ -67,7 +67,9 @@ class AbstractProcessor:
 class ScoreReader(AbstractProcessor):
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         worker = torch.utils.data.get_worker_info()
-        logger.debug(f"Worker {worker.id} reading score {sample['entry'].xml_score.as_posix()}")
+        logger.debug(
+            f"Worker {worker.id}/{worker.num_workers} reading score {sample['entry'].xml_score.as_posix()}"
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             score = pt.load_musicxml(sample["entry"].xml_score, force_note_ids=True)
