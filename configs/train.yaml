@@ -6,8 +6,11 @@ defaults:
   - _self_
   - data: asap_tokens_datamodule
   - model: tokens_transcriber_module
+  - callbacks: default
   - trainer: cpu
   - logger: wandb
   - paths: default
 
 log_level: DEBUG
+
+tags: ["dev"]

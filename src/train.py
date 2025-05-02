@@ -5,9 +5,33 @@ import os
 import hydra
 import lightning
 from dotenv import load_dotenv
+from fsspec import Callback
 from loguru import logger
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
+
+
+def instantiate_callbacks(callbacks_cfg: DictConfig) -> list[Callback]:
+    """Instantiates callbacks from config.
+
+    :param callbacks_cfg: A DictConfig object containing callback configurations.
+    :return: A list of instantiated callbacks.
+    """
+    callbacks: list[Callback] = []
+
+    if not callbacks_cfg:
+        logger.warning("No callback configs found! Skipping..")
+        return callbacks
+
+    if not isinstance(callbacks_cfg, DictConfig):
+        raise TypeError("Callbacks config must be a DictConfig!")
+
+    for _, cb_conf in callbacks_cfg.items():
+        if isinstance(cb_conf, DictConfig) and "_target_" in cb_conf:
+            logger.info(f"Instantiating callback <{cb_conf._target_}>")
+            callbacks.append(hydra.utils.instantiate(cb_conf))
+
+    return callbacks
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
@@ -47,8 +71,12 @@ def train(cfg: DictConfig) -> None:
     model = hydra.utils.instantiate(cfg.model)
     logger.info(f"Model {model} loaded!")
 
+    logger.info(f"Instantiating callbacks")
+    callbacks = instantiate_callbacks(cfg.callbacks)
+    logger.info(f"Callbacks {callbacks} ready!")
+
     logger.info(f"Instantiating trainer {cfg.trainer._target_}")
-    trainer = hydra.utils.instantiate(cfg.trainer, logger=training_logger)
+    trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=training_logger)
     logger.info(f"Trainer {trainer} ready!")
 
     logger.info("Starting training")
