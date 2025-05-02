@@ -377,29 +377,33 @@ class Cache(AbstractProcessor):
     def __init__(
         self,
         transforms: list[Callable[[Any], Any]],
-        key: Callable[[Any], Any] = lambda x: x,
+        cache_key: Callable[[Any], Any] = lambda x: x,
+        keys_to_cache: list[str] = None,
         cache: Mapping = None,  # Can use a multiprocessing dict to share between workers
-        deep_copy_on_cache_hit: bool = False,
     ):
         self.transforms = transforms
-        self.key = key
+        self.cache_key = cache_key
+        self.keys_to_cache = keys_to_cache
         if cache is not None:
             self.cache = cache
         else:
             self.cache = {}
-        self.deep_copy_on_cache_hit = deep_copy_on_cache_hit
 
     @line_profiler.profile
     def _process(self, sample: Any) -> Any:
-        key = self.key(sample)
+        key = self.cache_key(sample)
         if key not in self.cache:
             for transform in self.transforms:
                 sample = transform(sample)
-            self.cache[key] = sample
-        new_sample = (
-            copy.deepcopy(self.cache[key]) if self.deep_copy_on_cache_hit else self.cache[key]
-        )
-        return new_sample
+            try:
+                self.cache[key] = {
+                    k: v
+                    for k, v in sample.items()
+                    if self.keys_to_cache is None or k in self.keys_to_cache
+                }
+            except:
+                breakpoint()
+        return self.cache[key]
 
 
 class Debugger(AbstractProcessor):
@@ -577,7 +581,7 @@ class AsapTokensDataModule(LightningDataModule):
                         VoiceRestFiller(),
                         VoiceReorderer(),
                     ],
-                    key=lambda sample: sample["entry"].xml_score,
+                    cache_key=lambda sample: sample["entry"].xml_score,
                     # not shared across workers as some scores not picklable...
                 ),
                 Cache(
@@ -592,10 +596,11 @@ class AsapTokensDataModule(LightningDataModule):
                             ]
                         ),
                     ],
-                    key=lambda sample: sample["entry"].xml_score,
+                    cache_key=lambda sample: sample["entry"].xml_score,
+                    keys_to_cache=["allowed_transpositions"],
                     cache=allowed_transpositions_cache,  # shared across workers
                 ),
-                Cache([PerformanceReader()], key=lambda p: p["entry"].midi_performance),
+                PerformanceReader(),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 MusicChunker(
                     num_performed_notes=500,
@@ -614,9 +619,9 @@ class AsapTokensDataModule(LightningDataModule):
                         VoiceRestFiller(),
                         VoiceReorderer(),
                     ],
-                    key=lambda sample: sample["entry"].xml_score,
+                    cache_key=lambda sample: sample["entry"].xml_score,
                 ),
-                Cache([PerformanceReader()], key=lambda sample: sample["entry"].midi_performance),
+                PerformanceReader(),
                 # TODO: better way to evaluate than simply taking the start of the piece
                 MusicChunker(
                     num_performed_notes=500,
