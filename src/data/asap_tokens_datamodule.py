@@ -219,12 +219,14 @@ class RandomTransposer(AbstractProcessor):
         )
         # Transpose score
         try:
-            transposed_score = pt.utils.music.transpose(
-                score,
-                interval,
-                transpose_key_signatures=True,
-                inplace=True,
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                transposed_score = pt.utils.music.transpose(
+                    score,
+                    interval,
+                    transpose_key_signatures=True,
+                    inplace=True,
+                )
         except Exception as e:
             logger.error(
                 f"Error when transposing score {entry.xml_score.as_posix()} up by "
