@@ -37,7 +37,6 @@ class RepeatSampler(BatchSampler):
 class FastDataLoader(DataLoader):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        breakpoint()
         object.__setattr__(self, 'batch_sampler', RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
 
