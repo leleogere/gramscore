@@ -1,7 +1,8 @@
+from torch.utils.data import BatchSampler
 from torch.utils.data import DataLoader
 
 
-class _RepeatSampler(object):
+class _RepeatSampler(BatchSampler):
     """Sampler that repeats forever.
 
     Args:
