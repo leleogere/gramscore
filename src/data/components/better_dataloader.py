@@ -27,6 +27,12 @@ class RepeatSampler(BatchSampler):
         while True:
             yield from iter(self.sampler)
 
+    def __len__(self):
+        if isinstance(self.sampler, Iterable):
+            return len(self.sampler)
+        else:
+            raise TypeError("Sampler must be iterable")
+
 
 class FastDataLoader(DataLoader):
     def __init__(self, *args, **kwargs):
