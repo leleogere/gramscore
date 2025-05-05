@@ -40,4 +40,10 @@ class BatchDurationLogger(Callback):
             if trainer.global_rank == 0:
                 duration = (time.time() - self.start_time) / self.log_every_n_steps
                 logger.info(f"Average batch duration: {duration:.2f} seconds")
-                pl_module.log("batch_duration", duration, rank_zero_only=True)
+                pl_module.log(
+                    "batch_duration",
+                    duration,
+                    rank_zero_only=True,
+                    on_step=True,
+                    on_epoch=False,
+                )
