@@ -12,6 +12,17 @@ class _RepeatSampler(BatchSampler):
     def __init__(self, sampler):
         self.sampler = sampler
 
+    def __getattr__(self, item):
+        if item in self.__dict__:
+            return self.__dict__[item]
+        return getattr(self.sampler, item)
+
+    def __setattr__(self, key, value):
+        if key in self.__dict__:
+            self.__dict__[key] = value
+        else:
+            setattr(self.sampler, key, value)
+
     def __iter__(self):
         while True:
             yield from iter(self.sampler)
