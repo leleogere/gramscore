@@ -1,0 +1,2 @@
+duration_logger:
+    _target_: src.callbacks.epoch_duration_logger.DurationLogger

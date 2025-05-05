@@ -3,7 +3,7 @@ defaults:
 #    - early_stopping
     - model_summary
     - rich_progress_bar
-    - epoch_duration_logger
+    - duration_logger
     - _self_
 
 model_checkpoint:
@@ -13,6 +13,7 @@ model_checkpoint:
     mode: "min"
     save_last: True
     auto_insert_metric_name: False
+    every_n_train_steps: 100
 
 #early_stopping:
 #    monitor: "val/acc"
