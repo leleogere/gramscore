@@ -6,7 +6,7 @@ from lightning.pytorch.utilities.types import STEP_OUTPUT
 from loguru import logger
 
 
-class DurationLogger(Callback):
+class BatchDurationLogger(Callback):
     """
     Callback to log the duration of each epoch during training.
     """
@@ -38,6 +38,6 @@ class DurationLogger(Callback):
                 logger.warning("Epoch start time is not set. Cannot log duration.")
                 return
             if trainer.global_rank == 0:
-                duration = time.time() - self.start_time
-                logger.info(f"Epoch {trainer.current_epoch} duration: {duration:.2f} seconds")
-                pl_module.log("epoch_duration", duration, rank_zero_only=True)
+                duration = (time.time() - self.start_time) / self.log_every_n_steps
+                logger.info(f"Average batch duration: {duration:.2f} seconds")
+                pl_module.log("batch_duration", duration, rank_zero_only=True)
