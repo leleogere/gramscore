@@ -10,7 +10,7 @@ class _RepeatSampler(BatchSampler):
     """
 
     def __init__(self, sampler):
-        self.sampler = sampler
+        object.__setattr__(self, "sampler", sampler)  # Avoid infinite recursion with __setattr__
 
     def __getattr__(self, item):
         if item in self.__dict__:
