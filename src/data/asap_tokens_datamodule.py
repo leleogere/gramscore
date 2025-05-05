@@ -24,6 +24,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+from data.components.better_dataloader import FastDataLoader
 from data.components.score_performance_dataset import AsapDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.music_chunking import clip_midi
@@ -672,7 +673,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         :return: The train dataloader.
         """
-        return DataLoader(
+        return FastDataLoader(
             dataset=self.data_train,
             batch_size=self.batch_size_per_device,
             shuffle=True,
@@ -688,7 +689,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
-        return DataLoader(
+        return FastDataLoader(
             dataset=self.data_val,
             batch_size=self.batch_size_per_device,
             shuffle=False,
@@ -704,7 +705,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         :return: The test dataloader.
         """
-        return DataLoader(
+        return FastDataLoader(
             dataset=self.data_test,
             batch_size=self.batch_size_per_device,
             shuffle=False,
