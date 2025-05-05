@@ -15,3 +15,4 @@ num_workers: 10
 prefetch_factor: 4
 persistent_workers: true
 pin_memory: true
+artificial_dataset_repetitions: 100

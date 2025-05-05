@@ -1,4 +1,5 @@
 import copy
+import itertools
 import multiprocessing as mp
 import random
 import warnings
@@ -438,6 +439,7 @@ class AsapTokensDataModule(LightningDataModule):
         prefetch_factor: int = None,
         persistent_workers: bool = False,
         pin_memory: bool = False,
+        artificial_dataset_repetitions: int = 1,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
@@ -468,6 +470,8 @@ class AsapTokensDataModule(LightningDataModule):
         self.data_test: Optional[Dataset] = None
 
         self.batch_size_per_device = batch_size
+
+        self.artificial_dataset_repetitions = artificial_dataset_repetitions
 
         self.splits = ["train", "validation", "test"]
 
@@ -668,12 +672,19 @@ class AsapTokensDataModule(LightningDataModule):
             self.data_val = sets["validation"]
             self.data_test = sets["test"]
 
+            # Repeat the dataset to simulate a larger dataset (works better for workers)
+            self.data_train.entries = list(
+                itertools.chain.from_iterable(
+                    itertools.repeat(self.data_train.entries, self.artificial_dataset_repetitions)
+                )
+            )
+
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
         :return: The train dataloader.
         """
-        return FastDataLoader(
+        return DataLoader(
             dataset=self.data_train,
             batch_size=self.batch_size_per_device,
             shuffle=True,
@@ -689,7 +700,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
-        return FastDataLoader(
+        return DataLoader(
             dataset=self.data_val,
             batch_size=self.batch_size_per_device,
             shuffle=False,
@@ -705,7 +716,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         :return: The test dataloader.
         """
-        return FastDataLoader(
+        return DataLoader(
             dataset=self.data_test,
             batch_size=self.batch_size_per_device,
             shuffle=False,
