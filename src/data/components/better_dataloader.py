@@ -1,27 +1,27 @@
+from collections.abc import Iterable
+
 from torch.utils.data import BatchSampler
 from torch.utils.data import DataLoader
+from torch.utils.data import Sampler
 
 
-class _RepeatSampler(BatchSampler):
+class RepeatSampler(BatchSampler):
     """Sampler that repeats forever.
 
     Args:
         sampler (Sampler)
     """
 
-    def __init__(self, sampler):
-        object.__setattr__(self, "sampler", sampler)  # Avoid infinite recursion with __setattr__
+    def __init__(self, sampler: BatchSampler):
+        self.sampler = sampler
 
-    def __getattr__(self, item):
-        if item in self.__dict__:
-            return self.__dict__[item]
-        return getattr(self.sampler, item)
+    @property
+    def drop_last(self):
+        return self.sampler.drop_last
 
-    def __setattr__(self, key, value):
-        if key in self.__dict__:
-            self.__dict__[key] = value
-        else:
-            setattr(self.sampler, key, value)
+    @property
+    def batch_size(self):
+        return self.sampler.batch_size
 
     def __iter__(self):
         while True:
@@ -31,7 +31,7 @@ class _RepeatSampler(BatchSampler):
 class FastDataLoader(DataLoader):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        object.__setattr__(self, 'batch_sampler', _RepeatSampler(self.batch_sampler))
+        object.__setattr__(self, 'batch_sampler', RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
 
     def __len__(self):
