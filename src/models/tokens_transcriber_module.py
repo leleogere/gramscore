@@ -1,3 +1,4 @@
+import difflib
 from collections.abc import Callable
 from typing import Any
 
@@ -170,6 +171,9 @@ class TokensTranscriberModule(L.LightningModule):
             target=flattened_true_token_types[flattened_score_not_padded_mask],
         )
         return loss, {
+            "router_logits": router_logits,
+            "true_token_types": true_token_types,
+            "score_not_padded_mask": score_not_padded_mask,
             "flattened_router_logits": flattened_router_logits,
             "flattened_score_not_padded_mask": flattened_score_not_padded_mask,
             "flattened_true_token_types": flattened_true_token_types,
@@ -196,9 +200,53 @@ class TokensTranscriberModule(L.LightningModule):
         loss, results = self.common_step(batch)
         self.log("general/val_loss", loss)
 
+        router_logits = results["router_logits"]
+        true_token_types = results["true_token_types"]
+        score_not_padded_mask = results["score_not_padded_mask"]
         flattened_router_logits = results["flattened_router_logits"]
         flattened_true_token_types_ohe = results["flattened_true_token_types"]
         flattened_score_not_padded_mask = results["flattened_score_not_padded_mask"]
+
+        # Log the first n validation samples
+        n = min(5, batch["score_tensor"].shape[0])
+        if batch_idx == 0:
+            for true_tokens_sequence, pred_tokens_sequence, entry, num_tokens in zip(
+                true_token_types[:n].argmax(-1),
+                router_logits[:n].argmax(-1),
+                batch["entries"][:n],
+                batch["score_lengths"][:n],
+            ):
+                # Convert to string
+                true_tokens_sequence = [
+                    self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
+                    for t in true_tokens_sequence[: num_tokens - 1]
+                ]
+                pred_tokens_sequence = [
+                    self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
+                    for t in pred_tokens_sequence[: num_tokens - 1]
+                ]
+
+                # Align the sequences
+                aligned_true, aligned_pred, diffs = self.align_character_sequences(
+                    true_tokens_sequence,
+                    pred_tokens_sequence,
+                )
+                # Log the sequences
+                self.logger.log_text(
+                    key=f"val_alignments/{entry.xml_score_relative}",
+                    columns=["true", "pred", "diffs"],
+                    data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
+                )
+                # Log the logits
+                data = router_logits[0].softmax(-1).tolist()[: num_tokens - 1]
+                for row, true_token in zip(data, true_tokens_sequence):
+                    # add true token
+                    row.append(true_token)
+                self.logger.log_table(
+                    key="predictions/tests",
+                    columns=list(self._token_str_mapping.values()) + ["true"],
+                    data=data,
+                )
 
         flattened_pred_token_types = flattened_router_logits[
             flattened_score_not_padded_mask
@@ -288,6 +336,75 @@ class TokensTranscriberModule(L.LightningModule):
 
     def configure_optimizers(self):
         return self.optimizer(self.transcriber_model.parameters())
+
+    _token_str_mapping = {
+        tk.StartOfScore: "S",
+        tk.EndOfScore: "E",
+        tk.Bar: "|",
+        tk.Clef: "C",
+        tk.KeySignature: "K",
+        tk.Note: "N",
+        tk.Rest: "R",
+        tk.ChordStart: "<",
+        tk.ChordEnd: ">",
+        tk.TupletStart: "(",
+        tk.TupletEnd: ")",
+    }
+
+    @staticmethod
+    def align_character_sequences(
+        seq1: list[str],
+        seq2: list[str],
+        join_results_str: str | None = None,
+    ) -> tuple[list[str], list[str], list[str]] | tuple[str, str, str]:
+        """
+        This function compares two sequences of characters and returns the aligned sequences.
+        The input sequences must be lists of single-character strings.
+        The output depends on the `join_results_str` parameter:
+        - If `join_results_str` is None, the function returns three lists:
+            - aligned1: the first aligned sequence
+            - aligned2: the second aligned sequence
+            - diffs: a list of differences between the two sequences (+ for insertions, - for deletions,
+                ^ for replacements)
+        - If `join_results_str` is a string, the function will return the three previous lists joined
+            into strings using the provided string as a separator.
+
+        :param seq1: The first sequence of characters to compare.
+        :param seq2: The second sequence of characters to compare.
+        :param join_results_str: The string to join the results. If None, the function returns lists.
+        :return: A tuple containing the aligned sequences and the differences.
+        """
+        assert all(
+            all(len(token) == 1 for token in seq) for seq in (seq1, seq2)
+        ), "All tokens must be single characters"
+
+        matcher = difflib.SequenceMatcher(None, seq1, seq2)
+        aligned1, aligned2, diffs = [], [], []
+        for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+            if opcode == 'equal':
+                aligned1.extend(seq1[i1:i2])
+                aligned2.extend(seq2[j1:j2])
+                diffs.extend(" " * (i2 - i1))
+            elif opcode == 'insert':
+                aligned1.extend([' '] * (j2 - j1))
+                aligned2.extend(seq2[j1:j2])
+                diffs.extend(["+"] * (j2 - j1))
+            elif opcode == 'delete':
+                aligned1.extend(seq1[i1:i2])
+                aligned2.extend([' '] * (i2 - i1))
+                diffs.extend(["-"] * (i2 - i1))
+            elif opcode == 'replace':
+                aligned1.extend(seq1[i1:i2])
+                aligned2.extend(seq2[j1:j2])
+                diffs.extend(["^"] * (i2 - i1))
+        if join_results_str is not None:
+            return (
+                join_results_str.join(aligned1),
+                join_results_str.join(aligned2),
+                join_results_str.join(diffs),
+            )
+        else:
+            return aligned1, aligned2, diffs
 
 
 if __name__ == '__main__':

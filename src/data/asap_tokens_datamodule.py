@@ -526,6 +526,7 @@ class AsapTokensDataModule(LightningDataModule):
         ), "All streams should have the same batch size and number of notes after padding"
 
         return {
+            "entries": [x["entry"] for x in batch],
             "score_tensor": scores_collated,
             "score_padding_mask": score_padding_mask,
             "score_lengths": score_lengths,
