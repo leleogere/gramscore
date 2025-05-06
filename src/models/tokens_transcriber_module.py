@@ -233,7 +233,7 @@ class TokensTranscriberModule(L.LightningModule):
                 )
                 # Log the sequences
                 self.logger.log_text(
-                    key=f"val_alignments/{entry.xml_score_relative}",
+                    key=f"val_visu_alignments/{entry.xml_score_relative}",
                     columns=["true", "pred", "diffs"],
                     data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
                 )
@@ -243,7 +243,7 @@ class TokensTranscriberModule(L.LightningModule):
                     # add true token
                     row.append(true_token)
                 self.logger.log_table(
-                    key="predictions/tests",
+                    key=f"val_visu_logits/{entry.xml_score_relative}",
                     columns=list(self._token_str_mapping.values()) + ["true"],
                     data=data,
                 )
