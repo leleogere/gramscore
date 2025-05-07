@@ -210,11 +210,12 @@ class TokensTranscriberModule(L.LightningModule):
         # Log the first n validation samples
         n = min(5, batch["score_tensor"].shape[0])
         if batch_idx == 0:
-            for true_tokens_sequence, pred_tokens_sequence, entry, num_tokens in zip(
+            for true_tokens_sequence, pred_tokens_sequence, entry, num_tokens, logits in zip(
                 true_token_types[:n].argmax(-1),
                 router_logits[:n].argmax(-1),
                 batch["entries"][:n],
                 batch["score_lengths"][:n],
+                router_logits[:n],
             ):
                 # Convert to string
                 true_tokens_sequence = [
@@ -238,7 +239,7 @@ class TokensTranscriberModule(L.LightningModule):
                     data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
                 )
                 # Log the logits
-                data = router_logits[0].softmax(-1).tolist()[: num_tokens - 1]
+                data = logits.softmax(-1).tolist()[: num_tokens - 1]
                 for row, true_token in zip(data, true_tokens_sequence):
                     # add true token
                     row.append(true_token)
