@@ -245,7 +245,10 @@ class TokensTranscriberModule(L.LightningModule):
                     row.append(true_token)
                 self.logger.log_table(
                     key=f"val_visu_logits/{entry.xml_score_relative}",
-                    columns=list(self._token_str_mapping.values()) + ["true"],
+                    columns=list(
+                        self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()
+                    )
+                    + ["true"],
                     data=data,
                 )
 
@@ -342,10 +345,10 @@ class TokensTranscriberModule(L.LightningModule):
         tk.StartOfScore: "S",
         tk.EndOfScore: "E",
         tk.Bar: "|",
-        tk.Clef: "C",
         tk.KeySignature: "K",
-        tk.Note: "N",
+        tk.Clef: "C",
         tk.Rest: "R",
+        tk.Note: "N",
         tk.ChordStart: "<",
         tk.ChordEnd: ">",
         tk.TupletStart: "(",
