@@ -244,14 +244,13 @@ class TokensTranscriberModule(L.LightningModule):
                 for row, true_token in zip(data, true_tokens_sequence):
                     # add true token
                     row.append(true_token)
-                    row.append(entry.xml_score_relative)
+                    row.append(entry.xml_score_relative.parent.as_posix())
                 all_logits.extend(data)
             self.logger.log_table(
                 key=f"val_visu_logits",
-                columns=list(
-                    self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()
-                )
-                + ["true"] + ["xml_score"],
+                columns=list(self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys())
+                + ["true"]
+                + ["xml_score"],
                 data=all_logits,
             )
 
