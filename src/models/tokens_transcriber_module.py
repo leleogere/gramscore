@@ -210,6 +210,7 @@ class TokensTranscriberModule(L.LightningModule):
         # Log the first n validation samples
         n = min(5, batch["score_tensor"].shape[0])
         if batch_idx == 0:
+            all_logits = []
             for true_tokens_sequence, pred_tokens_sequence, entry, num_tokens, logits in zip(
                 true_token_types[:n].argmax(-1),
                 router_logits[:n].argmax(-1),
@@ -243,14 +244,16 @@ class TokensTranscriberModule(L.LightningModule):
                 for row, true_token in zip(data, true_tokens_sequence):
                     # add true token
                     row.append(true_token)
-                self.logger.log_table(
-                    key=f"val_visu_logits/{entry.xml_score_relative}",
-                    columns=list(
-                        self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()
-                    )
-                    + ["true"],
-                    data=data,
+                    row.append(entry.xml_score_relative)
+                all_logits.extend(data)
+            self.logger.log_table(
+                key=f"val_visu_logits",
+                columns=list(
+                    self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()
                 )
+                + ["true"] + ["xml_score"],
+                data=all_logits,
+            )
 
         flattened_pred_token_types = flattened_router_logits[
             flattened_score_not_padded_mask
