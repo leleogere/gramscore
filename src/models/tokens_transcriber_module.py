@@ -18,6 +18,7 @@ from data.asap_tokens_datamodule import AsapTokensDataModule
 from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
 from models.components.roformer import Roformer
+from models.components.tokens_transcriber_model import TokensTranscriberModel
 from utils.constants import PADDING_VALUE
 
 
@@ -35,19 +36,21 @@ class TokensTranscriberModule(L.LightningModule):
         super().__init__()
 
         self.save_hyperparameters()
-        self.transcriber_model = Roformer(
+        self.transcriber_model = TokensTranscriberModel(
             stream_dimensions={
                 "pitch": 128,
                 "onset": 200,
                 "duration": 200,
                 "velocity": 8,
             },
-            hidden_size=embedding_dim,
-            layer_norm_eps=layer_norm_eps,
-            hidden_dropout_prob=hidden_dropout_prob,
-            num_hidden_layers=num_hidden_layers,
-            num_attention_heads=num_attention_heads,
-            intermediate_size=intermediate_size,
+            roformer=Roformer(
+                hidden_size=embedding_dim,
+                layer_norm_eps=layer_norm_eps,
+                hidden_dropout_prob=hidden_dropout_prob,
+                num_hidden_layers=num_hidden_layers,
+                num_attention_heads=num_attention_heads,
+                intermediate_size=intermediate_size,
+            ),
         )
         self.optimizer = optimizer
         # self.loss = nn.NLLLoss()
@@ -134,11 +137,11 @@ class TokensTranscriberModule(L.LightningModule):
         score_tensor_expected: TokenTensor = score_tensor[:, 1:]
 
         # Pass the input through the model
-        encoder_outputs = self.transcriber_model.forward_enc(
+        encoder_outputs = self.transcriber_model.forward_encoder(
             input_streams=performance_streams,
             attention_mask=performance_not_padded_mask,
         )  # (B, N, E)
-        decoder_outputs = self.transcriber_model.forward_dec(
+        decoder_outputs = self.transcriber_model.forward_decoder(
             input_tokens=score_tensor_input,
             encoder_hidden_states=encoder_outputs,
             encoder_attention_mask=performance_not_padded_mask,

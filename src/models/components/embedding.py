@@ -26,15 +26,15 @@ class MIDIEmbedding(nn.Module):
         self.layer_norm = nn.LayerNorm(self.embedding_dimension, eps=layer_norm_eps)
         self.dropout = nn.Dropout(dropout_prob)
 
-    def forward(self, embeddings: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, stream_inputs: dict[str, torch.Tensor]) -> torch.Tensor:
         """Projects fixed-size embeddings into parallel token streams representing MIDI data.
 
-        :param embeddings: Dictionary of tensors of shape (batch, n_notes, embedding_dim)
+        :param stream_inputs: Dictionary of tensors of shape (batch, n_notes, features_dim)
 
         :return: Unique embedding tensor of shape (batch, n_notes, embedding_dim)
         """
         # Apply layer norm and dropout to the input embeddings
-        stream_embeddings = {k: v(embeddings[k]) for k, v in self.stream_embeddings.items()}
+        stream_embeddings = {k: v(stream_inputs[k]) for k, v in self.stream_embeddings.items()}
         embeddings = torch.sum(torch.stack(list(stream_embeddings.values())), dim=0)
         embeddings = self.layer_norm(embeddings)
         embeddings = self.dropout(embeddings)

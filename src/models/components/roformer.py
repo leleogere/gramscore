@@ -405,7 +405,6 @@ class Roformer(nn.Module):
 
     def __init__(
         self,
-        stream_dimensions: dict[str, int],
         hidden_size: int = 512,
         num_hidden_layers: int = 4,
         num_attention_heads: int = 8,
@@ -414,6 +413,7 @@ class Roformer(nn.Module):
         layer_norm_eps: float = 1e-12,
     ):
         super().__init__()
+
         common_configuration = dict(
             hidden_size=hidden_size,
             layer_norm_eps=layer_norm_eps,
@@ -439,39 +439,23 @@ class Roformer(nn.Module):
         self.encoder = RoFormerModel(enc_configuration)
         self.decoder = RoFormerModel(dec_configuration)
 
-        self.midi_embedding = MIDIEmbedding(
-            stream_dimensions=stream_dimensions,
-            embedding_dimension=hidden_size,
-            layer_norm_eps=layer_norm_eps,
-            dropout_prob=hidden_dropout_prob,
-        )
-        self.score_embedding = ScoreTokenEmbedding(
-            embedding_dimension=hidden_size,
-            layer_norm_eps=layer_norm_eps,
-            dropout_prob=hidden_dropout_prob,
-        )
-
         self.norm = nn.LayerNorm(
             hidden_size,
             eps=layer_norm_eps,
             bias=True,
         )
 
-        self.token_type_router = nn.Linear(hidden_size, len(TokenTensor.TOKEN_INDEXER))
-        self.specific_predictor = None  # TODO
-
     def forward_enc(
         self,
-        input_streams: dict[str, torch.Tensor],
+        midi_embeddings: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         output_attentions = self.encoder.config.output_attentions
         output_hidden_states = self.encoder.config.output_hidden_states
         return_dict = self.encoder.config.use_return_dict
 
-        sample_stream = input_streams[list(input_streams.keys())[0]]
-        B, T = sample_stream.size()[:-1]
-        device = sample_stream.device
+        B, T = midi_embeddings.size()[:-1]
+        device = midi_embeddings.device
 
         if attention_mask is None:
             attention_mask = torch.ones(((B, T)), device=device)
@@ -480,13 +464,12 @@ class Roformer(nn.Module):
         )
         encoder_extended_attention_mask = None
 
-        embedding_output = self.midi_embedding(input_streams)
-
-        if hasattr(self, "embeddings_project"):
-            embedding_output = self.encoder.embeddings_project(embedding_output)
+        # QUESTION: should this be moved into TokensTranscriberModel?
+        # if hasattr(self, "embeddings_project"):
+        #     embedding_output = self.encoder.embeddings_project(midi_embeddings)
 
         encoder_outputs = self.encoder.encoder(
-            embedding_output,
+            midi_embeddings,
             attention_mask=extended_attention_mask,
             head_mask=None,
             encoder_attention_mask=encoder_extended_attention_mask,
@@ -497,12 +480,9 @@ class Roformer(nn.Module):
         )
         return self.norm(encoder_outputs.last_hidden_state)
 
-    def forward_router(self, decoder_outputs: torch.Tensor) -> torch.Tensor:
-        return self.token_type_router(decoder_outputs)
-
     def forward_dec(
         self,
-        input_tokens: TokenTensor,
+        score_embeddings: torch.Tensor,
         encoder_hidden_states: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
         past_key_values: tuple[torch.Tensor] | None = None,
@@ -513,10 +493,10 @@ class Roformer(nn.Module):
         output_hidden_states = self.decoder.config.output_hidden_states
         return_dict = self.decoder.config.use_return_dict
 
-        B, T = input_tokens.size()[:2]
+        B, T = score_embeddings.size()[:2]
         if past_key_values is not None:
             T += past_key_values[0][0].size(2)
-        device = input_tokens.device
+        device = score_embeddings.device
 
         # Make/convert attention masks
         attention_mask = torch.ones(((B, T)), device=device)
@@ -541,11 +521,9 @@ class Roformer(nn.Module):
             # extended_attention_mask = extended_attention_mask[
             #     ..., -input_streams['pad'].size(1) :, :
             # ]
-        # pass to model
-        embedding_output = self.score_embedding(input_tokens)
 
         decoder_outputs = self.decoder.encoder(
-            embedding_output,
+            score_embeddings,
             attention_mask=extended_attention_mask,
             head_mask=None,
             encoder_hidden_states=encoder_hidden_states,
