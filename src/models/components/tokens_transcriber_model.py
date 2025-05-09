@@ -49,12 +49,6 @@ class TokensTranscriberModel(nn.Module):
             dropout_prob=hidden_dropout_prob,
         )
 
-        self.norm = nn.LayerNorm(
-            hidden_size,
-            eps=layer_norm_eps,
-            bias=True,
-        )
-
         self.token_type_router = nn.Linear(hidden_size, len(TokenTensor.TOKEN_INDEXER))
 
     def forward_router(self, decoder_outputs: torch.Tensor) -> torch.Tensor:
