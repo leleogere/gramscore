@@ -19,11 +19,14 @@ import partitura as pt
 import partitura.score
 import symusic
 import torch
+import torchdata.nodes as nodes
 from loguru import logger
 from torch.utils.data import Dataset
+from torch.utils.data import RandomSampler
 from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 
+from data.components import transforms as t
 from data.components.chunking_utils import ChunkingConfig
 from data.components.chunking_utils import chunk_partitura_score_and_performances
 from utils.abc_xml_conversion import conversion
@@ -328,17 +331,103 @@ class AsapDataset(ScorePerformanceDataset):
         return entries
 
 
+def get_train_asap_dataset(
+    data_dir: Path,
+    include_midi_scores: bool = True,
+    filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
+    batch_size: int | None = None,
+) -> nodes.BaseNode[nodes.T]:
+    """Get the ASAP dataset for training.
+
+    :return: The ASAP dataset for training.
+    """
+    dataset = AsapDataset(
+        data_dir,
+        split="train",
+        include_midi_scores=include_midi_scores,
+        filter_fn=filter_fn,
+    )
+
+    dataset = nodes.MapStyleWrapper(dataset, RandomSampler(dataset))
+    mp_manager = torch.multiprocessing.Manager()
+    dataset = t.TransformNode(dataset, t.ToDict())
+    dataset = t.TransformNode(
+        dataset,
+        t.Cache(
+            transforms=[
+                t.ScoreReader(),
+                t.VoiceRestFiller(),
+                t.VoiceReorderer(),
+            ],
+            cache_key=lambda sample: sample["entry"].xml_score,
+            # not shared across workers as some scores not picklable...
+        ),
+    )
+    dataset = t.TransformNode(
+        dataset,
+        t.Cache(
+            transforms=[
+                t.AllowedTranspositionComputer(
+                    intervals=[
+                        pt.score.Interval(
+                            number=int(inter[0]), quality=inter[1:], direction=direction
+                        )
+                        for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                        for direction in ["up", "down"]
+                    ]
+                ),
+            ],
+            cache_key=lambda sample: sample["entry"].xml_score,
+            keys_to_cache=["allowed_transpositions"],
+            cache=mp_manager.dict(),  # shared across workers
+        ),
+    )
+    dataset = t.TransformNode(dataset, t.PerformanceReader())
+    dataset = t.TransformNode(
+        dataset,
+        t.MusicChunker(
+            num_performed_notes=500,
+            annotations=data_dir / "asap_annotations.json",
+            mode="random",
+        ),
+    )
+    dataset = t.TransformNode(dataset, t.RandomTransposer())
+    dataset = t.TransformNode(dataset, t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2))
+    dataset = t.TransformNode(dataset, t.ScoreVectorizer())
+    dataset = t.TransformNode(dataset, t.PerformanceVectorizer())
+
+    if batch_size is not None:
+        dataset = nodes.Batcher(dataset, batch_size=batch_size, drop_last=False)
+    dataset = nodes.Loader(dataset, restart_on_stop_iteration=True)
+    return dataset
+
+
 if __name__ == '__main__':
-    ds = AsapDataset(
+    # ds = AsapDataset(
+    #     Path("~/Documents/datasets/asap-dataset").expanduser(),
+    #     split="all",
+    #     include_midi_scores=True,
+    #     filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem != "midi_score",
+    # )  # TODO: fix this to load the MIDI scores
+    # print(f"Number of performances: {len(ds)}")
+    # print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
+    # print(ds[0].midi_performance)
+    # print(ds[0].xml_score)
+
+    train_asap = get_train_asap_dataset(
         Path("~/Documents/datasets/asap-dataset").expanduser(),
-        split="all",
         include_midi_scores=True,
-        filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem != "midi_score",
-    )  # TODO: fix this to load the MIDI scores
-    print(f"Number of performances: {len(ds)}")
-    print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
-    print(ds[0].midi_performance)
-    print(ds[0].xml_score)
+        filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem == "midi_score",
+        batch_size=5,
+    )
+    for i, batch in enumerate(train_asap):
+        print(f"Batch {i}:")
+        for entry in batch:
+            print(
+                f"  * {entry['entry'].xml_score_relative} -> {entry['entry'].midi_performance_relative}"
+            )
+        if i == 2:
+            break
 
     # # Print all scores with the associated performances
     # from collections import defaultdict
