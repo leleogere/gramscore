@@ -114,7 +114,7 @@ class ScorePerformanceDataset(Dataset):
         return len(self.entries)
 
     # @line_profiler.profile
-    def __getitem__(self, idx: int) -> ScorePerformanceEntry:
+    def __getitem__(self, idx: int) -> ScorePerformanceEntry | Any:
         """Return a sample from the dataset.
 
         :param idx: The index of the sample to return.
@@ -126,9 +126,18 @@ class ScorePerformanceDataset(Dataset):
         #     f"{worker.id+1}/{worker.num_workers}: Loading {entry.xml_score_relative} and {entry.midi_performance.name}"
         # )
         if self.transforms:
-            for transform in self.transforms:
-                entry = transform(entry)
+            entry = self.apply_transforms(entry, self.transforms)
         return entry
+
+    @classmethod
+    def apply_transforms(cls, sample: Any, transforms: list[Callable]) -> Any:
+        for i, transform in enumerate(transforms):
+            sample = transform(sample)
+            if isinstance(sample, list):
+                # If the transform returns a list, apply the transforms to each element
+                sample = [cls.apply_transforms(s, transforms[i + 1 :]) for s in sample]
+                break
+        return sample
 
 
 class AsapDataset(ScorePerformanceDataset):
