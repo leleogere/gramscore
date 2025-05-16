@@ -1,4 +1,5 @@
 import csv
+import functools
 import itertools
 import json
 import traceback
@@ -10,7 +11,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from typing import Literal
 
+import cachetools
 import joblib
 import line_profiler
 import music21 as m21
@@ -34,7 +37,7 @@ from utils.constants import SKIP
 from utils.constants import SUCCESS_FILENAME
 from utils.constants import TEST_PIECE_IDS
 from utils.constants import TO_IGNORE_INDICES
-
+from utils.functions import rcompose
 
 TEST_PIECES = [
     "Bach/Fugue/bwv_846",
@@ -347,54 +350,53 @@ def get_train_asap_dataset(
         include_midi_scores=include_midi_scores,
         filter_fn=filter_fn,
     )
+    dataset.entries = dataset.entries[:2]
 
+    num_workers = 12  # TODO: make configurable
+    parallel_method: Literal["thread", "process"] = "process"
     dataset = nodes.MapStyleWrapper(dataset, RandomSampler(dataset))
     mp_manager = torch.multiprocessing.Manager()
-    dataset = t.TransformNode(dataset, t.ToDict())
-    dataset = t.TransformNode(
+    annotations = pd.read_json(data_dir / "asap_annotations.json", orient="index")
+    dataset = nodes.ParallelMapper(
         dataset,
-        t.Cache(
-            transforms=[
-                t.ScoreReader(),
-                t.VoiceRestFiller(),
-                t.VoiceReorderer(),
-            ],
-            cache_key=lambda sample: sample["entry"].xml_score,
-            # not shared across workers as some scores not picklable...
-        ),
-    )
-    dataset = t.TransformNode(
-        dataset,
-        t.Cache(
-            transforms=[
-                t.AllowedTranspositionComputer(
+        rcompose(
+            t.to_dict,
+            t.dict_cache(cache={}, key=lambda sample: sample["entry"].xml_score)(
+                rcompose(t.read_score, t.rest_fill, t.voice_reorder)
+            ),
+            t.dict_cache(
+                cache=mp_manager.dict(),
+                key=lambda sample: sample["entry"].xml_score,
+                keys_to_cache=["allowed_transpositions"],
+            )(
+                functools.partial(
+                    t.compute_allowed_transpositions,
                     intervals=[
                         pt.score.Interval(
                             number=int(inter[0]), quality=inter[1:], direction=direction
                         )
                         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
                         for direction in ["up", "down"]
-                    ]
-                ),
-            ],
-            cache_key=lambda sample: sample["entry"].xml_score,
-            keys_to_cache=["allowed_transpositions"],
-            cache=mp_manager.dict(),  # shared across workers
+                    ],
+                )
+            ),
+            t.read_performance,
+            functools.partial(
+                t.chunk_music,
+                num_performed_notes=500,
+                annotations=annotations,
+                mode="random",
+            ),
+            t.random_transpose,
+            functools.partial(t.scale_performance_tempo, min_factor=0.8, max_factor=0.9),
+            t.vectorize_performance,
+            t.vectorize_score,
+            functools.partial(t.delete_keys, keys=["score"]),  # Not picklable
+            t.debug(lambda s: print(s['entry'].xml_score_relative)),
         ),
+        num_workers=num_workers,
+        method=parallel_method,
     )
-    dataset = t.TransformNode(dataset, t.PerformanceReader())
-    dataset = t.TransformNode(
-        dataset,
-        t.MusicChunker(
-            num_performed_notes=500,
-            annotations=data_dir / "asap_annotations.json",
-            mode="random",
-        ),
-    )
-    dataset = t.TransformNode(dataset, t.RandomTransposer())
-    dataset = t.TransformNode(dataset, t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2))
-    dataset = t.TransformNode(dataset, t.ScoreVectorizer())
-    dataset = t.TransformNode(dataset, t.PerformanceVectorizer())
 
     if batch_size is not None:
         dataset = nodes.Batcher(dataset, batch_size=batch_size, drop_last=False)
@@ -403,6 +405,15 @@ def get_train_asap_dataset(
 
 
 if __name__ == '__main__':
+    import sys
+    import faulthandler
+
+    import signal
+
+    faulthandler.register(signal.SIGUSR1.value)
+
+    logger.remove()
+    logger.add(sys.stderr, level="DEBUG")
     # ds = AsapDataset(
     #     Path("~/Documents/datasets/asap-dataset").expanduser(),
     #     split="all",
@@ -426,6 +437,7 @@ if __name__ == '__main__':
             print(
                 f"  * {entry['entry'].xml_score_relative} -> {entry['entry'].midi_performance_relative}"
             )
+            pass
         if i == 2:
             break
 
