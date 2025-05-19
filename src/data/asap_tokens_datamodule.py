@@ -310,7 +310,8 @@ class AsapTokensDataModule(LightningDataModule):
             dataset=self.data_val,
             batch_size=1,  # 1 batch = all chunks of 1 piece (splitting dealt with by MusicChunker)
             shuffle=False,
-            collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,  # to catch bugs
+            # the ZeroDivisionError below should not happen, it's here only to catch an eventual bug
+            collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,
             num_workers=min(len(self.data_val.entries), self.hparams.num_workers),
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
@@ -326,7 +327,8 @@ class AsapTokensDataModule(LightningDataModule):
             dataset=self.data_test,
             batch_size=1,
             shuffle=False,
-            collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,  # to catch bugs
+            # ZeroDivisionError: same as validation above
+            collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,
             num_workers=min(len(self.data_test.entries), self.hparams.num_workers),
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
