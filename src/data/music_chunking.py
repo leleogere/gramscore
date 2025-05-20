@@ -200,6 +200,7 @@ def clip_midi(
         ]
         + 1
     ]
+    midi.tracks[0].notes = clipped_notes
 
     # Clip the performance to the timing of the first and last notes
     start_time = clipped_notes[0].time

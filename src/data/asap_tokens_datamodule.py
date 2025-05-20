@@ -362,7 +362,7 @@ if __name__ == "__main__":
     data_module = AsapTokensDataModule(
         data_dir=Path("~/Documents/datasets/asap-dataset").expanduser(),
         include_midi_scores=True,
-        filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem == "midi_score",
+        filter_fn=lambda x: x.composer == "Bach",  # and x.midi_performance.stem == "midi_score",
         batch_size=4,
         num_workers=10,
         persistent_workers=True,
