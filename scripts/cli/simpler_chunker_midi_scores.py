@@ -104,6 +104,11 @@ def create_chunk_file_for_midi_score(
     # As there are multiple performances for one piece, try to take the first one which does have
     # the "downbeats_score_map" field filled
     # QUESTION: do we need to check all performances or they share the same map?
+    # -> For now assert that they do to check
+    assert all(
+        p["downbeats_score_map"] == performances_annotations[0]["downbeats_score_map"]
+        for p in performances_annotations
+    ), f"{piece}: Downbeats score map is not the same for all performances."
     for (_, performance_metadata), performance_annotations in zip(
         performances_metadata.iterrows(), performances_annotations
     ):
@@ -306,9 +311,16 @@ def assign_performance_notes_to_chunks(
     # to the next one (we check the pitches present in each measure to proxy the alignemnt quality
     # as it's done by Beyer)
     n_swaps = 0
-    for (group, downbeat), (next_group, next_downbeat) in itertools.pairwise(
-        zip(midi_score_mapping.keys(), performance_downbeats)
+    for i, ((group, downbeat), (next_group, next_downbeat)) in enumerate(
+        itertools.pairwise(zip(midi_score_mapping.keys(), performance_downbeats))
     ):
+        if next_downbeat - downbeat < swapping_tolerance:
+            raise ValueError(
+                f"Downbeats {i} ({downbeat}) and {i+1} ({next_downbeat}) are closer than the "
+                f"swapping tolerance ({swapping_tolerance}s), this probably indicate an alignment "
+                f"error."
+                ""
+            )
         notes_to_swap_remaining = True
         while notes_to_swap_remaining:
             notes_to_swap_remaining = False  # will be flipped back to True later if needed
