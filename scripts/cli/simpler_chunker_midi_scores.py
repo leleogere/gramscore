@@ -21,10 +21,10 @@ import partitura as pt
 import partitura.score
 import symusic
 from loguru import logger
-from partitura.utils.music import midi_pitch_to_pitch_spelling
 from tqdm import tqdm
 
 from utils.midi import merge_into_single_track
+from utils.midi import midi_pitch_to_note_name
 
 
 class DownbeatScoreMap(UserList):
@@ -205,7 +205,7 @@ def create_chunk_file_for_midi_score(
     )
     # Save the mapping to a JSON file (remove the pitches before saving as not needed)
     midi_score_mapping_indices = {
-        measures: [i for i, pitch in group] for measures, group in midi_score_mapping.items()
+        measures: [i for i, _ in group] for measures, group in midi_score_mapping.items()
     }
     chunk_file_path = midi_score_path.with_name(f"{midi_score_path.stem}_chunks.json")
     with open(chunk_file_path, "w") as f:
@@ -232,7 +232,7 @@ def create_chunk_file_for_midi_score(
         )
         # Save the mapping to a JSON file (remove the pitches before saving as not needed)
         performance_mapping_indices = {
-            measures: [i for i, pitch in group] for measures, group in performance_mapping.items()
+            measures: [i for i, _ in group] for measures, group in performance_mapping.items()
         }
         chunk_file_path = p_path.with_name(f"{p_path.stem}_chunks.json")
         with open(chunk_file_path, "w") as f:
@@ -244,9 +244,9 @@ def assign_midi_score_notes_to_chunks(
     midi_score_downbeats: list[float],
     downbeats_score_map: DownbeatScoreMap,
     rounding_error_tolerance: float = 0.01,
-) -> dict[str, list[tuple[int, int]]]:
+) -> dict[str, list[tuple[int, symusic.core.NoteSecond]]]:
     """
-    Returns a mapping from XML measure to index of MIDI notes with their pitch.
+    Returns a mapping from XML measure to index of MIDI notes with the symusic Note object.
     """
     assert len(midi_score.tracks) == 1
     track = midi_score.tracks[0]
@@ -262,7 +262,7 @@ def assign_midi_score_notes_to_chunks(
         # Assign all notes before the next downbeat to the current measure (or group of measures)
         notes_in_current_group = []
         while note is not None and note.start < next_db - rounding_error_tolerance:
-            notes_in_current_group.append((i, note.pitch))
+            notes_in_current_group.append((i, note))
             i, note = next(indices_and_notes, (None, None))
         xml_measures_str = "-".join(str(m) for m in xml_measures)
         mapping[xml_measures_str] = notes_in_current_group
@@ -275,9 +275,9 @@ def assign_performance_notes_to_chunks(
     performance_downbeats: list[float],
     midi_score_downbeats: list[float],
     downbeats_score_map: DownbeatScoreMap,
-    midi_score_mapping: dict[str, list[tuple[int, int]]],
+    midi_score_mapping: dict[str, list[tuple[int, symusic.core.NoteSecond]]],
     swapping_tolerance: float = 0.05,  # As in Beyer's
-) -> dict[str, list[tuple[int, int]]]:
+) -> dict[str, list[tuple[int, symusic.core.NoteSecond]]]:
     assert len(performance.tracks) == 1
     assert len(midi_score.tracks) == 1
     performance_track = performance.tracks[0]
@@ -285,15 +285,15 @@ def assign_performance_notes_to_chunks(
     indices_and_notes = enumerate(performance_track.notes)
     i, note = next(indices_and_notes, (None, None))
     mapping = defaultdict(list)
-    for next_db, xml_measures in zip(
-        performance_downbeats[1:] + [math.inf],
+    for next_db, xml_measures in itertools.zip_longest(
+        performance_downbeats[1:],
         downbeats_score_map,
-        strict=True,
+        fillvalue=math.inf,
     ):
         # Assign all notes before the next downbeat to the current measure (or group of measures)
         notes_in_current_group = []
         while note is not None and note.start < next_db - swapping_tolerance:
-            notes_in_current_group.append((i, note.pitch))
+            notes_in_current_group.append((i, note))
             i, note = next(indices_and_notes, (None, None))
         xml_measures_str = "-".join(str(m) for m in xml_measures)
         mapping[xml_measures_str] = notes_in_current_group
@@ -306,18 +306,20 @@ def assign_performance_notes_to_chunks(
     # to the next one (we check the pitches present in each measure to proxy the alignemnt quality
     # as it's done by Beyer)
     n_swaps = 0
-    for i, (group, next_group) in enumerate(list(itertools.pairwise(midi_score_mapping.keys()))):
+    for (group, downbeat), (next_group, next_downbeat) in itertools.pairwise(
+        zip(midi_score_mapping.keys(), performance_downbeats)
+    ):
         notes_to_swap_remaining = True
         while notes_to_swap_remaining:
             notes_to_swap_remaining = False  # will be flipped back to True later if needed
             # Figure out which MIDI pitches can be moved forward/backward by one beat
             # because that would yield better alignment. Only considers notes within
             # 0.5s of the beat boundary.
-            counter_performance = Counter([p for _, p in mapping[group]])
-            counter_midi_score = Counter([p for _, p in midi_score_mapping[group]])
+            counter_performance = Counter([n.pitch for _, n in mapping[group]])
+            counter_midi_score = Counter([n.pitch for _, n in midi_score_mapping[group]])
 
-            counter_performance_next = Counter([p for _, p in mapping[next_group]])
-            counter_midi_score_next = Counter([p for _, p in midi_score_mapping[next_group]])
+            counter_performance_next = Counter([n.pitch for _, n in mapping[next_group]])
+            counter_midi_score_next = Counter([n.pitch for _, n in midi_score_mapping[next_group]])
 
             too_much = counter_performance - counter_midi_score
             lacking = counter_midi_score - counter_performance
@@ -329,22 +331,11 @@ def assign_performance_notes_to_chunks(
             can_be_moved_backward = too_much_next & lacking
 
             for pitch in can_be_moved_forward:
-                last_j, last_p = mapping[group][-1]
+                last_i, last_n = mapping[group][-1]
                 # Only swap notes if they are within swapping_tolerance seconds of the beat boundary
-                if (
-                    last_p == pitch
-                    and performance_downbeats[i + 1] - performance_track.notes[last_j].start
-                    < swapping_tolerance
-                ):
-                    pitch_name = midi_pitch_to_pitch_spelling(pitch)
-                    pitch_name = (
-                        pitch_name[0]
-                        + pitch_name[1] * "♯"
-                        + -pitch_name[1] * "♭"
-                        + str(pitch_name[2])
-                    )
+                if last_n.pitch == pitch and next_downbeat - last_n.start < swapping_tolerance:
                     print(
-                        f" * Swapping {last_j} ({pitch_name}) from {group} ({performance_downbeats[i]}) to {next_group} ({performance_downbeats[i + 1]})"
+                        f" * Forward {last_i}|{midi_pitch_to_note_name(pitch)} ({last_n.start}) from {group} ({downbeat}) to {next_group} ({next_downbeat})"
                     )
                     mapping[next_group].insert(0, mapping[group].pop())
                     n_swaps += 1
@@ -352,22 +343,11 @@ def assign_performance_notes_to_chunks(
                     break
 
             for pitch in can_be_moved_backward:
-                first_j, first_p = mapping[next_group][0]
+                first_i, first_n = mapping[next_group][0]
                 # Only swap notes if they are within swapping_tolerance seconds of the beat boundary
-                if (
-                    first_p == pitch
-                    and performance_track.notes[first_j].start - performance_downbeats[i]
-                    < swapping_tolerance
-                ):
-                    pitch_name = midi_pitch_to_pitch_spelling(pitch)
-                    pitch_name = (
-                        pitch_name[0]
-                        + pitch_name[1] * "♯"
-                        + -pitch_name[1] * "♭"
-                        + str(pitch_name[2])
-                    )
+                if first_n.pitch == pitch and first_n.start - downbeat < swapping_tolerance:
                     print(
-                        f" * Swapping {first_j} ({pitch_name}) from {next_group} ({performance_downbeats[i]}) to {group} ({performance_downbeats[i + 1]})"
+                        f" * Backward {first_i}|{midi_pitch_to_note_name(pitch)} ({first_n.start}) from {next_group} ({next_downbeat}) to {group} ({downbeat})"
                     )
                     mapping[group].append(mapping[next_group].pop(0))
                     n_swaps += 1
@@ -408,8 +388,8 @@ def create_chunk_file_for_all_midi_scores(
             )
         except Exception as e:
             logger.error(f"Error processing {piece}: {e}")
-            # continue
-            raise
+            continue
+            # raise
 
 
 if __name__ == '__main__':
@@ -426,13 +406,13 @@ if __name__ == '__main__':
     logger.add(lambda msg: tqdm.write(msg, end=""), level=args.log_level.upper())
 
     metadata = pd.read_csv(args.asap_path / "metadata.csv")
-    metadata = metadata[metadata["composer"] == "Bach"]
+    # metadata = metadata[metadata["composer"] == "Bach"]
     # metadata = metadata[metadata["folder"] == "Scriabin/Sonatas/5"]
     # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/17-1"]
     # metadata = metadata[metadata["folder"] == "Schumann/Kreisleriana/7"]
     # metadata = metadata[metadata["folder"] == "Bach/Fugue/bwv_865"]
     # metadata = metadata[metadata["folder"] == "Chopin/Scherzos/31"]
-    # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/29-4"]
+    metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/32-1"]
     annotations = pd.read_json(args.asap_path / "asap_annotations.json", orient="index")
     create_chunk_file_for_all_midi_scores(
         metadata=metadata,
