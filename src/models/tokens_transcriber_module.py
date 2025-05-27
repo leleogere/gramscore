@@ -527,8 +527,8 @@ class TokensTranscriberModule(L.LightningModule):
     def on_validation_end(self) -> None:
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
             self.logger.log_table(
-                key=f"[V] Logits visualization/Logits",
-                # key=f"logits_visu",
+                # key=f"[V] Logits visualization/Logits",
+                key=f"validation_logits_visualization",
                 columns=list(self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys())
                 + ["true"]
                 + ["xml_score"]
