@@ -1,10 +1,14 @@
+from collections.abc import Mapping
+
 import torch
 import torch.nn as nn
 
 from models.automata.vectorization_torch import TokenTensor
 from models.components.embedding import MIDIEmbedding
 from models.components.embedding import ScoreTokenEmbedding
+from models.components.expert_head import ExpertHead
 from models.components.roformer import Roformer
+from models.automata import tokens as tk
 
 
 class TokensTranscriberModel(nn.Module):
@@ -12,6 +16,7 @@ class TokensTranscriberModel(nn.Module):
         self,
         stream_dimensions: dict[str, int],
         roformer: Roformer | None,
+        expert_inner_dims: list[int],
     ):
         super().__init__()
 
@@ -32,27 +37,45 @@ class TokensTranscriberModel(nn.Module):
         # The embedding logic, router logic and token type attribute predictors logic
         # should all lay in this module
 
-        hidden_size = self.roformer.encoder.config.hidden_size
-        layer_norm_eps = self.roformer.encoder.config.layer_norm_eps
-        hidden_dropout_prob = self.roformer.encoder.config.hidden_dropout_prob
+        self.embedding_dim = self.roformer.encoder.config.hidden_size
+        self.layer_norm_eps = self.roformer.encoder.config.layer_norm_eps
+        self.hidden_dropout_prob = self.roformer.encoder.config.hidden_dropout_prob
 
         self.midi_embedding = MIDIEmbedding(
             stream_dimensions=stream_dimensions,
-            embedding_dimension=hidden_size,
-            layer_norm_eps=layer_norm_eps,
-            dropout_prob=hidden_dropout_prob,
+            embedding_dimension=self.embedding_dim,
+            layer_norm_eps=self.layer_norm_eps,
+            dropout_prob=self.hidden_dropout_prob,
         )
 
         self.score_embedding = ScoreTokenEmbedding(
-            embedding_dimension=hidden_size,
-            layer_norm_eps=layer_norm_eps,
-            dropout_prob=hidden_dropout_prob,
+            embedding_dimension=self.embedding_dim,
+            layer_norm_eps=self.layer_norm_eps,
+            dropout_prob=self.hidden_dropout_prob,
         )
 
-        self.token_type_router = nn.Linear(hidden_size, len(TokenTensor.TOKEN_INDEXER))
+        self.token_type_router = nn.Linear(self.embedding_dim, len(TokenTensor.TOKEN_INDEXER))
 
-    def forward_router(self, decoder_outputs: torch.Tensor) -> torch.Tensor:
-        return self.token_type_router(decoder_outputs)
+        self.expert_inner_dims = expert_inner_dims
+        self.expert_heads: Mapping[str, ExpertHead] = nn.ModuleDict(
+            {
+                token_type.as_str(): ExpertHead(
+                    embedding_dim=self.embedding_dim,
+                    inner_dims=self.expert_inner_dims,
+                    output_dims={
+                        dimension_name: TokenTensor.DIMS[dimension_name]
+                        for dimension_name in TokenTensor.TOKEN_TYPE_TO_DIMS[token_type]
+                        if dimension_name != "token_type"
+                    },
+                )
+                for token_type in tk.TOKEN_TYPES  # TODO: Remove Tokens without attributes
+                if token_type
+                not in [
+                    tk.StartOfScore,  # Not predicted
+                    tk.EndOfScore,  # No attributes
+                ]
+            }
+        )
 
     def forward_encoder(
         self,
@@ -82,3 +105,50 @@ class TokensTranscriberModel(nn.Module):
             use_cache=use_cache,
         )
         return outputs_decoder
+
+    def forward_router(self, decoder_outputs: torch.Tensor) -> torch.Tensor:
+        return self.token_type_router(decoder_outputs)
+
+    def forward_expert(
+        self,
+        token_type: tk.AnyToken,
+        decoder_outputs: torch.Tensor,  # B * T * E
+    ) -> dict[str, torch.Tensor]:  # i: B * T * dim[i]
+        """
+        Foward the tensor though one specific expert head. Note that all tokens will flow though
+        the expert, you only need some indices to pass though this expert, make sure to filter them
+        out of decoder_outputs before.
+        """
+        expert_head: ExpertHead = self.expert_heads[token_type]
+        expert_outputs = expert_head.forward(decoder_outputs)
+        return expert_outputs
+
+    def forward_experts(
+        self,
+        decoder_outputs: torch.Tensor,  # B * T * E
+        token_type_masks: dict[str, torch.Tensor],  # B * T
+        convert_to_tokentensor: bool = False,
+    ) -> dict[str, dict[str, torch.Tensor]] | TokenTensor:
+        # Check that the shapes make sense
+        if not all(mask.shape == decoder_outputs.shape[:2] for mask in token_type_masks.values()):
+            raise ValueError(
+                f"Dimensions mismatch: {decoder_outputs.shape[:2]=} != "
+                f"{[mask.shape for mask in token_type_masks.values()]}"
+            )
+
+        # Split the decoder_outputs into experts
+        # TODO: change to dict comprehension
+        expert_outputs: dict[str, dict[str, torch.Tensor]] = {}
+        for token_type in self.expert_heads:
+            expert: ExpertHead = self.expert_heads[token_type]
+            involved_decoder_outputs = decoder_outputs[token_type_masks[token_type]]
+            expert_output = expert.forward(involved_decoder_outputs)
+            expert_outputs[token_type] = expert_output
+
+        if convert_to_tokentensor:
+            return TokenTensor.build_from_dict(
+                type_dim_values_dict=expert_outputs,
+                token_type_masks=token_type_masks,
+            )
+        else:
+            return expert_outputs

@@ -16,7 +16,7 @@ import models.automata.tokens as tk
 from models.automata.io import partitura_to_token_sequence
 from models.automata.io import token_sequence_to_partitura
 from models.automata.tokens import HasStaffMixin
-from models.automata.utils import voice_absolute_into_voice_relative_to_staff
+from utils.musicxml import voice_absolute_into_voice_relative_to_staff
 
 
 def read_chunk_file(path: Path) -> pd.DataFrame:

@@ -1,3 +1,27 @@
+ARTICULATIONS = [
+    "accent",
+    "strong_accent",
+    "staccato",
+    "staccatissimo",
+    "tenuto",
+    "detached_legato",
+]
+
+ORNAMENTS = [
+    "trill_mark",
+    "turn",
+    "mordent",
+    "inverted_mordent",
+    "tremolo",
+]
+
+ARTICULATIONS_DASH = [a.replace("_", "-") for a in ARTICULATIONS]
+ORNAMENTS_DASH = [o.replace("_", "-") for o in ORNAMENTS]
+
+ARTICULATIONS_AND_ORNAMENTS = ARTICULATIONS + ORNAMENTS
+ARTICULATIONS_AND_ORNAMENTS_DASH = ARTICULATIONS_DASH + ORNAMENTS_DASH
+
+
 def voice_absolute_into_voice_relative_to_staff(
     voice_idx: int,
     one_based: bool = False,

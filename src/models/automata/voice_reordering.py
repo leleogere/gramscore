@@ -6,8 +6,8 @@ from pprint import pprint
 import partitura as pt
 import partitura.score
 
-from models.automata.utils import voice_absolute_into_voice_relative_to_staff
-from models.automata.utils import voice_relative_to_staff_into_voice_absolute
+from utils.musicxml import voice_absolute_into_voice_relative_to_staff
+from utils.musicxml import voice_relative_to_staff_into_voice_absolute
 
 
 def sorting_criterion(note_or_rest: pt.score.GenericNote):

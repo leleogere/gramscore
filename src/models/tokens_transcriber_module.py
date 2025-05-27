@@ -1,5 +1,6 @@
 import difflib
 from collections.abc import Callable
+from collections.abc import Mapping
 from typing import Any
 
 import lightning as L
@@ -32,8 +33,13 @@ class TokensTranscriberModule(L.LightningModule):
         intermediate_size: int = 1536,
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
+        experts_inner_dims: list[int] = None,
+        router_loss_weight: float = 0.8,
+        log_logits_each_n_val_steps: int = 1,
     ):
         super().__init__()
+        if experts_inner_dims is None:
+            experts_inner_dims = [256, 128]
 
         self.save_hyperparameters()
         self.transcriber_model = TokensTranscriberModel(
@@ -51,53 +57,69 @@ class TokensTranscriberModule(L.LightningModule):
                 num_attention_heads=num_attention_heads,
                 intermediate_size=intermediate_size,
             ),
+            expert_inner_dims=experts_inner_dims,
         )
         self.optimizer = optimizer
-        # self.loss = nn.NLLLoss()
-        self.loss = nn.CrossEntropyLoss(
-            # See scripts/estimate_tokens_distribution.py for the weights
+
+        # See scripts/estimate_tokens_distribution.py for the weights
+        self.token_weights = {
+            tk.StartOfScore: 48.63,
+            tk.EndOfScore: 48.63,
+            tk.Bar: 2.12,
+            tk.Clef: 21.77,
+            tk.KeySignature: 48.63,
+            tk.Note: 0.11,
+            tk.Rest: 1.24,
+            tk.ChordStart: 10.53,
+            tk.ChordEnd: 10.53,
+            tk.TupletStart: 21.50,
+            tk.TupletEnd: 21.50,
+        }
+
+        self.router_loss = nn.CrossEntropyLoss(
             weight=torch.Tensor(
-                [
-                    48.63,  # SOS (not needed)
-                    2.12,  # Bar
-                    21.77,  # Clef
-                    48.63,  # KeySignature
-                    0.11,  # Note
-                    1.24,  # Rest
-                    10.53,  # ChordStart
-                    10.53,  # ChordEnd
-                    48.63,  # EOS
-                    21.50,  # TupletStart
-                    21.50,  # TupletEnd
-                ]
+                [self.token_weights[token_type] for token_type in TokenTensor.TOKEN_INDEXER]
             )
+        )
+        self.expert_losses: Mapping[str, Mapping[str, nn.Module]] = nn.ModuleDict(
+            {
+                token_type: nn.ModuleDict(
+                    self.transcriber_model.expert_heads[token_type].get_losses()
+                )
+                for token_type in tk.TOKEN_TYPES_STR
+                if token_type
+                in self.transcriber_model.expert_heads  # TODO: remove this when all heads implemented
+            }
         )
 
         self.global_metrics = MetricCollection(
-            dict(
-                macro_accuracy=MulticlassAccuracy(
+            {
+                "Macro accuracy": MulticlassAccuracy(
                     num_classes=len(TokenTensor.TOKEN_INDEXER),
                     average="macro",
                 ),
-                micro_accuracy=MulticlassAccuracy(
+                "Micro accuracy": MulticlassAccuracy(
                     num_classes=len(TokenTensor.TOKEN_INDEXER),
                     average="micro",
                 ),
-                macro_f1=MulticlassF1Score(
+                "Macro F1": MulticlassF1Score(
                     num_classes=len(TokenTensor.TOKEN_INDEXER),
                     average="macro",
                 ),
-                micro_f1=MulticlassF1Score(
+                "Micro F1": MulticlassF1Score(
                     num_classes=len(TokenTensor.TOKEN_INDEXER),
                     average="micro",
                 ),
-            ),
-            prefix="general/val_",
+            },
+            prefix="[V] Router specific metrics/",
         )
         self.per_class_metrics = MetricCollection(
             {k.__name__: BinaryF1Score() for k in TokenTensor.TOKEN_INDEXER.keys()},
-            prefix="val_class_accuracy/",
+            prefix="[V] Router class accuracies/",
         )
+
+        self.validation_counter = 0
+        self.validation_logits = []
 
     def common_step(self, batch: dict[str, Any]):
         """
@@ -136,45 +158,111 @@ class TokensTranscriberModule(L.LightningModule):
         score_tensor_input: TokenTensor = score_tensor[:, :-1]
         score_tensor_expected: TokenTensor = score_tensor[:, 1:]
 
-        # Pass the input through the model
+        # Pass the performance streams through the encoder
         encoder_outputs = self.transcriber_model.forward_encoder(
             input_streams=performance_streams,
             attention_mask=performance_not_padded_mask,
         )  # (B, N, E)
+
+        # Pass the score input and the encoder outputs through the decoder
         decoder_outputs = self.transcriber_model.forward_decoder(
             input_tokens=score_tensor_input,
             encoder_hidden_states=encoder_outputs,
             encoder_attention_mask=performance_not_padded_mask,
         )  # (B, T, E)
+
+        # Pass the decoder outputs through the router
         router_logits = self.transcriber_model.forward_router(
             decoder_outputs.last_hidden_state
         )  # (B, T, K)
-
         true_token_types: torch.Tensor = score_tensor_expected["token_type"]  # (B, T, K)
+        true_token_types_argmax = true_token_types.argmax(-1)  # (B, T)
+        true_token_types_argmax[score_padded_mask[..., 1:]] = PADDING_VALUE
 
         # Make sure the sequence length match
         assert (
             router_logits.shape[1] == true_token_types.shape[1]
         ), f"Router logits shape {router_logits.shape} does not match true token types shape {true_token_types.shape}"
 
+        # Pass the decoder outputs through the expert heads
+        token_type_masks = {
+            t_str: true_token_types_argmax == TokenTensor.TOKEN_INDEXER[t_cls]
+            for t_cls, t_str in zip(tk.TOKEN_TYPES, tk.TOKEN_TYPES_STR)
+        }
+        expert_outputs: dict[str, dict[str, torch.Tensor]] = self.transcriber_model.forward_experts(
+            decoder_outputs=decoder_outputs.last_hidden_state,
+            token_type_masks=token_type_masks,
+            convert_to_tokentensor=False,
+        )
+
+        # Compute all losses
+        losses = {}
+        # losses:
+        #   router_loss: <float>
+        #   expert_losses:
+        #     Note:
+        #       _sum: <float>
+        #       note_class: <float>
+        #       note_alteration: <float>
+        #       note_octave: <float>
+        #       duration: <float>
+        #       ...
+        #     Rest:
+        #       _sum: <float>
+        #       duration: <float>
+        #       ...
+        #     ...
+
+        # Compute the router loss
         flattened_true_token_types = rearrange(true_token_types, "b t k -> (b t) k")
         flattened_router_logits = rearrange(router_logits, "b t k -> (b t) k")
         flattened_score_not_padded_mask = rearrange(score_not_padded_mask[..., 1:], "b t -> (b t)")
-
-        # Would be better if we could get the mask directly from the pad_sequence function
+        # Check padding OK
         assert torch.all(
             flattened_true_token_types[~flattened_score_not_padded_mask] == PADDING_VALUE
         ) and torch.all(
             flattened_true_token_types[flattened_score_not_padded_mask] != PADDING_VALUE
         ), "Error in padding mask"
-
-        # Compute the router loss
-        loss = self.loss(
+        router_loss = self.router_loss(
             input=flattened_router_logits[flattened_score_not_padded_mask],
             target=flattened_true_token_types[flattened_score_not_padded_mask],
         )
+        losses["router_loss"] = router_loss
+
+        # Compute the expert losses
+        losses["expert_losses"] = {}
+        expected_output = score_tensor_expected.get_as_dict(
+            include_token_type_dim=False,
+            remove_padding=True,
+            token_type_keys_as_str=True,
+        )
+        for token_type in expert_outputs:
+            losses["expert_losses"][token_type] = {}
+            for dim_name, loss_fn in self.expert_losses[token_type].items():
+                inp = expert_outputs[token_type][dim_name]
+                tgt = expected_output[token_type][dim_name]
+                assert inp.shape == tgt.shape
+                expert_loss = (
+                    loss_fn(input=inp, target=tgt) if tgt.shape[0] > 0 else torch.tensor(0.0)
+                )
+                losses["expert_losses"][token_type][dim_name] = expert_loss
+            losses["expert_losses"][token_type]["_sum"] = sum(
+                losses["expert_losses"][token_type].values()
+            )
+
+        # Combine all losses
+        loss = self.hparams.router_loss_weight * losses["router_loss"] + (
+            1 - self.hparams.router_loss_weight
+        ) * sum(
+            self.token_weights[tk.TOKEN_STR_TO_TYPE[token_type]]
+            * sum(losses["expert_losses"][token_type].values())
+            for token_type in losses["expert_losses"]
+        )
+
         return loss, {
+            "losses": losses,
             "router_logits": router_logits,
+            "expert_outputs": expert_outputs,
             "true_token_types": true_token_types,
             "score_not_padded_mask": score_not_padded_mask,
             "flattened_router_logits": flattened_router_logits,
@@ -182,26 +270,39 @@ class TokensTranscriberModule(L.LightningModule):
             "flattened_true_token_types": flattened_true_token_types,
         }
 
-        # input_ids = batch["input_ids"]
-        # assistant_masks = batch["assistant_masks"]
-        # logits = self.language_model(input_ids).logits  # (batch_size, seq_len, vocab_size)
-        # input_ids[torch.logical_not(assistant_masks)] = self.tokenizer.unk_token_id
-        # loss = litgpt.utils.chunked_cross_entropy(
-        #     logits=logits[:, :-1],
-        #     targets=input_ids[:, 1:],
-        #     ignore_index=self.tokenizer.unk_token_id,  # self.tokenizer.unk_token_id,
-        # )  # Maybe try something smarter to avoid passing the whole sequence through the model?
-        # self.log("train/loss", loss)
-        # return loss
+    def _log_loss_components(self, losses: dict[str, Any], name: str):
+        """
+        Log all loss components to wandb
+        :param loss: A dictionary containing the loss components
+        :param prefix: A string to prefix the loss components
+        """
+        global_category_prefix = f"[{name}] Component global losses"
+        for loss_name, loss_values in losses.items():
+            # Log router loss
+            if loss_name == "router_loss":
+                self.log(f"{global_category_prefix}/Router loss", loss_values)
+            # Log expert losses
+            else:
+                # First log the sum, so that it appears first in wandb
+                for token_type, dimensions in loss_values.items():
+                    self.log(f"{global_category_prefix}/{token_type} loss", dimensions["_sum"])
+                # Then log the individual components
+                for token_type, dimensions in loss_values.items():
+                    expert_components_prefix = f"[{name}] Expert {token_type} component losses"
+                    for dim_name, value in dimensions.items():
+                        if dim_name != "_sum":
+                            self.log(f"{expert_components_prefix}/{dim_name} loss", value)
 
     def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
-        loss, _ = self.common_step(batch)
-        self.log("general/train_loss", loss)
+        loss, outputs = self.common_step(batch)
+        self.log("[T|V] Global metrics/Train loss", loss)
+        self._log_loss_components(outputs["losses"], name="T")
         return loss
 
     def validation_step(self, batch: dict[str, Any], batch_idx: int = None):
         loss, results = self.common_step(batch)
-        self.log("general/val_loss", loss)
+        self.log("[T|V] Global metrics/Validation loss", loss)
+        self._log_loss_components(results["losses"], name="V")
 
         router_logits = results["router_logits"]
         true_token_types = results["true_token_types"]
@@ -210,52 +311,59 @@ class TokensTranscriberModule(L.LightningModule):
         flattened_true_token_types_ohe = results["flattened_true_token_types"]
         flattened_score_not_padded_mask = results["flattened_score_not_padded_mask"]
 
-        # Log the first n validation samples
-        n = min(5, batch["score_tensor"].shape[0])
-        if batch_idx == 0:
-            all_logits = []
-            for true_tokens_sequence, pred_tokens_sequence, entry, num_tokens, logits in zip(
-                true_token_types[:n].argmax(-1),
-                router_logits[:n].argmax(-1),
-                batch["entries"][:n],
-                batch["score_lengths"][:n],
-                router_logits[:n],
+        # Log the first 3 chunks of each batch
+        if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
+            n = min(3, batch["score_tensor"].shape[0])
+            for i, (
+                true_tokens_sequence,
+                pred_tokens_sequence,
+                entry,
+                num_tokens,
+                start,
+                end,
+                logits,
+            ) in enumerate(
+                zip(
+                    true_token_types[:n].argmax(-1),
+                    router_logits[:n].argmax(-1),
+                    batch["entries"][:n],
+                    batch["score_lengths"][:n],
+                    batch["chunk_starts"][:n],
+                    batch["chunk_ends"][:n],
+                    router_logits[:n],
+                )
             ):
                 # Convert to string
                 true_tokens_sequence = [
                     self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
                     for t in true_tokens_sequence[: num_tokens - 1]
                 ]
-                pred_tokens_sequence = [
-                    self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
-                    for t in pred_tokens_sequence[: num_tokens - 1]
-                ]
+                # pred_tokens_sequence = [
+                #     self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
+                #     for t in pred_tokens_sequence[: num_tokens - 1]
+                # ]
+                #
+                # # Align the sequences
+                # aligned_true, aligned_pred, diffs = self.align_character_sequences(
+                #     true_tokens_sequence,
+                #     pred_tokens_sequence,
+                # )
+                # # Log the sequences
+                # self.logger.log_text(
+                #     key=f"val_visu_alignments/{entry.xml_score_relative}",
+                #     columns=["true", "pred", "diffs"],
+                #     data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
+                # )
 
-                # Align the sequences
-                aligned_true, aligned_pred, diffs = self.align_character_sequences(
-                    true_tokens_sequence,
-                    pred_tokens_sequence,
-                )
-                # Log the sequences
-                self.logger.log_text(
-                    key=f"val_visu_alignments/{entry.xml_score_relative}",
-                    columns=["true", "pred", "diffs"],
-                    data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
-                )
                 # Log the logits
                 data = logits.softmax(-1).tolist()[: num_tokens - 1]
                 for row, true_token in zip(data, true_tokens_sequence):
                     # add true token
                     row.append(true_token)
                     row.append(entry.xml_score_relative.parent.as_posix())
-                all_logits.extend(data)
-            self.logger.log_table(
-                key=f"val_visu_logits",
-                columns=list(self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys())
-                + ["true"]
-                + ["xml_score"],
-                data=all_logits,
-            )
+                    row.append(i)
+                    row.append(f"{start}-{end}")
+                self.validation_logits.extend(data)
 
         flattened_pred_token_types = flattened_router_logits[
             flattened_score_not_padded_mask
@@ -268,7 +376,7 @@ class TokensTranscriberModule(L.LightningModule):
         bincount = torch.bincount(flattened_pred_token_types, minlength=11)
         self.logger.log_metrics(
             {
-                f"val_tokens_distribution/{k.__name__}": v.item()
+                f"[V] Router tokens distribution/{k.__name__}": v.item()
                 for k, v in zip(
                     TokenTensor.TOKEN_INDEXER.keys(),
                     bincount,
@@ -280,7 +388,7 @@ class TokensTranscriberModule(L.LightningModule):
         prob = bincount / bincount.sum()
         prob = prob[prob > 0]
         entropy = -torch.sum(prob * torch.log(prob))
-        self.log("general/val_tokens_entropy", entropy)
+        self.log("[V] Router specific metrics/Tokens entropy", entropy)
         logger.trace(f"Entropy: {entropy.item()}")
         logger.trace(f"Bincount: {bincount.tolist()}")
         logger.trace(f"Prob: {prob.tolist()}")
@@ -299,13 +407,14 @@ class TokensTranscriberModule(L.LightningModule):
             preds=flattened_pred_token_types.cpu().numpy(),
             class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
         )
-        self.logger.experiment.log({f"others/val_confusion_matrix": cm})
+        self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
 
         # Log per-class metrics
-        for name, metric in self.per_class_metrics.items():
-            # Very hacky (needed bc MetricCollection reorders keys), I should probably index the
-            # tokens types by string rather than class
-            index = TokenTensor.TOKEN_INDEXER[getattr(tk, name.split("/")[-1])]
+        for (name, metric), token_type in zip(
+            self.per_class_metrics.items(),
+            self.per_class_metrics.keys(keep_base=True),
+        ):
+            index = TokenTensor.TOKEN_INDEXER[tk.TOKEN_STR_TO_TYPE[token_type]]
             metric(
                 preds=(flattened_true_token_types == index),
                 target=(flattened_pred_token_types == index),
@@ -349,7 +458,7 @@ class TokensTranscriberModule(L.LightningModule):
     _token_str_mapping = {
         tk.StartOfScore: "S",
         tk.EndOfScore: "E",
-        tk.Bar: "|",
+        tk.Bar: "B",
         tk.KeySignature: "K",
         tk.Clef: "C",
         tk.Rest: "R",
@@ -415,6 +524,22 @@ class TokensTranscriberModule(L.LightningModule):
         else:
             return aligned1, aligned2, diffs
 
+    def on_validation_end(self) -> None:
+        if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
+            self.logger.log_table(
+                # key=f"[V] Logits visualization/Logits",
+                key=f"logits_visu",
+                columns=list(self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys())
+                + ["true"]
+                + ["xml_score"]
+                + ["chunk_idx"]
+                + ["chunk"],
+                data=self.validation_logits,
+                step=self.global_step,
+            )
+            self.validation_logits = []
+        self.validation_counter += 1
+
 
 if __name__ == '__main__':
     from pathlib import Path
@@ -428,6 +553,8 @@ if __name__ == '__main__':
     )
     data_module.prepare_data()
     data_module.setup()
+
+    data_module.data_train.entries = data_module.data_train.entries[:5]
 
     model = TokensTranscriberModule(
         optimizer=torch.optim.AdamW,

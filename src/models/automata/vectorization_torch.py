@@ -1,10 +1,19 @@
 import itertools
+from enum import Enum
 from fractions import Fraction
 from typing import Self
 
 import torch
 
 from models.automata import tokens as tk
+from utils.constants import PADDING_VALUE
+from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
+
+
+class ProblemType(Enum):
+    BINARY_CLASSIFICATION = "binary_classification"
+    MULTI_CLASSIFICATION = "multi_classification"
+    REGRESSION = "regression"
 
 
 def clip_cast(x, lower=None, upper=None, type_=None):
@@ -39,29 +48,75 @@ class TokenTensor(torch.Tensor):
     DURATION_INDEXER_INV = {i: dur for dur, i in DURATION_INDEXER.items()}
     NOTE_INDEXER = {note: i for i, note in enumerate("CDEFGAB")}
     NOTE_INDEXER_INV = {i: note for note, i in NOTE_INDEXER.items()}
-    STEM_INDEXER = {i: stem for i, stem in enumerate(["up", "down", None])}
-    STEM_INDEXER_INV = {stem: i for i, stem in STEM_INDEXER.items()}
-    DIMS = {
-        "token_type": len(TOKEN_INDEXER),
-        "bar_numerator": 1,
-        "bar_denominator": len(TS_DENOMINATOR_INDEXER),
-        "bar_is_nominal": 1,  # Boolean
-        "key_signature": 15,  # -7 to 7
-        "clef_type": 1,  # G or F
-        "staff_idx": 4,  # Max 4 staves
-        "voice_idx": 16,  # Max 4 voices per staff
-        "duration_type": len(DURATION_INDEXER),
-        "duration_dots": 4,  # Max 3 dots
-        "note_class": 7,
-        "note_octave": 9,
-        "note_accidental": 5,
-        "note_tied": 1,
-        "note_stem_direction": len(STEM_INDEXER),
-        "tuplet_actual_notes": 1,
-        "tuplet_normal_notes": 1,
+    STEM_INDEXER = {stem: i for i, stem in enumerate(["up", "down", None])}
+    STEM_INDEXER_INV = {i: stem for stem, i in STEM_INDEXER.items()}
+    _DIMS_AND_PROBLEM_TYPE = {
+        "token_type": (len(TOKEN_INDEXER), ProblemType.MULTI_CLASSIFICATION),
+        "bar_numerator": (1, ProblemType.REGRESSION),
+        "bar_denominator": (len(TS_DENOMINATOR_INDEXER), ProblemType.MULTI_CLASSIFICATION),
+        "bar_is_nominal": (1, ProblemType.BINARY_CLASSIFICATION),  # Boolean
+        "key_signature": (15, ProblemType.MULTI_CLASSIFICATION),  # -7 to 7
+        "clef_type": (1, ProblemType.BINARY_CLASSIFICATION),  # G or F
+        "staff_idx": (4, ProblemType.MULTI_CLASSIFICATION),  # Max 4 staves
+        "voice_idx": (16, ProblemType.MULTI_CLASSIFICATION),  # Max 4 voices per staff
+        "duration_type": (len(DURATION_INDEXER), ProblemType.MULTI_CLASSIFICATION),
+        "duration_dots": (4, ProblemType.MULTI_CLASSIFICATION),  # Max 3 dots
+        "measure_rest": (1, ProblemType.BINARY_CLASSIFICATION),
+        "note_class": (7, ProblemType.MULTI_CLASSIFICATION),
+        "note_octave": (9, ProblemType.MULTI_CLASSIFICATION),
+        "note_accidental": (5, ProblemType.MULTI_CLASSIFICATION),
+        "note_tied": (1, ProblemType.BINARY_CLASSIFICATION),
+        "note_stem_direction": (len(STEM_INDEXER), ProblemType.MULTI_CLASSIFICATION),
+        "fermata": (1, ProblemType.BINARY_CLASSIFICATION),
+        **{art: (1, ProblemType.BINARY_CLASSIFICATION) for art in ARTICULATIONS_AND_ORNAMENTS},
+        "tuplet_actual_notes": (1, ProblemType.REGRESSION),
+        "tuplet_normal_notes": (1, ProblemType.REGRESSION),
     }
+    DIMS = {k: v[0] for k, v in _DIMS_AND_PROBLEM_TYPE.items()}
+    PROBLEM_TYPES = {k: v[1] for k, v in _DIMS_AND_PROBLEM_TYPE.items()}
     CUM_DIMS = {k: v for k, v in zip(DIMS.keys(), itertools.accumulate(DIMS.values(), initial=0))}
     TOTAL_DIMENSIONS = sum(DIMS.values())
+    TOKEN_TYPE_TO_DIMS = {
+        tk.StartOfScore: ["token_type"],
+        tk.EndOfScore: ["token_type"],
+        tk.Bar: ["token_type", "bar_numerator", "bar_denominator", "bar_is_nominal"],
+        tk.KeySignature: ["token_type", "key_signature"],
+        tk.Clef: ["token_type", "clef_type", "staff_idx"],
+        tk.Rest: [
+            "token_type",
+            "staff_idx",
+            "voice_idx",
+            "duration_type",
+            "duration_dots",
+            "measure_rest",
+            "fermata",
+        ],
+        tk.Note: [
+            "token_type",
+            "staff_idx",
+            "voice_idx",
+            "duration_type",
+            "duration_dots",
+            "note_class",
+            "note_octave",
+            "note_accidental",
+            "note_tied",
+            "note_stem_direction",
+            "fermata",
+            *ARTICULATIONS_AND_ORNAMENTS,
+        ],
+        tk.ChordStart: ["token_type", "voice_idx", "duration_type", "duration_dots"],
+        tk.ChordEnd: ["token_type", "voice_idx"],
+        tk.TupletStart: [
+            "token_type",
+            "voice_idx",
+            "duration_type",
+            "duration_dots",
+            "tuplet_actual_notes",
+            "tuplet_normal_notes",
+        ],
+        tk.TupletEnd: ["token_type", "voice_idx"],
+    }
 
     @classmethod
     def __new__(cls, *args, **kwargs):
@@ -75,7 +130,12 @@ class TokenTensor(torch.Tensor):
     ):
         # Create a new empty tensor with the same class as this one
         tensor = super().new_empty(
-            size, dtype=dtype, layout=layout, device=device, pin_memory=pin_memory
+            size,
+            dtype=dtype,
+            layout=layout,
+            device=device,
+            pin_memory=pin_memory,
+            requires_grad=requires_grad,
         )
         tensor = tensor.as_subclass(self.__class__)
         return tensor
@@ -96,8 +156,8 @@ class TokenTensor(torch.Tensor):
                 *prev_slice, self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name]
             ].as_subclass(torch.Tensor)
             # For one-dimensional attributes, we directly return the value (is this a good idea?)
-            if self.DIMS[dim_name] == 1:
-                res = res.squeeze(-1)
+            # if self.DIMS[dim_name] == 1:
+            #     res = res.squeeze(-1)
             return res
         else:
             return super().__getitem__(item)
@@ -108,13 +168,13 @@ class TokenTensor(torch.Tensor):
             isinstance(key, tuple) and isinstance(key[-1], str)
         ):
             dim_name, prev_slice = (key, [...]) if is_simple_str else (key[-1], key[:-1])
-            if self.DIMS[dim_name] == 1:
-                self[*prev_slice, self.CUM_DIMS[dim_name]] = value
-            else:
-                self[
-                    *prev_slice,
-                    self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
-                ] = value
+            # if self.DIMS[dim_name] == 1:
+            #     self[*prev_slice, self.CUM_DIMS[dim_name]] = value
+            # else:
+            self[
+                *prev_slice,
+                self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
+            ] = value
         else:
             super().__setitem__(key, value)
 
@@ -153,10 +213,10 @@ class TokenTensor(torch.Tensor):
 
         # Bar
         if token_type == tk.Bar:
-            numerator = self["bar_numerator"]
+            numerator = self["bar_numerator"][0]
             denominator_idx = self._onehot_decode("bar_denominator")
             denominator = self.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
-            is_nominal = bool(self["bar_is_nominal"] > 0.5)
+            is_nominal = bool(self["bar_is_nominal"][0] > 0.5)
             return tk.Bar(
                 numerator=clip_cast(numerator, 1, type_=int),
                 denominator=denominator,
@@ -173,7 +233,7 @@ class TokenTensor(torch.Tensor):
 
         # Clef
         if token_type == tk.Clef:
-            clef_idx = int(self["clef_type"] > 0.5)
+            clef_idx = int(self["clef_type"][0] > 0.5)
             clef_type = "G" if clef_idx == 0 else "F"
             return tk.Clef(clef=clef_type, staff_idx=staff_idx)
 
@@ -190,9 +250,27 @@ class TokenTensor(torch.Tensor):
             note_class = self.NOTE_INDEXER_INV[self._onehot_decode("note_class")]
             octave = self._onehot_decode("note_octave")
             accidental = self._onehot_decode("note_accidental") - 2
-            tied = bool(self["note_tied"] > 0.5)
+            tied = bool(self["note_tied"][0] > 0.5)
             stem_direction_idx = self._onehot_decode("note_stem_direction")
-            stem_direction = ["up", "down", None][stem_direction_idx]
+            stem_direction = self.STEM_INDEXER_INV[stem_direction_idx]
+            # Articulations and ornaments
+            articulations_and_ornaments = {
+                art: bool(self[art][0] > 0.5)
+                for art in [
+                    "accent",
+                    "strong_accent",
+                    "staccato",
+                    "staccatissimo",
+                    "tenuto",
+                    "detached_legato",
+                    "trill_mark",
+                    "turn",
+                    "mordent",
+                    "inverted_mordent",
+                    "tremolo",
+                    "fermata",
+                ]
+            }
             return tk.Note(
                 note_class=note_class,
                 octave=octave,
@@ -205,17 +283,29 @@ class TokenTensor(torch.Tensor):
                     type=tk.SymbolicDurationType(duration_type),
                     dots=duration_dots,
                 ),
+                **articulations_and_ornaments,
             )
 
         # Rest
         if token_type == tk.Rest:
+            measure_rest = bool(self["measure_rest"][0] > 0.5)
+            fermata = bool(self["fermata"][0] > 0.5)
+            if measure_rest:
+                duration = tk.SymbolicDuration(
+                    type=tk.SymbolicDurationType.WHOLE,
+                    dots=0,
+                )
+            else:
+                duration = tk.SymbolicDuration(
+                    type=tk.SymbolicDurationType(duration_type),
+                    dots=duration_dots,
+                )
             return tk.Rest(
                 staff_idx=staff_idx,
                 voice_idx=voice_idx,
-                duration=tk.SymbolicDuration(
-                    type=tk.SymbolicDurationType(duration_type),
-                    dots=duration_dots,
-                ),
+                duration=duration,
+                measure_rest=measure_rest,
+                fermata=fermata,
             )
 
         # ChordStart
@@ -234,8 +324,8 @@ class TokenTensor(torch.Tensor):
 
         # TupletStart
         if token_type == tk.TupletStart:
-            n_actual = clip_cast(self["tuplet_actual_notes"], 1, type_=int)
-            n_normal = clip_cast(self["tuplet_normal_notes"], 1, type_=int)
+            n_actual = clip_cast(self["tuplet_actual_notes"][0], 1, type_=int)
+            n_normal = clip_cast(self["tuplet_normal_notes"][0], 1, type_=int)
             return tk.TupletStart(
                 n_actual=n_actual,
                 n_normal=n_normal,
@@ -269,12 +359,12 @@ class TokenTensor(torch.Tensor):
         pass  # Nothing to do
 
     def __embed_bar_information(self, bar: tk.Bar) -> Self:
-        self["bar_numerator"] = bar.numerator
+        self["bar_numerator"][0] = bar.numerator
         self["bar_denominator"] = self._create_onehot(
             "bar_denominator",
             self.TS_DENOMINATOR_INDEXER[bar.denominator],
         )
-        self["bar_is_nominal"] = int(bar.is_nominal)
+        self["bar_is_nominal"][0] = int(bar.is_nominal)
 
     def __embed_key_signature_information(self, key_signature: tk.KeySignature) -> Self:
         fifths = key_signature.accidentals + 7
@@ -282,7 +372,7 @@ class TokenTensor(torch.Tensor):
 
     def __embed_clef_information(self, clef: tk.Clef) -> Self:
         clef_type = 0 if clef.clef == "G" else 1
-        self["clef_type"] = clef_type
+        self["clef_type"][0] = clef_type
         self.__embed_staff_information(clef)
 
     def __embed_duration_information(self, has_duration: tk.HasDurationMixin) -> Self:
@@ -302,23 +392,27 @@ class TokenTensor(torch.Tensor):
         self["note_class"] = self._create_onehot("note_class", self.NOTE_INDEXER[note.note_class])
         self["note_octave"] = self._create_onehot("note_octave", note.octave)
         self["note_accidental"] = self._create_onehot("note_accidental", note.accidental + 2)
-        self["note_tied"] = 1 if note.tied else 0
-        stem_direction = (
-            0 if note.stem_direction == "up" else 1 if note.stem_direction == "down" else 2
-        )
+        self["note_tied"][0] = 1 if note.tied else 0
+        stem_direction = self.STEM_INDEXER[note.stem_direction]
         self["note_stem_direction"] = self._create_onehot("note_stem_direction", stem_direction)
+        # Articulations and ornaments
+        for art in ARTICULATIONS_AND_ORNAMENTS + ["fermata"]:
+            self[art][0] = 1 if getattr(note, art) else 0
+        # Inherited attributes
         self.__embed_staff_information(note)
         self.__embed_voice_information(note)
         self.__embed_duration_information(note)
 
     def __embed_rest_information(self, rest: tk.Rest) -> Self:
+        self["measure_rest"][0] = 1 if rest.measure_rest else 0
+        self["fermata"][0] = 1 if rest.fermata else 0
         self.__embed_staff_information(rest)
         self.__embed_voice_information(rest)
         self.__embed_duration_information(rest)
 
     def __embed_tuplet_start_information(self, tuplet_start: tk.TupletStart) -> Self:
-        self["tuplet_actual_notes"] = tuplet_start.n_actual
-        self["tuplet_normal_notes"] = tuplet_start.n_normal
+        self["tuplet_actual_notes"][0] = tuplet_start.n_actual
+        self["tuplet_normal_notes"][0] = tuplet_start.n_normal
         self["duration_type"] = self._create_onehot(
             "duration_type",
             self.DURATION_INDEXER[tuplet_start.unit_duration.type.value],
@@ -383,11 +477,73 @@ class TokenTensor(torch.Tensor):
         else:
             return torch.stack([cls.from_tokens(t) for t in token])
 
+    def get_as_dict(
+        self,
+        include_token_type_dim: bool = True,
+        remove_padding: bool = True,
+        token_type_keys_as_str: bool = False,
+    ) -> dict[tk.AnyToken | str, dict[str, torch.Tensor]]:
+        """
+        Get the tensor as a dictionary of token type -> dimension -> value
+        """
+        if remove_padding:
+            tensor = self.clone()
+            tensor = tensor[tensor[..., 0] != PADDING_VALUE]
+        else:
+            tensor = self
+        return {
+            token_type if not token_type_keys_as_str else token_type.__name__: {
+                dim_name: tensor[tensor["token_type"].argmax(-1) == self.TOKEN_INDEXER[token_type]][
+                    dim_name
+                ]
+                for dim_name in self.TOKEN_TYPE_TO_DIMS[token_type]
+                if (dim_name != "token_type" or include_token_type_dim)
+            }
+            for token_type in self.TOKEN_INDEXER.keys()
+        }
+
+    @classmethod
+    def build_from_dict(
+        cls,
+        type_dim_values_dict: dict[str, dict[str, torch.Tensor]],
+        token_type_masks: dict[str, torch.Tensor],  # B * T
+        padding_mask: torch.Tensor | None = None,  # B * T
+    ) -> Self:
+        """
+        Convert the expert outputs to a TokenTensor.
+
+        :param type_dim_values_dict: Dict of token type -> dimension -> values
+        :param token_type_masks: Dict of token type -> mask (true for token i)
+        :param padding_mask: Optional padding mask (true if token i padded)
+        :return: The TokenTensor.
+        """
+        initial_shape = list(token_type_masks.values())[0].shape
+        tensor = TokenTensor(torch.zeros((*initial_shape, TokenTensor.TOTAL_DIMENSIONS)))
+        for token_type in TokenTensor.TOKEN_INDEXER:
+            mask = token_type_masks[token_type.as_str()]
+            mask_indices = mask.nonzero(as_tuple=True)
+            tensor["token_type"][*mask_indices, TokenTensor.TOKEN_INDEXER[token_type]] = 1
+            for dim, values in type_dim_values_dict.get(token_type.as_str(), []).items():
+                tensor[*mask_indices, dim] = values
+        if padding_mask is not None:
+            tensor[padding_mask] = PADDING_VALUE
+        return tensor
+
+    # def get_token_type_specific_part(
+    #     self,
+    #     token_type: type[tk.Token],
+    #     include_token_type_dims: bool = False,
+    # ) -> torch.Tensor:
+    #     """
+    #     Get the part of the tensor containing all information related to the token type.
+    #     """
+    #     output = torch.concat([self[dim_name] for dim_name in self.TOKEN_TYPE_TO_DIMS[token_type]])
+
 
 if __name__ == '__main__':
-    # token_tensor = TokenTensor(torch.arange(2 * 97, dtype=torch.float).reshape(2, 97))
-    token_tensor = TokenTensor(torch.randn(2, 97))
-    # token_tensor = TokenTensor(torch.zeros(2, 97))
+    # token_tensor = TokenTensor(torch.arange(2 * 110, dtype=torch.float).reshape(2, 97))
+    token_tensor = TokenTensor(torch.randn(2, 110))
+    # token_tensor = TokenTensor(torch.zeros(2, 110))
     print(token_tensor)
     print(f"{token_tensor[..., 5] = }")
     print(f"{token_tensor[0, 'token_type'] = }")
@@ -425,7 +581,7 @@ if __name__ == '__main__':
     print(token_tensor)
 
     # Test encoding/decoding
-    random_token_tensor = TokenTensor(torch.randn(3, 100, 2, 97))
+    random_token_tensor = TokenTensor(torch.randn(3, 100, 2, 110))
     tokens = random_token_tensor.to_tokens()
     revectorized = TokenTensor.from_tokens(tokens)
     retokenized = revectorized.to_tokens()

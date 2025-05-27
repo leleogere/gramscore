@@ -17,10 +17,15 @@ import inspect
 from typing import Literal
 from typing import Self
 from collections import namedtuple
+from typing import TypeVar
+
 import partitura as pt
 import partitura.score
 from loguru import logger
 from partitura.utils.globals import INT_TO_ALT
+
+from utils.musicxml import ARTICULATIONS
+from utils.musicxml import ORNAMENTS
 
 
 class SymbolicDurationType(StrEnum):
@@ -422,6 +427,10 @@ class Token:
         state.pop('_partitura_elements', None)
         return state
 
+    @classmethod
+    def as_str(cls) -> str:
+        return cls.__name__
+
 
 @dataclass
 class StartOfScore(Token):
@@ -720,27 +729,12 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
 
     @property
     def articulations(self):
-        articulations = [
-            attr.replace("_", "-")
-            for attr in [
-                "accent",
-                "strong_accent",
-                "staccato",
-                "staccatissimo",
-                "tenuto",
-                "detached_legato",
-            ]
-            if getattr(self, attr)
-        ]
+        articulations = [attr.replace("_", "-") for attr in ARTICULATIONS if getattr(self, attr)]
         return articulations
 
     @property
     def ornaments(self):
-        ornaments = [
-            attr.replace("_", "-")
-            for attr in ["trill_mark", "turn", "mordent", "inverted_mordent", "tremolo"]
-            if getattr(self, attr)
-        ]
+        ornaments = [attr.replace("_", "-") for attr in ORNAMENTS if getattr(self, attr)]
         return ornaments
 
     @property
@@ -1047,6 +1041,13 @@ TOKEN_TYPES = [
     TupletStart,
     TupletEnd,
 ]
+
+TOKEN_TYPES_STR = [cls.__name__ for cls in TOKEN_TYPES]
+
+TOKEN_STR_TO_TYPE = dict(zip(TOKEN_TYPES_STR, TOKEN_TYPES))
+
+
+AnyToken = TypeVar("AnyToken", bound=Token)
 
 
 def fill_rests(part: pt.score.Part) -> None:
