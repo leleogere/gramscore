@@ -201,14 +201,14 @@ class TokensTranscriberModule(L.LightningModule):
         #   router_loss: <float>
         #   expert_losses:
         #     Note:
-        #       _sum: <float>
+        #       _global: <float>
         #       note_class: <float>
         #       note_alteration: <float>
         #       note_octave: <float>
         #       duration: <float>
         #       ...
         #     Rest:
-        #       _sum: <float>
+        #       _global: <float>
         #       duration: <float>
         #       ...
         #     ...
@@ -242,12 +242,13 @@ class TokensTranscriberModule(L.LightningModule):
                 inp = expert_outputs[token_type][dim_name]
                 tgt = expected_output[token_type][dim_name]
                 assert inp.shape == tgt.shape
-                expert_loss = (
-                    loss_fn(input=inp, target=tgt) if tgt.shape[0] > 0 else torch.tensor(0.0)
-                )
+                if tgt.shape[0] > 0:
+                    expert_loss = loss_fn(input=inp, target=tgt)
+                else:
+                    expert_loss = None
                 losses["expert_losses"][token_type][dim_name] = expert_loss
-            losses["expert_losses"][token_type]["_sum"] = sum(
-                losses["expert_losses"][token_type].values()
+            losses["expert_losses"][token_type]["_global"] = sum(
+                [l for l in losses["expert_losses"][token_type].values() if l is not None]
             )
 
         # Combine all losses
@@ -255,7 +256,7 @@ class TokensTranscriberModule(L.LightningModule):
             1 - self.hparams.router_loss_weight
         ) * sum(
             self.token_weights[tk.TOKEN_STR_TO_TYPE[token_type]]
-            * sum(losses["expert_losses"][token_type].values())
+            * losses["expert_losses"][token_type]["_global"]
             for token_type in losses["expert_losses"]
         )
 
@@ -285,12 +286,12 @@ class TokensTranscriberModule(L.LightningModule):
             else:
                 # First log the sum, so that it appears first in wandb
                 for token_type, dimensions in loss_values.items():
-                    self.log(f"{global_category_prefix}/{token_type} loss", dimensions["_sum"])
+                    self.log(f"{global_category_prefix}/{token_type} loss", dimensions["_global"])
                 # Then log the individual components
                 for token_type, dimensions in loss_values.items():
                     expert_components_prefix = f"[{name}] Expert {token_type} component losses"
                     for dim_name, value in dimensions.items():
-                        if dim_name != "_sum":
+                        if dim_name != "_global":
                             self.log(f"{expert_components_prefix}/{dim_name} loss", value)
 
     def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
