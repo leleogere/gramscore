@@ -386,9 +386,14 @@ def create_chunk_file_for_all_midi_scores(
     metadata: pd.DataFrame,
     annotations: pd.DataFrame,
     asap_path: Path,
+    folder: Path | None = None,
 ):
     # Get all pieces
     pieces = metadata["folder"].unique()
+    if folder is not None:
+        if folder.is_absolute():
+            folder = folder.relative_to(asap_path)
+        pieces = [p for p in pieces if p.startswith(folder.as_posix())]
 
     for piece in tqdm(pieces):
         try:
@@ -410,6 +415,7 @@ if __name__ == '__main__':
     # fmt: off
     parser = argparse.ArgumentParser(description="Create chunk files for all MIDI scores in the ASAP dataset.")
     parser.add_argument("asap_path", type=Path, help="Path to the ASAP dataset.")
+    parser.add_argument("--folder", "-f", type=Path, default=None, help="Specific folder to process (e.g., 'Bach/Fugue/bwv_846' or 'Bach'). If not provided, all folders will be processed.")
     parser.add_argument("--log-level", type=str, default="INFO", help="Log level (TRACE, DEBUG, INFO, WARNING, ERROR).")
     args = parser.parse_args()
     # fmt: on
@@ -424,10 +430,11 @@ if __name__ == '__main__':
     # metadata = metadata[metadata["folder"] == "Schumann/Kreisleriana/7"]
     # metadata = metadata[metadata["folder"] == "Bach/Fugue/bwv_865"]
     # metadata = metadata[metadata["folder"] == "Chopin/Scherzos/31"]
-    metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/32-1"]
+    # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/32-1"]
     annotations = pd.read_json(args.asap_path / "asap_annotations.json", orient="index")
     create_chunk_file_for_all_midi_scores(
         metadata=metadata,
         annotations=annotations,
         asap_path=args.asap_path,
+        folder=args.folder,
     )
