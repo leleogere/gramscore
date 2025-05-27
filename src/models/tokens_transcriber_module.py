@@ -291,7 +291,7 @@ class TokensTranscriberModule(L.LightningModule):
                 for token_type, dimensions in loss_values.items():
                     expert_components_prefix = f"[{name}] Expert {token_type} component losses"
                     for dim_name, value in dimensions.items():
-                        if dim_name != "_global":
+                        if dim_name != "_global" and value is not None:
                             self.log(f"{expert_components_prefix}/{dim_name} loss", value)
 
     def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
