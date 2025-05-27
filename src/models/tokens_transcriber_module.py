@@ -361,7 +361,7 @@ class TokensTranscriberModule(L.LightningModule):
                 for row, true_token in zip(data, true_tokens_sequence):
                     # add true token
                     row.append(true_token)
-                    row.append(entry.xml_score_relative.parent.as_posix())
+                    row.append(entry.midi_performance_relative.as_posix())
                     row.append(i)
                     row.append(f"{start}-{end}")
                 self.validation_logits.extend(data)
@@ -532,7 +532,7 @@ class TokensTranscriberModule(L.LightningModule):
                 key=f"validation_logits_visualization",
                 columns=list(self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys())
                 + ["true"]
-                + ["xml_score"]
+                + ["performance"]
                 + ["chunk_idx"]
                 + ["chunk"],
                 data=self.validation_logits,
