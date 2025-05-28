@@ -1,4 +1,5 @@
 import difflib
+from collections import defaultdict
 from collections.abc import Callable
 from collections.abc import Mapping
 from typing import Any
@@ -119,7 +120,7 @@ class TokensTranscriberModule(L.LightningModule):
         )
 
         self.validation_counter = 0
-        self.validation_logits = []
+        self.validation_logits = defaultdict(list)
 
     def common_step(self, batch: dict[str, Any]):
         """
@@ -315,6 +316,11 @@ class TokensTranscriberModule(L.LightningModule):
         # Log the first 3 chunks of each batch
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
             n = min(3, batch["score_tensor"].shape[0])
+            performance_path = batch["entries"][0].midi_performance_relative.as_posix()
+            score_folder = batch["entries"][0].xml_score_relative.parent.as_posix()
+            assert all(
+                p.midi_performance_relative.as_posix() == performance_path for p in batch["entries"]
+            )
             for i, (
                 true_tokens_sequence,
                 pred_tokens_sequence,
@@ -361,10 +367,10 @@ class TokensTranscriberModule(L.LightningModule):
                 for row, true_token in zip(data, true_tokens_sequence):
                     # add true token
                     row.append(true_token)
-                    row.append(entry.midi_performance_relative.as_posix())
+                    row.append(performance_path)
                     row.append(i)
                     row.append(f"{start}-{end}")
-                self.validation_logits.extend(data)
+                self.validation_logits[score_folder].extend(data)
 
         flattened_pred_token_types = flattened_router_logits[
             flattened_score_not_padded_mask
@@ -527,18 +533,21 @@ class TokensTranscriberModule(L.LightningModule):
 
     def on_validation_end(self) -> None:
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
-            self.logger.log_table(
-                # key=f"[V] Logits visualization/Logits",
-                key=f"validation_logits_visualization",
-                columns=list(self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys())
-                + ["true"]
-                + ["performance"]
-                + ["chunk_idx"]
-                + ["chunk"],
-                data=self.validation_logits,
-                step=self.global_step,
-            )
-            self.validation_logits = []
+            for score_folder, logits in self.validation_logits.items():
+                self.logger.log_table(
+                    # key=f"[V] Logits visualization/Logits",
+                    key=f"validation_logits_visualization/{score_folder}",
+                    columns=list(
+                        self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()
+                    )
+                    + ["true"]
+                    + ["performance"]
+                    + ["chunk_idx"]
+                    + ["chunk"],
+                    data=logits,
+                    step=self.global_step,
+                )
+            self.validation_logits = defaultdict(list)
         self.validation_counter += 1
 
 
