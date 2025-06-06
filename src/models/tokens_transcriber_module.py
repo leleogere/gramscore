@@ -35,7 +35,7 @@ class TokensTranscriberModule(L.LightningModule):
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
         experts_inner_dims: list[int] = None,
-        router_loss_weight: float = 0.8,
+        expert_loss_weight: float = 1.0,
         log_logits_each_n_val_steps: int = 1,
     ):
         super().__init__()
@@ -253,9 +253,7 @@ class TokensTranscriberModule(L.LightningModule):
             )
 
         # Combine all losses
-        loss = self.hparams.router_loss_weight * losses["router_loss"] + (
-            1 - self.hparams.router_loss_weight
-        ) * sum(
+        loss = losses["router_loss"] + self.hparams.expert_loss_weight * sum(
             self.token_weights[tk.TOKEN_STR_TO_TYPE[token_type]]
             * losses["expert_losses"][token_type]["_global"]
             for token_type in losses["expert_losses"]
