@@ -86,6 +86,9 @@ class SymbolicDuration:
     def __str__(self):
         return f"{self.type.value}{'.' * self.dots}"
 
+    def __eq__(self, other):
+        return self.type is other.type and self.dots == other.dots  # bc issues with == with types
+
 
 NoteTuple = namedtuple("NoteTuple", ["name", "octave", "accidental"])
 TieProperties = namedtuple("TieProperties", ["note_tuple", "min_resolution_pos"])
