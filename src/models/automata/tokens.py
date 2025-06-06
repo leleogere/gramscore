@@ -243,8 +243,10 @@ class TranscriptionState:
             VoiceCompletionState(None) for _ in range(num_voices)
         ]
         self.tied_notes: dict[int, TieProperties] = {}  # pitch -> [note_tuple, min_resolution_pos]
-        self._voices_initialized = False
         self.measure_number = initial_measure_number
+        self.started = False  # Whether the SOS token has been produced
+        self.finished = False  # Whether the EOS token has been produced
+        self.first_bar_started = False  # Whether the first bar has been started
 
     @property
     def num_voices(self) -> int:
@@ -295,11 +297,6 @@ class TranscriptionState:
 
     def reset_voices(self, total_time: Fraction | None) -> None:
         self._voices = [VoiceCompletionState(total_time) for _ in range(self.num_voices)]
-        self._voices_initialized = True
-
-    @property
-    def voices_initialized(self) -> bool:
-        return self._voices_initialized
 
     def __str__(self):
         tied_notes_str = [
@@ -313,19 +310,6 @@ class TranscriptionState:
         ]
         sep = ",\n  "
         return f"TranscriptionState(\n  {sep.join(components)}\n)"
-
-
-def sample_random_voice(allowed: list[int]):
-    assert all(0 <= v < 8 for v in allowed), "Voice index must be between 0 and 7."
-    weigths = {
-        0: 1,
-        1: 0.2,
-        2: 0.05,
-        3: 0.01,
-    }
-    weigths.update({i: w for i, w in zip(range(4, 8), weigths.values())})
-    voice = random.choices(allowed, weights=[weigths[v] for v in allowed])[0]
-    return voice
 
 
 @dataclass(kw_only=True)
@@ -439,13 +423,10 @@ class Token:
 class StartOfScore(Token):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return True
-
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        return cls()
+        return not state.started
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
+        state.started = True
         return state
 
 
@@ -454,15 +435,12 @@ class EndOfScore(Token):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         return (
-            state.are_started_voices_complete()  # All started voices are complete
-            and not state.tied_notes  # No notes tied
+            Bar.is_token_type_allowed(state)  # Same conditions as for a Bar...
+            and not state.tied_notes  # ...but without notes tied
         )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        return cls()
-
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
+        state.finished = True
         return state
 
 
@@ -480,20 +458,15 @@ class Bar(Token):
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return (
-            not state.voices_initialized  # Used for the first bar
+        return not state.finished and (
+            not state.first_bar_started  # Only for the first bar
             or state.are_started_voices_complete()  # All started voices are complete
         )
 
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        # numerator = random.randint(1, 12)
-        # denominator = 2 ** random.randint(1, 4)
-        numerator = 1
-        denominator = 4
-        return cls(numerator=numerator, denominator=denominator)
-
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
+        # Mark the first bar as started
+        if not state.first_bar_started:
+            state.first_bar_started = True
         # Reset all voices to zero
         state.reset_voices(self.nominal_duration if self.is_nominal else None)
         # Mark all ties as resolvable (after a bar line, all ties should be resolvable)
@@ -535,13 +508,9 @@ class KeySignature(Token):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
         return (
-            state.are_started_voices_synced_and_not_in_structure()  # All started voices synced
-            # Allow ties across key signature changes?
+            state.first_bar_started  # Make sure not producing KS before first bar
+            and state.are_started_voices_synced_and_not_in_structure()  # All started voices synced
         )
-
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        return cls(accidentals=random.randint(-7, 7))
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         return state
@@ -578,20 +547,14 @@ class Clef(Token, HasStaffMixin):
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.check_for_all_voices(lambda v: not v.in_chord)
+        return (
+            state.first_bar_started  # Make sure not producing clef before first bar
+            and state.check_for_all_voices(lambda v: not v.in_chord)  # Not in chord
+        )
 
     def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
         allowed_voices = [i for i, voice in enumerate(state.voices) if not voice.in_chord]
         return self.staff_idx in allowed_voices
-
-    @classmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        staff = random.randint(0, 1)
-        if staff == 0:
-            clef = "G" if random.random() < 0.9 else "F"
-        else:
-            clef = "F" if random.random() < 0.9 else "G"
-        return cls(clef=clef, staff_idx=staff)
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         return state
@@ -643,7 +606,7 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.check_for_any_voices(
+        return state.first_bar_started and state.check_for_any_voices(
             lambda v: (
                 v.segment_remaining_duration > 0  # Space left in the measure (or tuplet)
                 and not v.in_chord  # Not in chord
@@ -660,24 +623,6 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
                 self.duration.quarter_length <= voice.segment_remaining_duration  # Space left
                 and not voice.in_chord  # Not in chord
             )
-
-    # TODO: TOFIX after global ties management
-    # @classmethod
-    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-    #     # TODO: fix after adding measure rests
-    #     voices_and_durations = cls.get_allowed_voices_and_duration(state)
-    #     # Filter out voices in chord or with tied notes
-    #     voices_and_durations = {
-    #         v: duration
-    #         for v, duration in voices_and_durations.items()
-    #         if not state.voices[v].in_chord and len(state.voices[v].tied_notes) == 0
-    #     }
-    #     voice_idx = sample_random_voice(list(voices_and_durations.keys()))
-    #     return cls(
-    #         duration=random.choice(voices_and_durations[voice_idx]),
-    #         voice_idx=voice_idx,
-    #         staff_idx=default_voice_to_staff(voice_idx),
-    #     )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
@@ -754,7 +699,11 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.check_for_any_voices(lambda v: (v.segment_remaining_duration > 0))
+        return (
+            state.first_bar_started
+            and not state.finished
+            and state.check_for_any_voices(lambda v: (v.segment_remaining_duration > 0))
+        )
 
     def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
         voice = state.voices[self.voice_idx]
@@ -770,71 +719,6 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
                 and not self.note_tuple in voice.chord.notes  # Note not already in chord
                 and not self.grace  # Not a grace note
             )
-
-    # TODO: TOFIX after global ties management
-    # @classmethod
-    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-    #     voices_and_durations = cls.get_allowed_voices_and_duration(state)
-    #     voice_idx = sample_random_voice(list(voices_and_durations.keys()))
-    #     voice = state.voices[voice_idx]
-    #     duration = random.choice(voices_and_durations[voice_idx])
-    #     # TODO: randomize staff selection, and maybe assign staff to rests too?
-    #     staff = default_voice_to_staff(voice_idx)
-    #     # If not in chord
-    #     if not voice.in_chord:
-    #         # If no notes tied
-    #         if len(voice.tied_notes) == 0:
-    #             return cls(
-    #                 duration=duration,
-    #                 voice_idx=voice_idx,
-    #                 note_class=random.choice(cls._note_classes),
-    #                 octave=random.randint(*cls._octave_range),
-    #                 accidental=random.choice(list(cls._note_alterations.keys())),
-    #                 tied=random.choice([True] + [False] * 3),
-    #                 staff_idx=staff,
-    #             )
-    #         # If notes tied
-    #         note_tuple = random.choice(list(voice.tied_notes.keys()))
-    #         return cls(
-    #             duration=duration,
-    #             voice_idx=voice_idx,
-    #             note_class=note_tuple[0],
-    #             octave=note_tuple[1],
-    #             accidental=note_tuple[2],
-    #             tied=random.choice([True] + [False] * 3),
-    #             staff_idx=staff,
-    #         )
-    #     # If in chord, force tie resolution first if there are tied notes (or it will cause issue
-    #     # with an eventual note that want to be tied to a future note but hasn't been resolved yet)
-    #     if len(voice.prev_tied_notes) > 0:
-    #         print("Tie resolution")
-    #         note_tuple = random.choice(list(voice.prev_tied_notes.keys()))
-    #         print(note_tuple)
-    #         return cls(
-    #             duration=voice.chord.duration,
-    #             voice_idx=voice_idx,
-    #             note_class=note_tuple[0],
-    #             octave=note_tuple[1],
-    #             accidental=note_tuple[2],
-    #             tied=random.choice([True] + [False] * 3),
-    #             staff_idx=staff,
-    #         )
-    #     # Make sure the note is not already in the chord (randomly sample until ok, maybe better approach?)
-    #     while True:
-    #         note_class = random.choice(cls._note_classes)
-    #         octave = random.randint(*cls._octave_range)
-    #         accidental = random.choice(list(cls._note_alterations.keys()))
-    #         if (note_class, octave, accidental) not in voice.chord.notes:
-    #             break
-    #     return cls(
-    #         duration=voice.chord.duration,
-    #         voice_idx=voice_idx,
-    #         note_class=note_class,
-    #         octave=octave,
-    #         accidental=accidental,
-    #         tied=random.choice([True] + [False] * 3),
-    #         staff_idx=staff,
-    #     )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
@@ -861,11 +745,22 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
 class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.check_for_any_voices(
-            lambda v: (
-                v.segment_remaining_duration > 0  # Space left in the measure (or tuplet)
-                and not v.in_chord  # Not in chord
+        return (
+            state.first_bar_started
+            and not state.finished
+            and state.check_for_any_voices(
+                lambda v: (
+                    v.segment_remaining_duration > 0  # Space left in the measure (or tuplet)
+                    and not v.in_chord  # Not in chord
+                )
             )
+        )
+
+    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+        voice = state.voices[self.voice_idx]
+        return (
+            not voice.in_chord  # Not in chord
+            and self.duration.quarter_length <= voice.segment_remaining_duration  # Space available
         )
 
     # @classmethod
@@ -899,14 +794,12 @@ class ChordEnd(Token, HasVoiceMixin):
             )
         )
 
-    # @classmethod
-    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-    #     # Get voices with active chord
-    #     valid_voice_idxs = [
-    #         i for i, v in enumerate(state.voices) if v.in_chord and v.chord.can_resolve
-    #     ]
-    #     voice_idx = sample_random_voice(valid_voice_idxs)
-    #     return cls(voice_idx=voice_idx)
+    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+        voice = state.voices[self.voice_idx]
+        return (
+            voice.in_chord  # In chord
+            and voice.chord.can_resolve  # Can be resolved (at least 2 notes)
+        )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         voice = state.voices[self.voice_idx]
@@ -941,7 +834,7 @@ class TupletStart(Token, HasVoiceMixin):
 
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.check_for_any_voices(
+        return state.first_bar_started and state.check_for_any_voices(
             lambda v: (
                 v.segment_remaining_duration > 0  # Space left in the measure
                 and not v.in_chord  # Not in chord
@@ -1015,16 +908,13 @@ class TupletEnd(Token, HasVoiceMixin):
             )
         )
 
-    # @classmethod
-    # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-    #     # Get voices with active tuplet
-    #     valid_voice_idxs = [
-    #         i
-    #         for i, v in enumerate(state.voices)
-    #         if v.in_tuplet and not v.tuplet.has_space_left and not v.in_chord
-    #     ]
-    #     voice_idx = sample_random_voice(valid_voice_idxs)
-    #     return cls(voice_idx=voice_idx)
+    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+        voice = state.voices[self.voice_idx]
+        return (
+            not voice.in_chord  # Not in chord
+            and voice.in_tuplet  # In tuplet
+            and voice.segment_remaining_duration == 0  # Tuplet finished
+        )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].tuplet = None

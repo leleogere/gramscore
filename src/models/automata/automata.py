@@ -23,6 +23,9 @@ class ConstrainedAutomata:
         for token in tokens:
             self.transition(token)
 
+    def is_token_allowed(self, token: AnyToken) -> bool:
+        return token.is_token_allowed(self.state)
+
 
 if __name__ == '__main__':
     from pprint import pprint
