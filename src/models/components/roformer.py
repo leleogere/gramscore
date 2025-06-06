@@ -422,6 +422,7 @@ class Roformer(nn.Module):
             num_attention_heads=num_attention_heads,
             intermediate_size=intermediate_size,
             use_cache=True,
+            max_position_embeddings=1536,  # 2048,
         )
         enc_configuration = MyModelConfig(
             is_decoder=False,
