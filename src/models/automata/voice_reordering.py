@@ -15,13 +15,13 @@ def sorting_criterion(note_or_rest: pt.score.GenericNote):
         return (
             0,  # Notes before rests
             note_or_rest.start.t,  # First notes come first
-            not isinstance(note_or_rest, pt.score.GraceNote),  # Grace notes come
+            not isinstance(note_or_rest, pt.score.GraceNote),  # Grace notes come first
             -note_or_rest.midi_pitch,  # Higher pitches come first
             note_or_rest.step,  # Enharmonic notes are sorted by ascending step
             note_or_rest.duration,  # Shorter notes come first
         )
     else:
-        note_or_rest: pt.score.Rest  # Only for tying purposes
+        note_or_rest: pt.score.Rest  # Only for typing purposes
         return (
             1,  # Rests after notes
             note_or_rest.start.t,  # First rests come first
