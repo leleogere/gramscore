@@ -289,6 +289,12 @@ def token_sequence_to_partitura(
         else:
             raise ValueError(f"Unknown token {token}.")
 
+    # Eventually set the end of non-ending objects to the final time
+    for obj in measure_long_objets:
+        init_start = obj.start.t
+        score.remove(obj)
+        score.add(obj, start=init_start, end=score.last_point.t)
+
     return score
 
 
