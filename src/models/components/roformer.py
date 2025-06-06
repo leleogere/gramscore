@@ -517,10 +517,7 @@ class Roformer(nn.Module):
         else:
             encoder_extended_attention_mask = None
         if use_cache:
-            raise ValueError("TODO: fix this")
-            # extended_attention_mask = extended_attention_mask[
-            #     ..., -input_streams['pad'].size(1) :, :
-            # ]
+            extended_attention_mask = extended_attention_mask[..., -score_embeddings.size(1) :, :]
 
         decoder_outputs = self.decoder.encoder(
             score_embeddings,
