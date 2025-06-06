@@ -523,7 +523,7 @@ class TokenTensor(torch.Tensor):
             mask = token_type_masks[token_type.as_str()]
             mask_indices = mask.nonzero(as_tuple=True)
             tensor["token_type"][*mask_indices, TokenTensor.TOKEN_INDEXER[token_type]] = 1
-            for dim, values in type_dim_values_dict.get(token_type.as_str(), []).items():
+            for dim, values in type_dim_values_dict.get(token_type.as_str(), {}).items():
                 tensor[*mask_indices, dim] = values
         if padding_mask is not None:
             tensor[padding_mask] = PADDING_VALUE
