@@ -116,7 +116,7 @@ class TokensTranscriberModule(L.LightningModule):
         )
         self.per_class_metrics = MetricCollection(
             {k.__name__: BinaryF1Score() for k in TokenTensor.TOKEN_INDEXER.keys()},
-            prefix="[V] Router class accuracies/",
+            prefix="[V] Router class F1/",
         )
 
         self.validation_counter = 0
