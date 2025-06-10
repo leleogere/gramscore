@@ -176,6 +176,7 @@ class TokensTranscriberModule(L.LightningModule):
         router_logits = self.transcriber_model.forward_router(
             decoder_outputs.last_hidden_state
         )  # (B, T, K)
+        predicted_token_types = torch.argmax(router_logits, dim=-1)
         true_token_types: torch.Tensor = score_tensor_expected["token_type"]  # (B, T, K)
         true_token_types_argmax = true_token_types.argmax(-1)  # (B, T)
         true_token_types_argmax[score_padded_mask[..., 1:]] = PADDING_VALUE
@@ -188,6 +189,8 @@ class TokensTranscriberModule(L.LightningModule):
         # Pass the decoder outputs through the expert heads
         token_type_masks = {
             t_str: true_token_types_argmax == TokenTensor.TOKEN_INDEXER[t_cls]
+            and predicted_token_types
+            == true_token_types_argmax  # Only continue with correctly predicted token types
             for t_cls, t_str in zip(tk.TOKEN_TYPES, tk.TOKEN_TYPES_STR)
         }
         expert_outputs: dict[str, dict[str, torch.Tensor]] = self.transcriber_model.forward_experts(
