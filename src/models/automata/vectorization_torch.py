@@ -482,25 +482,46 @@ class TokenTensor(torch.Tensor):
         include_token_type_dim: bool = True,
         remove_padding: bool = True,
         token_type_keys_as_str: bool = False,
+        tokens_mask: dict[tk.AnyToken | str, torch.Tensor] | None = None,
     ) -> dict[tk.AnyToken | str, dict[str, torch.Tensor]]:
         """
         Get the tensor as a dictionary of token type -> dimension -> value
+
+        :param include_token_type_dim: Whether to include or not the dimension "token_type"
+        :param remove_padding: Whether to filter out padding tokens
+        :param token_type_keys_as_str: Whether to use str rather than classes for the returned dict
+            keys
+        :param tokens_mask: Mask dict for each token type (only keep the ones with True)
         """
+        if tokens_mask is None:
+            tokens_mask = {}
+        elif any(mask.shape != self.shape[:-1] for mask in tokens_mask.values()):
+            raise ValueError(
+                f"Expected tokens_mask tensors of shape {self.shape}, "
+                f"got {[m.shape for m in tokens_mask]}"
+            )
+        if isinstance(next(iter(tokens_mask.keys())), str):
+            tokens_mask = {tk.TOKEN_STR_TO_TYPE[t_str]: v for t_str, v in tokens_mask.items()}
         if remove_padding:
+            # TODO: replace this by extending the tokens_mask rather than cloning
             tensor = self.clone()
-            tensor = tensor[tensor[..., 0] != PADDING_VALUE]
+            indices = tensor[..., 0] != PADDING_VALUE
+            tensor = tensor[indices]
+            tokens_mask = {t: v[indices] for t, v in tokens_mask.items()}
         else:
             tensor = self
-        return {
-            token_type if not token_type_keys_as_str else token_type.__name__: {
-                dim_name: tensor[tensor["token_type"].argmax(-1) == self.TOKEN_INDEXER[token_type]][
-                    dim_name
-                ]
-                for dim_name in self.TOKEN_TYPE_TO_DIMS[token_type]
-                if (dim_name != "token_type" or include_token_type_dim)
-            }
-            for token_type in self.TOKEN_INDEXER.keys()
-        }
+        d = {}
+        for token_type in self.TOKEN_INDEXER.keys():
+            d_token = {}
+            for dim_name in self.TOKEN_TYPE_TO_DIMS[token_type]:
+                if not include_token_type_dim and dim_name == "token_type":
+                    continue
+                indices = tensor["token_type"].argmax(-1) == self.TOKEN_INDEXER[token_type]
+                if token_type in tokens_mask:
+                    indices = torch.logical_and(indices, tokens_mask[token_type])
+                d_token[dim_name] = tensor[indices][dim_name]
+            d[token_type.__name__ if token_type_keys_as_str else token_type] = d_token
+        return d
 
     @classmethod
     def build_from_dict(
