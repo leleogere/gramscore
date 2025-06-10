@@ -188,9 +188,11 @@ class TokensTranscriberModule(L.LightningModule):
 
         # Pass the decoder outputs through the expert heads
         token_type_masks = {
-            t_str: true_token_types_argmax == TokenTensor.TOKEN_INDEXER[t_cls]
-            and predicted_token_types
-            == true_token_types_argmax  # Only continue with correctly predicted token types
+            t_str: torch.logical_and(
+                true_token_types_argmax == TokenTensor.TOKEN_INDEXER[t_cls],
+                predicted_token_types
+                == true_token_types_argmax,  # Only continue with correctly predicted token types
+            )
             for t_cls, t_str in zip(tk.TOKEN_TYPES, tk.TOKEN_TYPES_STR)
         }
         expert_outputs: dict[str, dict[str, torch.Tensor]] = self.transcriber_model.forward_experts(
