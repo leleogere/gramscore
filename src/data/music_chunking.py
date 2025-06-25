@@ -189,7 +189,8 @@ def clip_midi(
             <= chunks.iloc[start_downbeat]["first_note_of_group"] + num_notes
             <= row["last_note_of_group"]
         ),
-        len(chunks) - 1,
+        # In case of not enough notes, take the first not empty measure from the end
+        next(i for i, row in chunks.iloc[::-1].iterrows() if not row["is_empty"]),
     )
     end_measure = chunks.iloc[end_downbeat]["last_measure_of_group"]
 
