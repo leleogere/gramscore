@@ -224,6 +224,10 @@ def clip_score(
         if note_id not in id_to_clipped_score_note:
             logger.warning(f"{note_id} absent so can't be removed from score")
             continue
+        if note_id == 'n2166-1':
+            import pdb
+
+            pdb.set_trace()
         note_to_remove = id_to_clipped_score_note[note_id]
         clipped_score.remove(note_to_remove)
         # Make as removed
