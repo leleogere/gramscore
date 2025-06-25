@@ -222,7 +222,7 @@ class AsapDataset(ScorePerformanceDataset):
         #         if entry.folder_relative not in TEST_PIECES
         #     )
         # )
-        unique_scores = {entry.folder_relative: entry for entry in entries}
+        unique_scores = {entry.folder_relative: entry for entry in entries}  # TODO: use piece name!
         if include_midi_scores:
             # Get a dummy performance for each score
             dummy_performances = unique_scores.values()
