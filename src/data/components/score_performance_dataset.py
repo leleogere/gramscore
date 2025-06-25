@@ -173,10 +173,11 @@ class AsapDataset(ScorePerformanceDataset):
         # entries = self.read_metadata_like_m2st(data_dir, split)
         entries = self.read_metadata(data_dir, split, include_midi_scores=include_midi_scores)
         entries = list(filter(filter_fn, entries))
-        with valid_tsv_file.open("r") as f:
-            reader = csv.DictReader(f, delimiter="\t")
-            valid_folders = {row["folder"] for row in reader if row["valid"] == "True"}
-            entries = list(filter(lambda e: e.folder_relative not in valid_folders, entries))
+        if valid_tsv_file is not None:
+            with valid_tsv_file.open("r") as f:
+                reader = csv.DictReader(f, delimiter="\t")
+                valid_folders = {row["folder"] for row in reader if row["valid"] == "True"}
+                entries = list(filter(lambda e: e.folder_relative in valid_folders, entries))
         super().__init__(entries, transforms)
 
     @staticmethod
