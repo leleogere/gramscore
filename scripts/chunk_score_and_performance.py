@@ -9,7 +9,6 @@ import pandas as pd
 import partitura as pt
 import partitura.score
 import symusic
-from loguru import logger
 
 import models.automata.tokens as tk
 from models.automata.automata import ConstrainedAutomata
