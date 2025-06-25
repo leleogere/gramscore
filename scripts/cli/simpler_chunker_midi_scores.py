@@ -101,27 +101,23 @@ def create_chunk_file_for_midi_score(
     ]
 
     # Try to find a performance with a score downbeats map
-    # As there are multiple performances for one piece, try to take the first one which does have
-    # the "downbeats_score_map" field filled
-    # QUESTION: do we need to check all performances or they share the same map?
-    # -> For now assert that they do to check
+    # As there are multiple performances for one piece, take the first one (all performances of a
+    # piece share the same downbeats score map, only need to check the first)
     assert all(
         p["downbeats_score_map"] == performances_annotations[0]["downbeats_score_map"]
         for p in performances_annotations
     ), f"{piece}: Downbeats score map is not the same for all performances."
-    for (_, performance_metadata), performance_annotations in zip(
-        performances_metadata.iterrows(), performances_annotations
-    ):
-        if performance_annotations["downbeats_score_map"] is not None:
-            break
+    performance_metadata = performances_metadata.iloc[0]
+    performance_annotations = performances_annotations[0]
 
     # Get the downbeat lists
     midi_score_downbeats = performance_annotations["midi_score_downbeats"]
     performances_downbeats = [p["performance_downbeats"] for p in performances_annotations]
-    assert all(len(p) == len(midi_score_downbeats) for p in performances_downbeats), (
-        f"{piece}: Number of downbeats in performances ({len(performances_downbeats)}) "
-        f"does not match number of downbeats in MIDI score ({len(midi_score_downbeats)})."
-    )
+    if any(len(p) != len(midi_score_downbeats) for p in performances_downbeats):
+        raise ValueError(
+            f"{piece}: Number of downbeats in performances ({len(performances_downbeats)}) "
+            f"does not match number of downbeats in MIDI score ({len(midi_score_downbeats)})."
+        )
 
     # Get the downbeats score map
     if performance_annotations["downbeats_score_map"] is not None:
