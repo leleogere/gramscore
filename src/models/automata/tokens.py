@@ -26,6 +26,7 @@ from partitura.utils.globals import INT_TO_ALT
 
 from utils.musicxml import ARTICULATIONS
 from utils.musicxml import ORNAMENTS
+from utils.musicxml import voice_absolute_into_voice_relative_to_staff
 
 
 class SymbolicDurationType(StrEnum):
@@ -151,7 +152,8 @@ class SegmentCompletionState:
         """Increment the current position by a given positive duration.
         The increment must not exceed the total duration.
         """
-        assert increment >= 0, "Increment must be positive."
+        if increment < 0:
+            raise ValueError("Increment must be positive.")
         # assert (
         #     self._current_position + increment <= self._duration
         # ), "Increment must not exceed the total duration."
@@ -190,6 +192,7 @@ class VoiceCompletionState(SegmentCompletionState):
         super().__init__(total_time)
         self.chord: ChordState | None = None
         self.tuplet: TupletCompletionState | None = None
+        self._manually_completed: bool = False  # Used for measure-long rest in unbounded measure
 
     @property
     def in_chord(self) -> bool:
@@ -205,10 +208,15 @@ class VoiceCompletionState(SegmentCompletionState):
 
     @property
     def completed(self) -> bool:
-        return not self.in_structure and (  # Can't be completed if in a tuplet or a chord
-            not self.has_space_left
-            if self.is_bounded  # if bounded, check if has space left
-            else self.current_position > 0  # else, OK to end whenever we want
+        return self._manually_completed or (  # Check if manually completed
+            not self.in_structure  # Can't be completed if in a tuplet or a chord
+            and (
+                # if bounded, check if has space left
+                not self.has_space_left
+                if self.is_bounded
+                # else, OK to end whenever we want
+                else self.current_position > 0
+            )
         )
 
     @property
@@ -230,8 +238,14 @@ class VoiceCompletionState(SegmentCompletionState):
         if self.in_tuplet:
             self.tuplet.advance_position(duration)
             super().advance_position(duration * self.tuplet.duration_multiplier)
+        elif duration is None:  # For measure-long rests in unbounded measure
+            self._manually_completed = True
         else:
             super().advance_position(duration)
+
+    @property
+    def remaining_duration(self) -> Fraction | float:
+        return 0 if self._manually_completed else super().remaining_duration
 
     def __str__(self):
         return f"VoiceCompletionState(pos={self.current_position}, tot={self.duration}, rem={self.remaining_duration}, chord={self.chord}, tuplet={self.tuplet})"
