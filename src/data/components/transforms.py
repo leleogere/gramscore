@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Literal
+import sys
 
 import pandas as pd
 import partitura as pt
@@ -27,6 +28,8 @@ from models.automata.voice_reordering import reorder_voices
 
 MAX_PITCH = 108
 MIN_PITCH = 21
+
+sys.setrecursionlimit(2**31 - 1)  # For transpose copies
 
 
 class ToDict:
