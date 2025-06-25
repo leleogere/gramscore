@@ -38,6 +38,7 @@ class AsapTokensDataModule(LightningDataModule):
         batch_size: int = 64,
         include_midi_scores: bool = False,
         filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
+        valid_tsv_file: Path | None = None,
         num_workers: int = 4,
         prefetch_factor: int = None,
         persistent_workers: bool = False,
@@ -50,6 +51,8 @@ class AsapTokensDataModule(LightningDataModule):
         :param batch_size: The batch size.
         :param include_midi_scores: Whether to include the MIDI scores as performances.
         :param filter_fn: A function to filter the entries.
+        :param valid_tsv_file: An eventual TSV file with a column "folder" and a column "valid"
+            being "True" for included folders (and eventually False for excluded but not needed)
         :param num_workers: The number of workers to use for data loading.
         """
         super().__init__()
@@ -67,6 +70,20 @@ class AsapTokensDataModule(LightningDataModule):
             print(self.filter_fn)
         else:
             self.filter_fn = filter_fn
+
+        # Add TSV filtering if needed
+        if valid_tsv_file is not None:
+            import csv
+
+            with valid_tsv_file.open("r") as f:
+                reader = csv.DictReader(f, delimiter="\t")
+                valid_folders = {row["folder"] for row in reader if row["valid"] == "True"}
+
+            # Add condition to filter_fn
+            original_filter_fn = self.filter_fn
+            self.filter_fn = lambda e: (
+                original_filter_fn(e) and str(e.folder_relative) in valid_folders
+            )
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
