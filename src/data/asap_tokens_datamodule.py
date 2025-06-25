@@ -71,20 +71,6 @@ class AsapTokensDataModule(LightningDataModule):
         else:
             self.filter_fn = filter_fn
 
-        # Add TSV filtering if needed
-        if valid_tsv_file is not None:
-            import csv
-
-            with valid_tsv_file.open("r") as f:
-                reader = csv.DictReader(f, delimiter="\t")
-                valid_folders = {row["folder"] for row in reader if row["valid"] == "True"}
-
-            # Add condition to filter_fn
-            original_filter_fn = self.filter_fn
-            self.filter_fn = lambda e: (
-                original_filter_fn(e) and str(e.folder_relative) in valid_folders
-            )
-
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
@@ -288,6 +274,7 @@ class AsapTokensDataModule(LightningDataModule):
                     include_midi_scores=self.hparams.include_midi_scores,
                     transforms=transforms[split],
                     filter_fn=self.filter_fn,
+                    valid_tsv_file=self.hparams.valid_tsv_file,
                 )
                 for split in self.splits
             }
