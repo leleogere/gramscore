@@ -220,9 +220,6 @@ def clip_score(
     # Go over notes to remove, remove them and if needed replace by rests
     for note_id, original_note in notes_to_remove.items():
         # Remove the note from the clipped score
-        if note_id not in id_to_clipped_score_note:
-            logger.warning(f"{note_id} absent so can't be removed from score")
-            continue
         note_to_remove = id_to_clipped_score_note[note_id]
         clipped_score.remove(note_to_remove)
         # Make as removed
