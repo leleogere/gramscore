@@ -69,7 +69,7 @@ class ScoreReader(AbstractProcessor):
             warnings.simplefilter("ignore")
             score = pt.load_musicxml(sample["entry"].xml_score, force_note_ids=True)
             assert len(score.parts) == 1
-            score = pt.score.unfold_part_maximal(score.parts[0])
+            score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
         return {"score": score}
 
 
