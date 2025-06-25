@@ -31,8 +31,12 @@ from models.automata import tokens as tk
 from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 
 # fmt: off
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27/15-12-11/checkpoints/last.ckpt").expanduser()
-performance_path = Path("~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_860/YoungS01M.mid").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
+# performance_path = Path("~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_860/YoungS01M.mid").expanduser()
+performance_path = Path("~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_860/midi_score.mid").expanduser()
+# performance_path = Path("~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_883/LuM01M.mid").expanduser()
+# performance_path = Path("~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_883/midi_score.mid").expanduser()
 # fmt: on
 
 # Load the model
@@ -286,11 +290,12 @@ def decode_next_token_contrained(
             step = TokenTensor.NOTE_INDEXER_INV[dim_to_index["note_class"]]
             octave = dim_to_index["note_octave"]
             accidental = dim_to_index["note_accidental"] - 2
-            tied = dim_to_index["note_tied"] == 1
+            tied = dim_to_index["note_tied"] == 0
             stem_direction = TokenTensor.STEM_INDEXER_INV[dim_to_index["note_stem_direction"]]
-            fermata = dim_to_index["fermata"] == 1
+            fermata = dim_to_index["fermata"] == 0
             arts_and_orns = {
-                art_or_orn: dim_to_index[art_or_orn] for art_or_orn in ARTICULATIONS_AND_ORNAMENTS
+                art_or_orn: dim_to_index[art_or_orn] == 0
+                for art_or_orn in ARTICULATIONS_AND_ORNAMENTS
             }
             return tk.Note(
                 voice_idx=voice,
@@ -336,7 +341,7 @@ def decode_next_token_contrained(
             dim_to_index = dict(zip(classification_dimensions, indices, strict=True))
             voice = dim_to_index["voice_idx"]
             staff = dim_to_index["staff_idx"]
-            measure_rest = dim_to_index["measure_rest"] == 1
+            measure_rest = dim_to_index["measure_rest"] == 0
             if measure_rest:
                 duration_type = tk.SymbolicDurationType.WHOLE
                 duration_dots = 0
@@ -344,7 +349,7 @@ def decode_next_token_contrained(
                 duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
                 duration_dots = dim_to_index["duration_dots"]
             duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
-            fermata = dim_to_index["fermata"] == 1
+            fermata = dim_to_index["fermata"] == 0
             return tk.Rest(
                 voice_idx=voice,
                 staff_idx=staff,
@@ -403,63 +408,63 @@ def decode_next_token_contrained(
     # TupletStart
     if token_type == tk.TupletStart:
         raise NotImplementedError("TupletStart not implemented")
-        classification_dimensions = [
-            dim
-            for dim in expert_outputs.keys()
-            if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
-        ]
-        classification_distributions = [
-            (
-                F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.MULTI_CLASSIFICATION
-                else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
-            )
-            for name, value in expert_outputs.items()
-            if name in classification_dimensions
-        ]
-
-        def build_token(indices: tuple[int, ...]) -> tk.Rest:
-            dim_to_index = dict(zip(classification_dimensions, indices, strict=True))
-            voice = dim_to_index["voice_idx"]
-            staff = dim_to_index["staff_idx"]
-            measure_rest = dim_to_index["measure_rest"] == 1
-            if measure_rest:
-                duration_type = tk.SymbolicDurationType.WHOLE
-                duration_dots = 0
-            else:
-                duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
-                duration_dots = dim_to_index["duration_dots"]
-            duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
-            fermata = dim_to_index["fermata"] == 1
-            return tk.Rest(
-                voice_idx=voice,
-                staff_idx=staff,
-                duration=duration,
-                measure_rest=measure_rest,
-                fermata=fermata,
-            )
-
-        best_combination, proba = next(
-            most_probable_combinations(
-                distributions=[dist[0].tolist() for dist in classification_distributions],
-                predicate=lambda x: build_token(x).is_token_allowed(state),
-            )
-        )
-
-        best_token = build_token(best_combination)
-        return best_token
-        raise NotImplementedError("TupletStart not implemented")
-        n_actual = clip_cast(self["tuplet_actual_notes"][0], 1, type_=int)
-        n_normal = clip_cast(self["tuplet_normal_notes"][0], 1, type_=int)
-        return tk.TupletStart(
-            n_actual=n_actual,
-            n_normal=n_normal,
-            unit_duration=tk.SymbolicDuration(
-                type=tk.SymbolicDurationType(duration_type),
-                dots=duration_dots,
-            ),
-            voice_idx=voice_idx,
-        )
+        # classification_dimensions = [
+        #     dim
+        #     for dim in expert_outputs.keys()
+        #     if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
+        # ]
+        # classification_distributions = [
+        #     (
+        #         F.softmax(value, dim=-1)
+        #         if TokenTensor.PROBLEM_TYPES[name] == ProblemType.MULTI_CLASSIFICATION
+        #         else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
+        #     )
+        #     for name, value in expert_outputs.items()
+        #     if name in classification_dimensions
+        # ]
+        #
+        # def build_token(indices: tuple[int, ...]) -> tk.Rest:
+        #     dim_to_index = dict(zip(classification_dimensions, indices, strict=True))
+        #     voice = dim_to_index["voice_idx"]
+        #     staff = dim_to_index["staff_idx"]
+        #     measure_rest = dim_to_index["measure_rest"] == 0
+        #     if measure_rest:
+        #         duration_type = tk.SymbolicDurationType.WHOLE
+        #         duration_dots = 0
+        #     else:
+        #         duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
+        #         duration_dots = dim_to_index["duration_dots"]
+        #     duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
+        #     fermata = dim_to_index["fermata"] == 0
+        #     return tk.Rest(
+        #         voice_idx=voice,
+        #         staff_idx=staff,
+        #         duration=duration,
+        #         measure_rest=measure_rest,
+        #         fermata=fermata,
+        #     )
+        #
+        # best_combination, proba = next(
+        #     most_probable_combinations(
+        #         distributions=[dist[0].tolist() for dist in classification_distributions],
+        #         predicate=lambda x: build_token(x).is_token_allowed(state),
+        #     )
+        # )
+        #
+        # best_token = build_token(best_combination)
+        # return best_token
+        # raise NotImplementedError("TupletStart not implemented")
+        # n_actual = clip_cast(self["tuplet_actual_notes"][0], 1, type_=int)
+        # n_normal = clip_cast(self["tuplet_normal_notes"][0], 1, type_=int)
+        # return tk.TupletStart(
+        #     n_actual=n_actual,
+        #     n_normal=n_normal,
+        #     unit_duration=tk.SymbolicDuration(
+        #         type=tk.SymbolicDurationType(duration_type),
+        #         dots=duration_dots,
+        #     ),
+        #     voice_idx=voice_idx,
+        # )
 
     raise ValueError(f"Unknown token type {token_type}")
 
@@ -538,7 +543,7 @@ performance = load_performance(performance_path, num_notes=500)
 transcribed_tokens, logits = transcribe_performance(
     model.transcriber_model,
     performance,
-    max_length=100,
+    max_length=200,
     return_logits=True,
     use_cache=True,
 )
