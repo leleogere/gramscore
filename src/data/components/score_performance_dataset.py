@@ -178,7 +178,9 @@ class AsapDataset(ScorePerformanceDataset):
             with valid_tsv_file.open("r") as f:
                 reader = csv.DictReader(f, delimiter="\t")
                 valid_folders = {row["folder"] for row in reader if row["valid"] == "True"}
-                entries = list(filter(lambda e: e.folder_relative in valid_folders, entries))
+                entries = list(
+                    filter(lambda e: e.folder_relative.as_posix() in valid_folders, entries)
+                )
         super().__init__(entries, transforms)
 
     @staticmethod
