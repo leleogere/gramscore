@@ -154,7 +154,7 @@ class AsapDataset(ScorePerformanceDataset):
         data_dir: Path,
         split: str,
         include_midi_scores: bool = False,
-        filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
+        filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
         transforms: Callable | list[Callable] = None,
     ) -> None:
@@ -172,7 +172,8 @@ class AsapDataset(ScorePerformanceDataset):
         assert split in ["all", "train", "validation", "test"], f"Invalid split: {split}"
         # entries = self.read_metadata_like_m2st(data_dir, split)
         entries = self.read_metadata(data_dir, split, include_midi_scores=include_midi_scores)
-        entries = list(filter(filter_fn, entries))
+        if filter_fn is not None:
+            entries = list(filter(filter_fn, entries))
         if valid_tsv_file is not None:
             with valid_tsv_file.open("r") as f:
                 reader = csv.DictReader(f, delimiter="\t")

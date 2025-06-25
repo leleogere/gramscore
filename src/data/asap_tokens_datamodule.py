@@ -37,7 +37,7 @@ class AsapTokensDataModule(LightningDataModule):
         data_dir: Path,
         batch_size: int = 64,
         include_midi_scores: bool = False,
-        filter_fn: Callable[[ScorePerformanceEntry], bool] = lambda x: True,
+        filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
         num_workers: int = 4,
         prefetch_factor: int = None,
