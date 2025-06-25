@@ -88,6 +88,14 @@ class ScorePerformanceEntry:
     def folder_relative(self) -> Path:
         return self._get_relative_path(self.folder)
 
+    @property
+    def id(self) -> tuple[str, str]:
+        """
+        Returns a unique piece id, as a tuple (composer, title), used to split correctly into
+        train/val/test sets without any piece overlap.
+        """
+        return (self.composer, self.title)
+
 
 class ScorePerformanceDataset(Dataset):
     """Dataset for a dataset of pairs of MusicXML scores and MIDI performances."""
@@ -222,10 +230,10 @@ class AsapDataset(ScorePerformanceDataset):
         #         if entry.folder_relative not in TEST_PIECES
         #     )
         # )
-        unique_scores = {entry.folder_relative: entry for entry in entries}  # TODO: use piece name!
+        unique_pieces = {entry.id: entry for entry in entries}
         if include_midi_scores:
             # Get a dummy performance for each score
-            dummy_performances = unique_scores.values()
+            dummy_performances = unique_pieces.values()
             for dummy_performance in dummy_performances:
                 # Add the MIDI score as a performance
                 entries.append(
@@ -244,8 +252,8 @@ class AsapDataset(ScorePerformanceDataset):
 
         # Assign an index to each piece that will be used to split the dataset into train and
         # validation sets without piece overlap between them
-        all_non_test_pieces = filter(lambda folder: folder not in TEST_PIECES, unique_scores.keys())
-        all_non_test_pieces_indexer = {folder: i for i, folder in enumerate(all_non_test_pieces)}
+        all_non_test_pieces = filter(lambda id_: id_ not in TEST_PIECES, unique_pieces.keys())
+        all_non_test_pieces_indexer = {id_: i for i, id_ in enumerate(all_non_test_pieces)}
 
         if split == "all":
             pass
@@ -254,20 +262,20 @@ class AsapDataset(ScorePerformanceDataset):
             entries = [
                 entry
                 for entry in entries
-                if entry.folder_relative not in TEST_PIECES
-                and all_non_test_pieces_indexer[entry.folder_relative] % 10 != 0
+                if entry.id not in TEST_PIECES
+                and all_non_test_pieces_indexer[entry.id] % 10 != 0
             ]
 
         elif split == "validation":
             entries = [
                 entry
                 for entry in entries
-                if entry.folder_relative not in TEST_PIECES
-                and all_non_test_pieces_indexer[entry.folder_relative] % 10 == 0
+                if entry.id not in TEST_PIECES
+                and all_non_test_pieces_indexer[entry.id] % 10 == 0
             ]
 
         elif split == "test":
-            entries = [entry for entry in entries if entry.folder_relative in TEST_PIECES]
+            entries = [entry for entry in entries if entry.id in TEST_PIECES]
 
         else:
             raise ValueError(f"Invalid split: {split}")
