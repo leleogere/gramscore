@@ -31,6 +31,7 @@ from models.automata.tokens import (
     TupletEnd,
 )
 from utils.ansi_colors import Colors
+from utils.musicxml import voice_absolute_into_voice_relative_to_staff
 
 
 def token_sequence_to_partitura(
@@ -79,6 +80,9 @@ def token_sequence_to_partitura(
 
     score = pt.score.Part("P1", quarter_duration=global_division)
     measure_long_objets: set[pt.score.Rest | pt.score.Measure] = set()
+    measure = None
+    # We store pending clefs, so that they are added when the next note of the staff is produced
+    pending_clefs = {}  # staff -> clef
 
     voices_info = [
         {
@@ -117,6 +121,11 @@ def token_sequence_to_partitura(
         elif isinstance(token, Bar):
             # Resync all voices in case of empty voices in previous bars
             time = max(v["time"] for v in voices_info)
+            if (
+                measure is not None and time == measure.start.t
+            ):  # In case of empty measure with only full rests
+                assert token.is_nominal, "Non-nominal measures should not be empty"
+                time += to_partitura_duration(token.nominal_duration)
             for v in voices_info:
                 v["time"] = time
 
@@ -152,7 +161,8 @@ def token_sequence_to_partitura(
                 (
                     note.end.t
                     for note in score.iter_all(cls=pt.score.GenericNote, include_subclasses=True)
-                    if note.staff == token.staff_idx_1b
+                    if voice_absolute_into_voice_relative_to_staff(note.voice, one_based=True)[1]
+                    == token.staff_idx_1b
                 ),
                 default=0,
             )
@@ -162,7 +172,17 @@ def token_sequence_to_partitura(
                 line=token.line,
                 octave_change=token.octave_change,
             )
-            score.add(clef, start=time)
+            if clef.staff in pending_clefs:
+                raise ValueError(
+                    f"Can't add {clef}, another clef is already waiting to be added "
+                    f"{pending_clefs[clef]}"
+                )
+            # In case of start of measure, put the clef right away
+            if time == measure.start.t:
+                score.add(clef, start=time)
+            # Else, delay it until the next note in the staff or next measure
+            else:
+                pending_clefs[token.staff_idx] = clef
 
         # Note and rest
         elif isinstance(token, (Note, Rest)):
@@ -171,6 +191,14 @@ def token_sequence_to_partitura(
             duration = token.duration.quarter_length  # Measure rests' duration will be fixed later
             time = voice_info["time"]
             # print(duration)
+
+            # Add clef if there is one pending
+            # We take the default staff of the voice, not the actual staff, because clef changes
+            # like measure 55 in Liszt/Concert_Etude_S145/1, that appear before the note in the
+            # lower staff
+            default_staff = voice_absolute_into_voice_relative_to_staff(token.voice_idx)[1]
+            if default_staff in pending_clefs:
+                score.add(pending_clefs.pop(default_staff), start=time)
 
             # Rest
             if isinstance(token, Rest):
@@ -340,8 +368,9 @@ def partitura_to_token_sequence(
 
         # Look for Measure
         measures = list(point.starting_objects[pt.score.Measure].keys())
-        assert len(measures) <= 1, "Multiple bar at the same time are not supported."
-        if len(measures) == 1:
+        if len(measures) > 1:
+            raise ValueError(f"Simultaneous bars are not supported, got {len(measures)} measures.")
+        elif len(measures) == 1:
             measure = measures[0]
             logger.trace(measure)
             measure_token = Bar(
@@ -350,11 +379,10 @@ def partitura_to_token_sequence(
             )
             real_duration_in_divs = measure.end.t - measure.start.t
             real_duration_in_quarters = Fraction(real_duration_in_divs, point.quarter)
-            if measure_token.nominal_duration != real_duration_in_quarters:
-                # print(
-                #     f"Measure ({measure_token.normal_duration}) does not match actual duration "
-                #     f"({real_duration_in_quarters}), marking as incomplete measure."
-                # )
+            if (
+                measure_token.nominal_duration != real_duration_in_quarters
+                and real_duration_in_quarters != 0  # Empty measures duration is 0 bc of full rests
+            ):
                 measure_token.is_nominal = False
             measure_token._partitura_elements = [measure, time_signature]
             tokens.append(measure_token)
