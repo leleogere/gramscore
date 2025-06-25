@@ -262,16 +262,14 @@ class AsapDataset(ScorePerformanceDataset):
             entries = [
                 entry
                 for entry in entries
-                if entry.id not in TEST_PIECES
-                and all_non_test_pieces_indexer[entry.id] % 10 != 0
+                if entry.id not in TEST_PIECES and all_non_test_pieces_indexer[entry.id] % 10 != 0
             ]
 
         elif split == "validation":
             entries = [
                 entry
                 for entry in entries
-                if entry.id not in TEST_PIECES
-                and all_non_test_pieces_indexer[entry.id] % 10 == 0
+                if entry.id not in TEST_PIECES and all_non_test_pieces_indexer[entry.id] % 10 == 0
             ]
 
         elif split == "test":
