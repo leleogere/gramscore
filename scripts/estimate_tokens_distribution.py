@@ -25,7 +25,8 @@ else:
     data_module = AsapTokensDataModule(
         data_dir=asap_path,
         batch_size=1,
-        filter_fn=lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score",
+        # filter_fn=lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score",
+        valid_tsv_file=asap_path / "valid.tsv",
         include_midi_scores=True,
         num_workers=4,
     )
@@ -62,6 +63,52 @@ for k, v in token_types.items():
     print(f"{total / (len(token_types) * v):7.3f} | {k.__name__}")
 
 
+##########################################
+# valid_tsv_file=asap_path / "valid.tsv" #
+##########################################
+# Token types counts:
+#    5720 | StartOfScore
+#  142918 | Bar
+#   25622 | Clef
+#    6475 | KeySignature
+# 2642246 | Note
+#  253430 | Rest
+#    5720 | EndOfScore
+#  302209 | ChordStart
+#  302209 | ChordEnd
+#   65803 | TupletStart
+#   65803 | TupletEnd
+#
+# Token types distribution:
+#   0.15% | StartOfScore
+#   3.74% | Bar
+#   0.67% | Clef
+#   0.17% | KeySignature
+#  69.20% | Note
+#   6.64% | Rest
+#   0.15% | EndOfScore
+#   7.92% | ChordStart
+#   7.92% | ChordEnd
+#   1.72% | TupletStart
+#   1.72% | TupletEnd
+#
+# Class weights:
+#  60.683 | StartOfScore
+#   2.429 | Bar
+#  13.547 | Clef
+#  53.607 | KeySignature
+#   0.131 | Note
+#   1.370 | Rest
+#  60.683 | EndOfScore
+#   1.149 | ChordStart
+#   1.149 | ChordEnd
+#   5.275 | TupletStart
+#   5.275 | TupletEnd
+
+
+########################################################################################
+# filter_fn=lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score" #
+########################################################################################
 # Token types counts:
 #     530 | StartOfScore
 #   12145 | Bar

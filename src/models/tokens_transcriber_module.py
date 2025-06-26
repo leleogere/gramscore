@@ -64,17 +64,17 @@ class TokensTranscriberModule(L.LightningModule):
 
         # See scripts/estimate_tokens_distribution.py for the weights
         self.token_weights = {
-            tk.StartOfScore: 48.63,
-            tk.EndOfScore: 48.63,
-            tk.Bar: 2.12,
-            tk.Clef: 21.77,
-            tk.KeySignature: 48.63,
-            tk.Note: 0.11,
-            tk.Rest: 1.24,
-            tk.ChordStart: 10.53,
-            tk.ChordEnd: 10.53,
-            tk.TupletStart: 21.50,
-            tk.TupletEnd: 21.50,
+            tk.StartOfScore: 60.683,  # Not used
+            tk.EndOfScore: 60.683,
+            tk.Bar: 2.429,
+            tk.Clef: 13.547,
+            tk.KeySignature: 53.607,
+            tk.Note: 0.131,
+            tk.Rest: 1.370,
+            tk.ChordStart: 1.149,
+            tk.ChordEnd: 1.149,
+            tk.TupletStart: 5.275,
+            tk.TupletEnd: 5.275,
         }
 
         self.router_loss = nn.CrossEntropyLoss(
