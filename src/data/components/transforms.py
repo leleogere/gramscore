@@ -168,7 +168,7 @@ class RandomTransposer(AbstractProcessor):
                 for n in [2, 3]
                 for q in ["m", "M"]
                 for d in ["up", "down"]
-            ]
+            ] + [pt.score.Interval(1, "P", "up")]
         self.intervals = intervals
 
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:

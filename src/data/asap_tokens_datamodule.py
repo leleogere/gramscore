@@ -212,6 +212,7 @@ class AsapTokensDataModule(LightningDataModule):
                                 for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
                                 for direction in ["up", "down"]
                             ]
+                            + [pt.score.Interval(1, "P", "up")]
                         ),
                     ],
                     cache_key=lambda sample: sample["entry"].xml_score,
