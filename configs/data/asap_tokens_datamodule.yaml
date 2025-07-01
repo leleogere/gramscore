@@ -1,4 +1,5 @@
 _target_: src.data.asap_tokens_datamodule.AsapTokensDataModule
+_partial_: true
 
 defaults:
     - _self_

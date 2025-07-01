@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import joblib
-import line_profiler
-import music21 as m21
 import pandas as pd
 import partitura as pt
 import partitura.score

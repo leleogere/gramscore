@@ -1,6 +1,7 @@
 import itertools
 import multiprocessing as mp
 from collections.abc import Callable
+from multiprocessing.managers import SyncManager
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -43,6 +44,7 @@ class AsapTokensDataModule(LightningDataModule):
         persistent_workers: bool = False,
         pin_memory: bool = False,
         artificial_dataset_repetitions: int = 1,
+        multiprocessing_manager: SyncManager | None = None,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
@@ -58,7 +60,7 @@ class AsapTokensDataModule(LightningDataModule):
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore="multiprocessing_manager")
 
         # Hydra does not support lambda functions, so it is loaded as string
         # Make sure to only pass trusted code in here as it will be executed as is
@@ -81,6 +83,11 @@ class AsapTokensDataModule(LightningDataModule):
         self.splits = ["train", "validation", "test"]
 
         self._prepared = False
+
+        self.multiprocessing_manager = (
+            multiprocessing_manager if multiprocessing_manager is not None else mp.Manager()
+        )
+        self._scores_cache = self.multiprocessing_manager.dict()
 
     @staticmethod
     def collate_fn(
@@ -186,8 +193,6 @@ class AsapTokensDataModule(LightningDataModule):
 
         # Setup transforms
         # First setup the shared dicts (shared accross workers)
-        manager = mp.Manager()
-        allowed_transpositions_cache = manager.dict()
         transforms = {
             "train": [
                 t.ToDict(),
@@ -196,12 +201,6 @@ class AsapTokensDataModule(LightningDataModule):
                         t.ScoreReader(),
                         t.VoiceRestFiller(),
                         t.VoiceReorderer(),
-                    ],
-                    cache_key=lambda sample: sample["entry"].xml_score,
-                    # not shared across workers as some scores not picklable...
-                ),
-                t.Cache(
-                    transforms=[
                         t.AllowedTranspositionComputer(
                             intervals=[
                                 pt.score.Interval(
@@ -214,9 +213,25 @@ class AsapTokensDataModule(LightningDataModule):
                         ),
                     ],
                     cache_key=lambda sample: sample["entry"].xml_score,
-                    keys_to_cache=["allowed_transpositions"],
-                    cache=allowed_transpositions_cache,  # shared across workers
+                    cache=self._scores_cache,
                 ),
+                # t.Cache(
+                #     transforms=[
+                #         t.AllowedTranspositionComputer(
+                #             intervals=[
+                #                 pt.score.Interval(
+                #                     number=int(inter[0]), quality=inter[1:], direction=direction
+                #                 )
+                #                 for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                #                 for direction in ["up", "down"]
+                #             ]
+                #             + [pt.score.Interval(1, "P", "up")]
+                #         ),
+                #     ],
+                #     cache_key=lambda sample: sample["entry"].xml_score,
+                #     keys_to_cache=["allowed_transpositions"],
+                #     cache=allowed_transpositions_cache,  # shared across workers
+                # ),
                 t.PerformanceReader(),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 t.MusicChunker(
@@ -238,6 +253,7 @@ class AsapTokensDataModule(LightningDataModule):
                         t.VoiceReorderer(),
                     ],
                     cache_key=lambda sample: sample["entry"].xml_score,
+                    cache=self._scores_cache,
                 ),
                 t.PerformanceReader(),
                 t.MusicChunker(
@@ -280,6 +296,9 @@ class AsapTokensDataModule(LightningDataModule):
             self.data_train = sets["train"]
             self.data_val = sets["validation"]
             self.data_test = sets["test"]
+
+            # self.data_train.entries = self.data_train.entries[:1] + self.data_train.entries[50:51]
+            # self.data_val.entries = self.data_val.entries[:1]
 
             # Repeat the dataset to simulate a larger dataset (works better for workers)
             self.data_train.entries = list(

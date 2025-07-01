@@ -61,7 +61,8 @@ def train(cfg: DictConfig) -> None:
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
     logger.info(f"Instantiating datamodule {cfg.data._target_}")
-    datamodule = hydra.utils.instantiate(cfg.data)
+    datamodule_partial = hydra.utils.instantiate(cfg.data)
+    datamodule = datamodule_partial(multiprocessing_manager=torch.multiprocessing.Manager())
     # logger.info(f"Preparing and setting up datamodule {datamodule}")
     # datamodule.prepare_data()
     # datamodule.setup()

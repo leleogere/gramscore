@@ -63,7 +63,8 @@ class ScoreReader(AbstractProcessor):
         worker = torch.utils.data.get_worker_info()
         if worker is not None:
             logger.debug(
-                f"Worker {worker.id}/{worker.num_workers} reading score {sample['entry'].xml_score.as_posix()}"
+                f"Worker {worker.id + 1}/{worker.num_workers}: "
+                f"Reading score {sample['entry'].xml_score.as_posix()}"
             )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -448,7 +449,13 @@ class Cache(AbstractProcessor):
 
     def _process(self, sample: Any) -> Any:
         key = self.cache_key(sample)
+        worker = torch.utils.data.get_worker_info()
         if key not in self.cache:
+            if worker is not None:
+                logger.debug(
+                    f"Worker {worker.id + 1}/{worker.num_workers}: "
+                    f"Cache miss for {sample['entry'].xml_score.as_posix()}!"
+                )
             for transform in self.transforms:
                 sample = transform(sample)
             self.cache[key] = {
@@ -456,6 +463,12 @@ class Cache(AbstractProcessor):
                 for k, v in sample.items()
                 if self.keys_to_cache is None or k in self.keys_to_cache
             }
+        else:
+            if worker is not None:
+                logger.debug(
+                    f"Worker {worker.id + 1}/{worker.num_workers}: "
+                    f"Cache hit for {sample['entry'].xml_score.as_posix()}!"
+                )
         return self.cache[key]
 
 
