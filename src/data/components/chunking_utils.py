@@ -36,7 +36,7 @@ class PerformanceAligner:
                 case "insertion":
                     self._pid_unmatched.append(a["performance_id"])
                 case _:
-                    raise ValueError(f"Unknown label {a["label"]}")
+                    raise ValueError(f"Unknown label {a['label']}")
         self._pid_to_pnote = {pnote["id"]: pnote for pnote in self.performance.notes}
         self._ptime_to_stime, self._stime_to_ptime = (
             pt.musicanalysis.performance_codec.get_time_maps_from_alignment(
@@ -348,8 +348,8 @@ def chunk_partitura_score_and_performances(
                 if new_pnote["note_off"] < current_perf_chunk["performance_start"]:
                     logger.warning(
                         score_name_for_logging
-                        + f"Note {new_pnote["id"]} seems to end before chunk {i} "
-                        f"({new_pnote["note_off"]} < {current_perf_chunk["performance_start"]}). "
+                        + f"Note {new_pnote['id']} seems to end before chunk {i} "
+                        f"({new_pnote['note_off']} < {current_perf_chunk['performance_start']}). "
                         f"Skipping note."
                     )
                     continue
@@ -359,8 +359,8 @@ def chunk_partitura_score_and_performances(
                 if new_note_on < 0:
                     logger.warning(
                         score_name_for_logging
-                        + f"Note {new_pnote["id"]} seems to start before chunk {i} "
-                        f"({new_pnote["note_on"]} < {current_perf_chunk["performance_start"]}). "
+                        + f"Note {new_pnote['id']} seems to start before chunk {i} "
+                        f"({new_pnote['note_on']} < {current_perf_chunk['performance_start']}). "
                         f"Clipping start to 0."
                     )
                     new_pnote["note_on"] = 0
@@ -588,7 +588,7 @@ if __name__ == '__main__':
         for performance in chunk["performances"]:
             pt.save_performance_midi(
                 performance["performance"],
-                chunk_dir / f"{performance["performance"].id}.mid",
+                chunk_dir / f"{performance['performance'].id}.mid",
             )
             # pt.save_match(
             #     performance["alignment"],

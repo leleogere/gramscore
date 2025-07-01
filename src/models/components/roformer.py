@@ -18,7 +18,6 @@ from typing import Dict, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from rich.syntax import TokenType
 from transformers import RoFormerModel as RoFormerModelBase
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
 from transformers.models.roformer.modeling_roformer import (

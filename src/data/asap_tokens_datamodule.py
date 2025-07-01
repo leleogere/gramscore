@@ -7,7 +7,6 @@ from typing import Dict
 from typing import Optional
 
 import git
-import line_profiler
 import partitura as pt
 import partitura.score
 import torch
@@ -84,7 +83,6 @@ class AsapTokensDataModule(LightningDataModule):
         self._prepared = False
 
     @staticmethod
-    @line_profiler.profile
     def collate_fn(
         batch: list[dict[str, Any]],
     ) -> dict[str, Any]:
