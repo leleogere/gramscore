@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from typing import Literal
+from typing import assert_never
 
 import joblib
 import pandas as pd
@@ -18,6 +20,7 @@ import partitura.score
 import symusic
 import torch
 from loguru import logger
+from lxml import etree
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
@@ -29,24 +32,6 @@ from utils.constants import SKIP
 from utils.constants import SUCCESS_FILENAME
 from utils.constants import TEST_PIECE_IDS
 from utils.constants import TO_IGNORE_INDICES
-
-
-TEST_PIECES = [
-    "Bach/Fugue/bwv_846",
-    "Beethoven/Piano_Sonatas/10-1",
-    "Brahms/Six_Pieces_op_118/2",
-    "Chopin/Ballades/1",
-    "Debussy/Images_Book_1/1_Reflets_dans_lEau",
-    "Haydn/Keyboard_Sonatas/31-1",
-    "Liszt/Annees_de_pelerinage_2/1_Gondoliera",
-    "Mozart/Piano_Sonatas/12-1",  # Why this one rather than Mozart/Fantasie_475?
-    "Prokofiev/Toccata",
-    "Rachmaninoff/Preludes_op_23/4",
-    "Ravel/Gaspard_de_la_Nuit/1_Ondine",
-    "Schubert/Impromptu_op.90_D.899/1",
-    "Schumann/Arabeske",
-    "Scriabin/Etudes_op_8/11",
-]
 
 
 @dataclass
@@ -155,6 +140,23 @@ class AsapDataset(ScorePerformanceDataset):
     This dataset is used to load only the MIDI and MusicXML files from the dataset.
     """
 
+    TEST_PIECES = [
+        ("Bach", "Fugue_bwv_846"),
+        ("Beethoven", "Piano_Sonatas_10-1"),
+        ("Brahms", "Six_Pieces_op_118_2"),
+        ("Chopin", "Ballades_1"),
+        ("Debussy", "Images_Book_1_1_Reflets_dans_lEau"),
+        ("Haydn", "Keyboard_Sonatas_31-1"),
+        ("Liszt", "Annees_de_pelerinage_2_1_Gondoliera"),
+        ("Mozart", "Piano_Sonatas_12-1"),  # Why this one rather than Mozart/Fantasie_475?
+        ("Prokofiev", "Toccata"),
+        ("Rachmaninoff", "Preludes_op_23_4"),
+        ("Ravel", "Gaspard_de_la_Nuit_1_Ondine"),
+        ("Schubert", "Impromptu_op.90_D.899_1"),
+        ("Schumann", "Arabeske"),
+        ("Scriabin", "Etudes_op_8_11"),
+    ]
+
     def __init__(
         self,
         data_dir: Path,
@@ -189,8 +191,9 @@ class AsapDataset(ScorePerformanceDataset):
                 )
         super().__init__(entries, transforms)
 
-    @staticmethod
+    @classmethod
     def read_metadata(
+        cls,
         data_dir: Path,
         split: str,
         include_midi_scores: bool = False,
@@ -250,7 +253,7 @@ class AsapDataset(ScorePerformanceDataset):
 
         # Assign an index to each piece that will be used to split the dataset into train and
         # validation sets without piece overlap between them
-        all_non_test_pieces = filter(lambda id_: id_ not in TEST_PIECES, unique_pieces.keys())
+        all_non_test_pieces = filter(lambda id_: id_ not in cls.TEST_PIECES, unique_pieces.keys())
         all_non_test_pieces_indexer = {id_: i for i, id_ in enumerate(all_non_test_pieces)}
 
         if split == "all":
@@ -260,18 +263,20 @@ class AsapDataset(ScorePerformanceDataset):
             entries = [
                 entry
                 for entry in entries
-                if entry.id not in TEST_PIECES and all_non_test_pieces_indexer[entry.id] % 10 != 0
+                if entry.id not in cls.TEST_PIECES
+                and all_non_test_pieces_indexer[entry.id] % 10 != 0
             ]
 
         elif split == "validation":
             entries = [
                 entry
                 for entry in entries
-                if entry.id not in TEST_PIECES and all_non_test_pieces_indexer[entry.id] % 10 == 0
+                if entry.id not in cls.TEST_PIECES
+                and all_non_test_pieces_indexer[entry.id] % 10 == 0
             ]
 
         elif split == "test":
-            entries = [entry for entry in entries if entry.id in TEST_PIECES]
+            entries = [entry for entry in entries if entry.id in cls.TEST_PIECES]
 
         else:
             raise ValueError(f"Invalid split: {split}")
@@ -350,14 +355,166 @@ class AsapDataset(ScorePerformanceDataset):
         return entries
 
 
+class PdmxPianoDataset(ScorePerformanceDataset):
+    """
+    This dataset contains piano solo PDMX scores, with generated MIDI score performances associated.
+    """
+
+    def __init__(
+        self,
+        directory: Path,
+        split: Literal["train", "validation", "all"],
+        only_valid: bool = True,
+        excluded_indices: list[int] | None = None,
+        excluded_indices_paths: list[Path] | Path | None = None,
+        transforms: Callable | list[Callable] = None,
+    ):
+        self.directory = directory
+        self.split = split
+        assert split in ["all", "train", "validation"], f"Invalid split: {split}"
+        self.only_valid = only_valid
+        self.excluded_indices = excluded_indices if excluded_indices else []
+        if isinstance(excluded_indices_paths, (Path, str)):
+            self.excluded_indices_paths = [Path(excluded_indices_paths)]
+        elif isinstance(excluded_indices_paths, list):
+            self.excluded_indices_paths = [Path(path) for path in excluded_indices_paths]
+        elif excluded_indices_paths is None:
+            self.excluded_indices_paths = []
+        else:
+            raise ValueError(f"excluded_indices_paths must be a list of paths, a path, or None")
+
+        # Read excluded indices paths
+        for path in self.excluded_indices_paths:
+            with path.open("r") as f:
+                self.excluded_indices.extend([int(i.strip()) for i in f.readlines()])
+
+        # Read entries
+        entries = self.read_metadata(
+            directory=self.directory,
+            split=self.split,
+            only_valid=self.only_valid,
+            excluded_indices=self.excluded_indices,
+        )
+
+        super().__init__(entries, transforms)
+
+    @classmethod
+    def read_metadata(
+        cls,
+        directory: Path,
+        split: Literal["train", "validation", "all"],
+        only_valid: bool,
+        excluded_indices: list[int],
+    ) -> list[ScorePerformanceEntry]:
+
+        # Read PDMX metadata
+        metadata_path = directory / "PDMX_piano_tokenizable.csv"
+        cache_path = metadata_path.with_suffix(".pkl")  # Question: is caching as pkl faster?
+        if cache_path.exists():
+            df = pd.read_pickle(cache_path)
+        else:
+            if not metadata_path.exists():
+                raise FileNotFoundError(
+                    "PDMX_piano_tokenizable.csv not found, make sure to generate it first. "
+                    "It's the PDMX.csv file, filtered to only contain tokenizable solo piano scores."
+                )
+            df = pd.read_csv(metadata_path)
+            df.to_pickle(cache_path)
+
+        # Filter out invalid entries
+        # Question: already filtered out in PDMX_piano_tokenizable.csv, isn't it?
+        if only_valid:
+            df = df[df["subset:all_valid"]]
+
+        # Filter out excluded indices
+        df = df[~df.index.isin(excluded_indices)]
+
+        print(f"Number of entries with <= 500 notes: {len(df[df['n_notes'] <= 500])}")
+        print(f"Number of entries with no repeats: {len(df[~df['has_repeats']])}")
+        print(
+            f"Number of entries with <= 500 notes and no repeats: {len(df[(~df['has_repeats']) & (df['n_notes'] <= 500)])}"
+        )
+
+        # Filter out long scores
+        df = df[(~df["has_repeats"]) & (df["n_notes"] <= 500)]
+
+        # Create splits
+        num_validation_pieces = 1000
+        val_every_nth = int(len(df) / num_validation_pieces)
+        if split == "all":
+            indices = list(range(len(df)))
+        elif split == "validation":
+            indices = [i for i in range(len(df)) if i % val_every_nth == 0]
+        elif split == "train":
+            indices = [i for i in range(len(df)) if i % val_every_nth != 0]
+        else:
+            assert_never(split)
+
+        # Create entries
+        entries = [
+            ScorePerformanceEntry(
+                xml_score=directory / row["mxl"],
+                midi_performance=directory / row["mid"],
+                midi_score_annotations=None,
+                midi_score=None,
+                folder=None,
+                base_path=directory,
+                composer=cls._get_composer(row),
+                title=cls._get_title(row),
+            )
+            for _, row in df.iloc[indices].iterrows()
+        ]
+
+        return entries
+
+    @staticmethod
+    def _get_composer(row) -> str:
+        """Make a string from composer and artist"""
+        composer = row["composer_name"]
+        artist = row["artist_name"]
+        # If missing, will be N/A, which is a float
+        if not isinstance(composer, float) and not isinstance(artist, float):
+            return f"artist ({composer})"
+        elif not isinstance(composer, float):
+            return f"{composer}"
+        else:
+            return f"{artist}"
+
+    @staticmethod
+    def _get_title(row) -> str:
+        """Make a string from song name, title and subtitle"""
+        song = row["song_name"]
+        title = row["title"]
+        subtitle = row["subtitle"]
+        parts = []
+        if not isinstance(song, float):
+            parts.append(song)
+        if not isinstance(title, float):
+            parts.append(title)
+        full_title = " - ".join(parts)
+        if not isinstance(subtitle, float):
+            full_title += f" [{subtitle}]"
+        return full_title
+
+
+# if __name__ == '__main__':
+#     ds = AsapDataset(
+#         Path("~/Documents/datasets/asap-dataset").expanduser(),
+#         split="all",
+#         include_midi_scores=True,
+#         filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem != "midi_score",
+#     )  # TODO: fix this to load the MIDI scores
+#     print(f"Number of performances: {len(ds)}")
+#     print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
+#     print(ds[0].midi_performance)
+#     print(ds[0].xml_score)
+
 if __name__ == '__main__':
-    ds = AsapDataset(
-        Path("~/Documents/datasets/asap-dataset").expanduser(),
-        split="all",
-        include_midi_scores=True,
-        filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem != "midi_score",
-    )  # TODO: fix this to load the MIDI scores
-    print(f"Number of performances: {len(ds)}")
+    ds = PdmxPianoDataset(
+        Path("~/Documents/datasets/pdmx").expanduser(),
+        excluded_indices_paths=Path("~/Documents/datasets/pdmx/overlapping_asap.csv").expanduser(),
+        split="train",
+    )
     print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
     print(ds[0].midi_performance)
     print(ds[0].xml_score)

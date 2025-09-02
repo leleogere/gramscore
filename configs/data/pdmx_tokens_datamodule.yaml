@@ -1,0 +1,15 @@
+_target_: src.data.pdmx_tokens_datamodule.PdmxTokensDataModule
+
+defaults:
+    - _self_
+
+data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/pdmx
+
+batch_size: 16
+num_workers: 2
+prefetch_factor: 2
+persistent_workers: true
+pin_memory: true

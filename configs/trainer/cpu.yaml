@@ -1,5 +1,5 @@
 defaults:
-  - default
+  - base
 
 accelerator: cpu
 devices: 1

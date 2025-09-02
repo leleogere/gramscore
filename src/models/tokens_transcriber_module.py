@@ -317,64 +317,64 @@ class TokensTranscriberModule(L.LightningModule):
         flattened_true_token_types_ohe = results["flattened_true_token_types"]
         flattened_score_not_padded_mask = results["flattened_score_not_padded_mask"]
 
-        # Log the first 3 chunks of each batch
+        # Log the first chunks of each batch
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
-            n = min(3, batch["score_tensor"].shape[0])
+            n = 1
             performance_path = batch["entries"][0].midi_performance_relative.as_posix()
             score_folder = batch["entries"][0].xml_score_relative.parent.as_posix()
-            assert all(
-                p.midi_performance_relative.as_posix() == performance_path for p in batch["entries"]
-            )
-            for i, (
-                true_tokens_sequence,
-                pred_tokens_sequence,
-                entry,
-                num_tokens,
-                start,
-                end,
-                logits,
-            ) in enumerate(
-                zip(
-                    true_token_types[:n].argmax(-1),
-                    router_logits[:n].argmax(-1),
-                    batch["entries"][:n],
-                    batch["score_lengths"][:n],
-                    batch["chunk_starts"][:n],
-                    batch["chunk_ends"][:n],
-                    router_logits[:n],
-                )
-            ):
-                # Convert to string
-                true_tokens_sequence = [
-                    self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
-                    for t in true_tokens_sequence[: num_tokens - 1]
-                ]
-                # pred_tokens_sequence = [
-                #     self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
-                #     for t in pred_tokens_sequence[: num_tokens - 1]
-                # ]
-                #
-                # # Align the sequences
-                # aligned_true, aligned_pred, diffs = self.align_character_sequences(
-                #     true_tokens_sequence,
-                #     pred_tokens_sequence,
-                # )
-                # # Log the sequences
-                # self.logger.log_text(
-                #     key=f"val_visu_alignments/{entry.xml_score_relative}",
-                #     columns=["true", "pred", "diffs"],
-                #     data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
-                # )
+            true_tokens_sequence = true_token_types[0].argmax(-1)
+            pred_tokens_sequence = router_logits[0].argmax(-1)
+            logits = router_logits[0]
+            entry = batch["entries"][0]
+            num_tokens = batch["score_lengths"][0]
+            # for i, (
+            #     true_tokens_sequence,
+            #     pred_tokens_sequence,
+            #     entry,
+            #     num_tokens,
+            #     start,
+            #     end,
+            #     logits,
+            # ) in enumerate(
+            #     zip(
+            #         true_token_types[:n].argmax(-1),
+            #         router_logits[:n].argmax(-1),
+            #         batch["entries"][:n],
+            #         batch["score_lengths"][:n],
+            #         batch["chunk_starts"][:n],
+            #         batch["chunk_ends"][:n],
+            #         router_logits[:n],
+            #     )
+            # ):
+            # Convert to string
+            true_tokens_sequence = [
+                self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
+                for t in true_tokens_sequence[: num_tokens - 1]
+            ]
+            # pred_tokens_sequence = [
+            #     self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
+            #     for t in pred_tokens_sequence[: num_tokens - 1]
+            # ]
+            #
+            # # Align the sequences
+            # aligned_true, aligned_pred, diffs = self.align_character_sequences(
+            #     true_tokens_sequence,
+            #     pred_tokens_sequence,
+            # )
+            # # Log the sequences
+            # self.logger.log_text(
+            #     key=f"val_visu_alignments/{entry.xml_score_relative}",
+            #     columns=["true", "pred", "diffs"],
+            #     data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
+            # )
 
-                # Log the logits
-                data = logits.softmax(-1).tolist()[: num_tokens - 1]
-                for row, true_token in zip(data, true_tokens_sequence):
-                    # add true token
-                    row.append(true_token)
-                    row.append(performance_path)
-                    row.append(i)
-                    row.append(f"{start}-{end}")
-                self.validation_logits[score_folder].extend(data)
+            # Log the logits
+            data = logits.softmax(-1).tolist()[: num_tokens - 1]
+            for row, true_token in zip(data, true_tokens_sequence):
+                # add true token
+                row.append(true_token)
+                row.append(performance_path)
+            self.validation_logits[score_folder].extend(data)
 
         flattened_pred_token_types = flattened_router_logits[
             flattened_score_not_padded_mask
@@ -413,12 +413,13 @@ class TokensTranscriberModule(L.LightningModule):
             self.log(name, metric)
 
         # Log confusion matrix
-        cm = wandb.plot.confusion_matrix(
-            y_true=flattened_true_token_types.cpu().numpy(),
-            preds=flattened_pred_token_types.cpu().numpy(),
-            class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
-        )
-        self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
+        if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
+            cm = wandb.plot.confusion_matrix(
+                y_true=flattened_true_token_types.cpu().numpy(),
+                preds=flattened_pred_token_types.cpu().numpy(),
+                class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
+            )
+            self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
 
         # Log per-class metrics
         for (name, metric), token_type in zip(
@@ -545,9 +546,9 @@ class TokensTranscriberModule(L.LightningModule):
                         self._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()
                     )
                     + ["true"]
-                    + ["performance"]
-                    + ["chunk_idx"]
-                    + ["chunk"],
+                    + ["performance"],
+                    # + ["chunk_idx"]
+                    # + ["chunk"],
                     data=logits,
                     step=self.global_step,
                 )

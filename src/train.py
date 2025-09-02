@@ -1,4 +1,5 @@
 import sys
+import torch.multiprocessing
 from pathlib import Path
 import os
 
@@ -53,6 +54,7 @@ def train(cfg: DictConfig) -> None:
 
     lightning.seed_everything(10, workers=True)
 
+    # Load WandB logger
     logger.info(f"Instantiating logger {cfg.logger._target_}")
     training_logger = hydra.utils.instantiate(cfg.logger)
     training_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
@@ -60,13 +62,21 @@ def train(cfg: DictConfig) -> None:
 
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
-    logger.info(f"Instantiating datamodule {cfg.data._target_}")
+    # Load pretraining datamodule
+    logger.info(f"Instantiating pretraining datamodule {cfg.pretraining_data._target_}")
+    pretraining_datamodule = hydra.utils.instantiate(cfg.pretraining_data)
+    # datamodule.prepare_data()
+    # datamodule.setup()
+    logger.info(f"Datamodule {pretraining_datamodule} ready!")
+
+    # Load main datamodule
+    logger.info(f"Instantiating main datamodule {cfg.data._target_}")
     datamodule_partial = hydra.utils.instantiate(cfg.data)
     datamodule = datamodule_partial(multiprocessing_manager=torch.multiprocessing.Manager())
     # logger.info(f"Preparing and setting up datamodule {datamodule}")
     # datamodule.prepare_data()
     # datamodule.setup()
-    logger.info(f"Datamodule {datamodule} ready!")
+    logger.info(f"Main datamodule {datamodule} ready!")
 
     logger.info(f"Instantiating model {cfg.model._target_}")
     model = hydra.utils.instantiate(cfg.model)
@@ -76,12 +86,28 @@ def train(cfg: DictConfig) -> None:
     callbacks = instantiate_callbacks(cfg.callbacks)
     logger.info(f"Callbacks {callbacks} ready!")
 
-    logger.info(f"Instantiating trainer {cfg.trainer._target_}")
-    trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=training_logger)
-    logger.info(f"Trainer {trainer} ready!")
+    logger.info(f"Instantiating pretrainer {cfg.pretrainer._target_}")
+    pretrainer = hydra.utils.instantiate(
+        cfg.pretrainer, callbacks=callbacks, logger=training_logger
+    )
+    logger.info(f"Pretrainer {pretrainer} ready!")
 
-    logger.info("Starting training")
+    logger.info(f"Instantiating main trainer {cfg.trainer._target_}")
+    trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=training_logger)
+    logger.info(f"Main trainer {trainer} ready!")
+
+    logger.info("Starting pretraining")
+    trainer.fit(model, pretraining_datamodule)
+    logger.info("Pretraining finished!")
+
+    training_logger.experiment.log({"phase": "finetune"})
+
+    logger.info("Starting main training")
     trainer.fit(model, datamodule)
+    logger.info("Main training finished!")
+
+    logger.info("Testing model")
+    trainer.test(model, datamodule)
 
 
 if __name__ == "__main__":
