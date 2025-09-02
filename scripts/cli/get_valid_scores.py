@@ -3,7 +3,8 @@ This script creates a metadata file containing parsing information about all sco
 dataset. The final file contains 3 columns:
     - folder: the folder of that piece, containing the score and all performances
     - valid: True or False, denoting if the score is usable or not
-    - reason: only for invalid scores, a message indicating the reason of invalidity
+    - type: only for invalid scores, a category of error
+    - msg: only for invalid scores, details about the error
 """
 
 from collections import defaultdict
@@ -25,6 +26,9 @@ from models.automata.io import token_sequence_to_partitura, partitura_to_token_s
 from models.automata.voice_reordering import reorder_voices
 
 from scripts.cli.simpler_chunker_midi_scores import create_chunk_file_for_midi_score
+
+
+NL = "\n"
 
 
 @dataclass
@@ -197,7 +201,7 @@ def main(
             print(f"Found {len(entries)} scores with {error_type}:")
             for entry in entries:
                 print(
-                    f"  * {entry.folder}  |  {entry.error_msg.replace('\n', ' ') if entry.error_msg else ''}"
+                    f"  * {entry.folder}  |  {entry.error_msg.replace(NL, ' ') if entry.error_msg else ''}"
                 )
 
     # Export the results file as CSV

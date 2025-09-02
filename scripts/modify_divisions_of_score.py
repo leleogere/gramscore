@@ -4,11 +4,11 @@ Fix the <division> tag of a score, as well as all the related elements
 """
 
 import math
+import re
 from fractions import Fraction
 from pathlib import Path
-from lxml import etree as ET
-import re
 
+from lxml import etree as ET
 
 # note_type_to_divisions = {
 #     "long": 1,
@@ -204,7 +204,7 @@ def modify_divisions_of_score(path: Path, new_divisions: int):
                 continue
 
             # Try to fix broken backups/forwards (due to rounding errors)
-            if parent.tag in ["backup", "forward"] and not updated_duration.is_integer():
+            if parent.tag in ["backup", "forward"] and not updated_duration.denominator == 1:
                 # Accumulate duration since start of measure
                 # Does not work in case of partial backup?
                 fixed_duration = 0
@@ -229,7 +229,7 @@ def modify_divisions_of_score(path: Path, new_divisions: int):
                 updated_duration = fixed_duration
 
             # Make sure the new duration is an integer
-            assert updated_duration.is_integer(), (
+            assert updated_duration.denominator == 1, (
                 f"New duration of {parent.tag} in measure {measure_nb} is not an integer: "
                 f"{updated_duration=} ({init_duration=})"
             )
@@ -353,23 +353,60 @@ if __name__ == '__main__':
     #     "/home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/24-1_no_repeat/xml_score.musicxml"
     # )
     paths = """
-# /home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/24-1_no_repeat/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Beethoven/Piano_Sonatas/7-4/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Chopin/Barcarolle/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Chopin/Etudes_op_25/11/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Debussy/Pour_le_Piano/1/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Haydn/Keyboard_Sonatas/48-1/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Liszt/Gran_Etudes_de_Paganini/2_La_campanella/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Liszt/Mephisto_Waltz/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Liszt/Transcendental_Etudes/1/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Liszt/Transcendental_Etudes/11/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Ravel/Miroirs/3_Une_Barque/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Ravel/Pavane/xml_score.musicxml
-# /home/gerel/Documents/datasets/asap-dataset/Schumann/Kreisleriana/1_no_first_repeat/xml_score.musicxml
-/home/gerel/Documents/datasets/asap-dataset/Liszt/Mephisto_Waltz/xml_score1.musicxml
+Beethoven/Piano_Sonatas/12-1
+Beethoven/Piano_Sonatas/13-4
+Beethoven/Piano_Sonatas/14-3
+Beethoven/Piano_Sonatas/15-4
+Beethoven/Piano_Sonatas/16-1
+Beethoven/Piano_Sonatas/16-2
+Beethoven/Piano_Sonatas/18-3
+Beethoven/Piano_Sonatas/18-4
+Beethoven/Piano_Sonatas/22-2
+Beethoven/Piano_Sonatas/23-1
+Beethoven/Piano_Sonatas/24-1
+Beethoven/Piano_Sonatas/24-1_no_2_repeat
+Beethoven/Piano_Sonatas/24-1_no_repeat
+Beethoven/Piano_Sonatas/29-3
+Beethoven/Piano_Sonatas/29-4
+Beethoven/Piano_Sonatas/31-1
+Beethoven/Piano_Sonatas/31-3_4
+Beethoven/Piano_Sonatas/32-1
+Beethoven/Piano_Sonatas/5-1
+Beethoven/Piano_Sonatas/7-1
+Beethoven/Piano_Sonatas/7-4
+Chopin/Ballades/4
+Chopin/Barcarolle
+Chopin/Etudes_op_10/8
+Chopin/Etudes_op_25/11
+Chopin/Sonata_3/3rd
+Chopin/Sonata_3/4th
+Debussy/Images_Book_1/1_Reflets_dans_lEau
+Debussy/Pour_le_Piano/1
+Haydn/Keyboard_Sonatas/48-1
+Liszt/Ballade_2
+Liszt/Gran_Etudes_de_Paganini/2_La_campanella
+Liszt/Gran_Etudes_de_Paganini/6_Theme_and_Variations
+Liszt/Gran_Etudes_de_Paganini/6_Theme_and_Variations_repeat
+Liszt/Hungarian_Rhapsodies/6
+Liszt/Mephisto_Waltz
+Liszt/Sonata
+Liszt/Transcendental_Etudes/1
+Liszt/Transcendental_Etudes/11
+Liszt/Transcendental_Etudes/4
+Liszt/Transcendental_Etudes/9
+Mozart/Piano_Sonatas/12-2
+Rachmaninoff/Preludes_op_32/10
+Rachmaninoff/Preludes_op_32/5
+Ravel/Miroirs/3_Une_Barque
+Ravel/Pavane
+Schubert/Impromptu_op142/3
+Schumann/Kreisleriana/1
+Schumann/Kreisleriana/1_no_first_repeat
+Schumann/Kreisleriana/3
 """
     # paths = list(map(Path, paths.strip().split("\n")))
-    paths = [Path(p) for p in paths.strip().split("\n") if not p.startswith("#")]
+    asap_path = Path("~/Documents/datasets/asap-dataset-original")
+    paths = [asap_path / p for p in paths.strip().split("\n") if not p.startswith("#")]
 
     for path in paths:
         print("=" * 80)
