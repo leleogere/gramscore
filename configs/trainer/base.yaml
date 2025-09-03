@@ -5,8 +5,6 @@ default_root_dir: ${paths.output_dir}
 #min_epochs: 1 # prevents early stopping
 #max_epochs: 1000
 
-max_steps: 50_000
-
 # mixed precision for extra speed-up
 #precision: 16
 

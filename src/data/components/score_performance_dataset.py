@@ -439,7 +439,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         df = df[(~df["has_repeats"]) & (df["n_notes"] <= 500)]
 
         # Create splits
-        num_validation_pieces = 1000
+        num_validation_pieces = 200
         val_every_nth = int(len(df) / num_validation_pieces)
         if split == "all":
             indices = list(range(len(df)))

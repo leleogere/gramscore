@@ -14,10 +14,10 @@ defaults:
   - paths: default
 
 pretrainer:
-    max_epochs: 1
+    max_steps: 10
 
 trainer:
-    max_steps: 50_000
+    max_steps: 15
 
 log_level: DEBUG
 

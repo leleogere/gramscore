@@ -305,6 +305,9 @@ class TokensTranscriberModule(L.LightningModule):
         self._log_loss_components(outputs["losses"], name="T")
         return loss
 
+    def on_validation_start(self) -> None:
+        logger.info(f"Validation starting")
+
     def validation_step(self, batch: dict[str, Any], batch_idx: int = None):
         loss, results = self.common_step(batch)
         self.log("[T|V] Global metrics/Validation loss", loss)
@@ -554,6 +557,7 @@ class TokensTranscriberModule(L.LightningModule):
                 )
             self.validation_logits = defaultdict(list)
         self.validation_counter += 1
+        logger.info("Validation finished!")
 
 
 if __name__ == '__main__':

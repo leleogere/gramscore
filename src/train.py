@@ -93,21 +93,23 @@ def train(cfg: DictConfig) -> None:
     logger.info(f"Pretrainer {pretrainer} ready!")
 
     logger.info(f"Instantiating main trainer {cfg.trainer._target_}")
-    trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=training_logger)
+    trainer: lightning.Trainer = hydra.utils.instantiate(
+        cfg.trainer, callbacks=callbacks, logger=training_logger
+    )
     logger.info(f"Main trainer {trainer} ready!")
 
     logger.info("Starting pretraining")
-    trainer.fit(model, pretraining_datamodule)
-    logger.info("Pretraining finished!")
+    pretrainer.fit(model, pretraining_datamodule)
+    logger.info(f"Pretraining finished at step {pretrainer.global_step}!")
 
     training_logger.experiment.log({"phase": "finetune"})
 
-    logger.info("Starting main training")
+    logger.info(f"Starting main training at step {pretrainer.global_step}!")
     trainer.fit(model, datamodule)
     logger.info("Main training finished!")
 
-    logger.info("Testing model")
-    trainer.test(model, datamodule)
+    # logger.info("Testing model")
+    # trainer.test(model, datamodule)
 
 
 if __name__ == "__main__":
