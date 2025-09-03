@@ -1,24 +1,11 @@
 # @package _global_
-
-# specify here default configuration
-# order of defaults determines the order in which configs override each other
 defaults:
-  - _self_
-  - data@pretraining_data: pdmx_tokens_datamodule
-  - data: asap_tokens_datamodule
-  - model: tokens_transcriber_module
-  - callbacks: default
-  - trainer@pretrainer: cpu
-  - trainer: cpu
-  - logger: wandb
-  - paths: default
-
-pretrainer:
-    max_steps: 10
+    - _self_
+    - train_base
+    - data: asap_tokens_datamodule
 
 trainer:
     max_steps: 15
 
-log_level: DEBUG
-
-tags: ["dev"]
+model:
+    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore/outputs/2025-09-03/11-32-06/checkpoints/last.ckpt

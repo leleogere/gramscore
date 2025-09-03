@@ -1,0 +1,15 @@
+# @package _global_
+
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  - model: tokens_transcriber_module
+  - callbacks: default
+  - trainer: cpu
+  - logger: wandb
+  - paths: default
+
+log_level: DEBUG
+
+tags: ["dev"]

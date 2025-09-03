@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+    - _self_
+    - train_base
+    - data: pdmx_tokens_datamodule
+
+trainer:
+    max_steps: 10

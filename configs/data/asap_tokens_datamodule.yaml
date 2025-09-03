@@ -22,3 +22,5 @@ prefetch_factor: 2
 persistent_workers: true
 pin_memory: true
 artificial_dataset_repetitions: 100
+
+use_cache: True

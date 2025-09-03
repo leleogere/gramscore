@@ -1,4 +1,6 @@
 import sys
+
+import omegaconf
 import torch.multiprocessing
 from pathlib import Path
 import os
@@ -7,9 +9,12 @@ import hydra
 import lightning
 from dotenv import load_dotenv
 from fsspec import Callback
+from lightning import LightningModule
 from loguru import logger
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
+
+from models.tokens_transcriber_module import TokensTranscriberModule
 
 
 def instantiate_callbacks(callbacks_cfg: DictConfig) -> list[Callback]:
@@ -35,7 +40,7 @@ def instantiate_callbacks(callbacks_cfg: DictConfig) -> list[Callback]:
     return callbacks
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
+@hydra.main(version_base="1.3", config_path="../configs")
 def train(cfg: DictConfig) -> None:
     """Main entry point for training a transcriber model.
 
@@ -61,52 +66,47 @@ def train(cfg: DictConfig) -> None:
     logger.info(f"Logger {training_logger} ready!")
 
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
-
-    # Load pretraining datamodule
-    logger.info(f"Instantiating pretraining datamodule {cfg.pretraining_data._target_}")
-    pretraining_datamodule = hydra.utils.instantiate(cfg.pretraining_data)
-    # datamodule.prepare_data()
-    # datamodule.setup()
-    logger.info(f"Datamodule {pretraining_datamodule} ready!")
+    # exit()
 
     # Load main datamodule
     logger.info(f"Instantiating main datamodule {cfg.data._target_}")
+    with omegaconf.open_dict(cfg.data):
+        use_cache = cfg.data.pop("use_cache", False)
     datamodule_partial = hydra.utils.instantiate(cfg.data)
-    datamodule = datamodule_partial(multiprocessing_manager=torch.multiprocessing.Manager())
+    if use_cache:
+        logger.debug("Use a shared cache on the datamodule")
+        datamodule = datamodule_partial(multiprocessing_manager=torch.multiprocessing.Manager())
+    else:
+        logger.debug("Do not use a shared cache on the datamodule")
+        datamodule = datamodule_partial
     # logger.info(f"Preparing and setting up datamodule {datamodule}")
     # datamodule.prepare_data()
     # datamodule.setup()
-    logger.info(f"Main datamodule {datamodule} ready!")
+    logger.info(f"Datamodule {datamodule} ready!")
 
     logger.info(f"Instantiating model {cfg.model._target_}")
-    model = hydra.utils.instantiate(cfg.model)
+    with omegaconf.open_dict(cfg.model):
+        load_from_checkpoint = cfg.model.pop("load_from_checkpoint", "")
+    if load_from_checkpoint != "":
+        logger.info(f"Loading checkpoint from {load_from_checkpoint}")
+        model_cls = hydra.utils.get_class(cfg.model._target_)
+        model = model_cls.load_from_checkpoint(load_from_checkpoint)
+    else:
+        model: TokensTranscriberModule = hydra.utils.instantiate(cfg.model)
     logger.info(f"Model {model} loaded!")
 
     logger.info(f"Instantiating callbacks")
     callbacks = instantiate_callbacks(cfg.callbacks)
     logger.info(f"Callbacks {callbacks} ready!")
 
-    logger.info(f"Instantiating pretrainer {cfg.pretrainer._target_}")
-    pretrainer = hydra.utils.instantiate(
-        cfg.pretrainer, callbacks=callbacks, logger=training_logger
-    )
-    logger.info(f"Pretrainer {pretrainer} ready!")
-
-    logger.info(f"Instantiating main trainer {cfg.trainer._target_}")
+    logger.info(f"Instantiating trainer {cfg.trainer._target_}")
     trainer: lightning.Trainer = hydra.utils.instantiate(
         cfg.trainer, callbacks=callbacks, logger=training_logger
     )
-    logger.info(f"Main trainer {trainer} ready!")
+    logger.info(f"Trainer {trainer} ready!")
 
-    logger.info("Starting pretraining")
-    pretrainer.fit(model, pretraining_datamodule)
-    logger.info(f"Pretraining finished at step {pretrainer.global_step}!")
-
-    training_logger.experiment.log({"phase": "finetune"})
-
-    logger.info(f"Starting main training at step {pretrainer.global_step}!")
+    # Fit model
     trainer.fit(model, datamodule)
-    logger.info("Main training finished!")
 
     # logger.info("Testing model")
     # trainer.test(model, datamodule)
