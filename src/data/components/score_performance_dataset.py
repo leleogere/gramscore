@@ -446,7 +446,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         logger.debug(f"Number of entries before split: {len(df)}")
 
         # Create splits
-        num_validation_pieces = 200
+        num_validation_pieces = 1000
         val_every_nth = int(len(df) / num_validation_pieces)
         if split == "all":
             indices = list(range(len(df)))
