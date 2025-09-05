@@ -427,7 +427,7 @@ def partitura_to_token_sequence(
                 durations_ratio = tuplet.duration_multiplier
                 normal_notes = tuplet.actual_notes * durations_ratio
                 assert (
-                    normal_notes.is_integer()
+                    normal_notes.denominator == 1
                 ), f"Tuplet type conversion not possible: {tuplet.actual_notes}-{tuplet.actual_type} against {tuplet.normal_notes}-{tuplet.normal_type}."
                 normal_notes = int(normal_notes)
             else:
@@ -460,16 +460,6 @@ def partitura_to_token_sequence(
             notes_per_voice[note.voice][type_].append(note)
         for voice, vnotes in notes_per_voice.items():
             gnotes, nnotes = vnotes.values()
-            # All non-grace notes in the voice should have the same duration
-            assert len(set(n.duration for n in nnotes)) == 1
-            nnote_sym_dur = SymbolicDuration(
-                type=SymbolicDurationType(nnotes[0].symbolic_duration["type"]),
-                dots=(
-                    nnotes[0].symbolic_duration["dots"]
-                    if "dots" in nnotes[0].symbolic_duration
-                    else 0
-                ),
-            )
             # Add grace notes
             for gnote in gnotes:
                 token = Note(
@@ -487,7 +477,17 @@ def partitura_to_token_sequence(
                 token._partitura_elements = [gnote]
                 tokens.append(token)
             if len(nnotes) > 1:
-                token = ChordStart(voice_idx=voice - 1, duration=nnote_sym_dur)  # 1-indexed
+                token = ChordStart(
+                    voice_idx=voice - 1,
+                    duration=SymbolicDuration(
+                        type=SymbolicDurationType(nnotes[0].symbolic_duration["type"]),
+                        dots=(
+                            nnotes[0].symbolic_duration["dots"]
+                            if "dots" in nnotes[0].symbolic_duration
+                            else 0
+                        ),
+                    ),
+                )
                 token._partitura_elements = nnotes
                 tokens.append(token)
             for note in nnotes:
@@ -495,7 +495,14 @@ def partitura_to_token_sequence(
                     note_class=note.step,
                     octave=note.octave,
                     accidental=note.alter or 0,
-                    duration=nnote_sym_dur,
+                    duration=SymbolicDuration(
+                        type=SymbolicDurationType(note.symbolic_duration["type"]),
+                        dots=(
+                            note.symbolic_duration["dots"]
+                            if "dots" in note.symbolic_duration
+                            else 0
+                        ),
+                    ),
                     tied=note.tie_next is not None,
                     # tied_prev=note.tie_prev is not None,  # TODO: remove at some point?
                     voice_idx=note.voice - 1,  # 1-indexed
@@ -522,30 +529,20 @@ def partitura_to_token_sequence(
             key=operator.attrgetter("voice"),
         )
         for rest in rests:
-            # Measure rest
-            if "type" not in rest.symbolic_duration:
-                token = Rest(
-                    measure_rest=True,
-                    duration=SymbolicDuration(type=SymbolicDurationType("whole")),
-                    voice_idx=rest.voice - 1,  # 1-indexed
-                    staff_idx=rest.staff - 1,  # 1-indexed
-                    fermata=rest.fermata is not None,
-                )
-            # Regular rest
-            else:
-                token = Rest(
-                    duration=SymbolicDuration(
-                        type=SymbolicDurationType(rest.symbolic_duration["type"]),
-                        dots=(
-                            rest.symbolic_duration["dots"]
-                            if "dots" in rest.symbolic_duration
-                            else 0
-                        ),
+            is_measure = "type" not in rest.symbolic_duration
+            rest_type = rest.symbolic_duration.get("type", "whole")  # default whole for bar-rests
+            token = Rest(
+                measure_rest=is_measure,
+                duration=SymbolicDuration(
+                    type=SymbolicDurationType(rest_type),
+                    dots=(
+                        rest.symbolic_duration["dots"] if "dots" in rest.symbolic_duration else 0
                     ),
-                    voice_idx=rest.voice - 1,  # 1-indexed
-                    staff_idx=rest.staff - 1,  # 1-indexed
-                    fermata=rest.fermata is not None,
-                )
+                ),
+                voice_idx=rest.voice - 1,  # 1-indexed
+                staff_idx=rest.staff - 1,  # 1-indexed
+                fermata=rest.fermata is not None,
+            )
             token._partitura_elements = [rest]
             tokens.append(token)
 
