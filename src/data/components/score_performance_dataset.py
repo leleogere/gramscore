@@ -436,7 +436,14 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         )
 
         # Filter out long scores
-        df = df[(~df["has_repeats"]) & (df["n_notes"] <= 500)]
+        # df = df[(~df["has_repeats"]) & (df["n_notes"] <= 500)]
+        def count_notes(path: Path) -> int:
+            path = directory / path
+            return sum(len(track.notes) for track in symusic.Score(path).tracks)
+
+        df = df[df["mid"].apply(count_notes) <= 500]
+
+        logger.debug(f"Number of entries before split: {len(df)}")
 
         # Create splits
         num_validation_pieces = 200
