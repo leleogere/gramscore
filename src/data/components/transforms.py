@@ -83,7 +83,7 @@ class PerformanceReader(AbstractProcessor):
             for other in performance.tracks[1:]:
                 for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
                     getattr(track, attr).extend(getattr(other, attr))
-                performance.tracks.remove(other)
+            performance.tracks = performance.tracks[:1]
         assert len(performance.tracks) == 1
         return {"performance": performance}
 
