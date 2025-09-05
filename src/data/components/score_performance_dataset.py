@@ -441,7 +441,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             path = directory / path
             return sum(len(track.notes) for track in symusic.Score(path).tracks)
 
-        df = df[10 <= df["mid"].apply(count_notes) <= 500]
+        df["n_notes_midi"] = df["mid"].apply(count_notes)
+        df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
 
         logger.debug(f"Number of entries before split: {len(df)}")
 
