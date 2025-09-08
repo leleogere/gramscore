@@ -343,7 +343,7 @@ class PdmxTokensDataModule(LightningDataModule):
             # print(len(self.data_train.entries))
 
             # self.data_train.entries = self.data_train.entries[:1] + self.data_train.entries[50:51]
-            self.data_val.entries = self.data_val.entries[:1]
+            # self.data_val.entries = self.data_val.entries[:1]
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
