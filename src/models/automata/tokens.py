@@ -433,7 +433,7 @@ class Token:
         return cls.__name__
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StartOfScore(Token):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -444,7 +444,7 @@ class StartOfScore(Token):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class EndOfScore(Token):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -458,7 +458,7 @@ class EndOfScore(Token):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Bar(Token):
     numerator: int
     denominator: int
@@ -511,7 +511,7 @@ class Bar(Token):
         return self.numerator * denominator_duration
 
 
-@dataclass
+@dataclass(kw_only=True)
 class KeySignature(Token):
     accidentals: int
 
@@ -530,11 +530,18 @@ class KeySignature(Token):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HasStaffMixin:
     """Used for elements that are tied to a staff."""
 
     staff_idx: int
+    _max_staff_idx: int = 4
+
+    def __post_init__(self):
+        if self.staff_idx > self._max_staff_idx:
+            raise ValueError(
+                f"Staff index ({self.staff_idx}) cannot be greater than {self._max_staff_idx}."
+            )
 
     @property
     def staff_idx_1b(self):
@@ -542,11 +549,18 @@ class HasStaffMixin:
         return self.staff_idx + 1
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HasVoiceMixin:
     """Used for elements that are tied to a voice."""
 
     voice_idx: int
+    _max_voice_idx: int = 16
+
+    def __post_init__(self):
+        if self.voice_idx > self._max_voice_idx:
+            raise ValueError(
+                f"Voice index ({self.voice_idx}) cannot be greater than {self._max_voice_idx}."
+            )
 
     @property
     def voice_idx_1b(self):
@@ -554,7 +568,7 @@ class HasVoiceMixin:
         return self.voice_idx + 1
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Clef(Token, HasStaffMixin):
     clef: Literal["G", "F"]
     # TODO: support for octaved clefs and other clefs?
@@ -582,7 +596,7 @@ class Clef(Token, HasStaffMixin):
         return 0  # TODO: deal with this
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HasDurationMixin:
     """Used for elements that have a duration."""
 
@@ -613,7 +627,7 @@ class HasDurationMixin:
     #     return voices_and_durations
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     measure_rest: bool = False
     fermata: bool = False
@@ -647,7 +661,7 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     note_class: str
     octave: int
@@ -755,7 +769,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -797,7 +811,7 @@ class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ChordEnd(Token, HasVoiceMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
@@ -822,7 +836,7 @@ class ChordEnd(Token, HasVoiceMixin):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TupletStart(Token, HasVoiceMixin):
     n_actual: int
     n_normal: int
@@ -905,7 +919,7 @@ class TupletStart(Token, HasVoiceMixin):
         return state
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TupletEnd(Token, HasVoiceMixin):
     @classmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
