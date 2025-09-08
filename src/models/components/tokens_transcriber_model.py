@@ -28,6 +28,7 @@ class TokensTranscriberModel(nn.Module):
                 intermediate_size=1536,
                 hidden_dropout_prob=0.1,
                 layer_norm_eps=1e-12,
+                max_position_embeddings=3072,
             )
         else:
             self.roformer = roformer

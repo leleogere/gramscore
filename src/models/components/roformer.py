@@ -410,6 +410,7 @@ class Roformer(nn.Module):
         intermediate_size: int = 1536,
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
+        max_position_embeddings: int = 3072,
     ):
         super().__init__()
 
@@ -421,7 +422,7 @@ class Roformer(nn.Module):
             num_attention_heads=num_attention_heads,
             intermediate_size=intermediate_size,
             use_cache=True,
-            max_position_embeddings=1536,  # 2048,
+            max_position_embeddings=max_position_embeddings,
         )
         enc_configuration = MyModelConfig(
             is_decoder=False,
