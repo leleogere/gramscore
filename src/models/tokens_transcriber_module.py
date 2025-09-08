@@ -141,8 +141,22 @@ class TokensTranscriberModule(L.LightningModule):
         score_not_padded_mask = torch.logical_not(score_padded_mask)
         score_num_tokens: torch.Tensor = batch["score_lengths"]  # B
 
+        from pprint import pformat
+
         logger.info(
-            f"min{torch.min(score_tensor, dim=(0, 1))}, max={torch.max(score_tensor, dim=(0, 1))}"
+            pformat(
+                {
+                    token: {
+                        key: (
+                            (value.min().item(), value.max().item()) if value.numel() != 0 else None
+                        )
+                        for key, value in values.items()
+                    }
+                    for token, values in score_tensor.get_as_dict().items()
+                },
+                width=100,
+                indent=2,
+            )
         )
 
         # Make sure the first token of all sequences is StartOfScore
