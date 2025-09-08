@@ -265,82 +265,82 @@ class PdmxTokensDataModule(LightningDataModule):
             self.data_train = sets["train"]
             self.data_val = sets["validation"]
 
-            # Limit to problematic batch
-            xml_paths = """
-            # mxl/0/52/QmaxmAtF3cq4zjAMBLgeiTJpGpYcMFNazTE1pWzXWi3Srx.mxl
-            # mxl/11/31/QmTmcP6NQBm1S38WNCUcoasQRyoHvHV3cGQtpVLK8SqnsM.mxl
-            # mxl/15/17/QmXe3TmPCSPqGMWMKKB5t8hnGpyd6EcfZGmd2fWZoj4BWx.mxl
-            # mxl/7/14/QmPCqTczE2gm3ZGMcFCdCTEdPJq2TSiqDTScNBnYgD5W7q.mxl
-            # mxl/14/28/QmWk6oted72QuDdFs4Qtdgrz8zsADpP6YJEQHExgGf8m1w.mxl
-            # mxl/8/57/QmQZLMnHVSiYmApjwjy3QCAEMwKZtFsitBvMzTQ4n4xc6u.mxl
-            # mxl/7/49/QmPV6SGCbBurhktX6oQGT2QLJ6aQFXYH4tQ9o44evXD6AL.mxl
-            # mxl/6/43/QmNSDiZJtyn5Cu85b9QGN4JQ6eDK5PRLR3fLP8PVvJReW7.mxl
-            # mxl/17/42/QmZsBArhFdmvdJuu59YzW2yYWkvjsZMZfTc9eQt9tcTrLe.mxl
-            mxl/9/5/QmR6ZvdCfBXecGxiyNTAyvCXuLDsEoAR4QFzcysX66vE2M.mxl
-            # mxl/4/5/Qme6W7iaCeBNUM6ZM5CiA5opvX4ZV8mwwRKr7muEdts15H.mxl
-            # mxl/2/35/QmcoUsWfCfE7817WSAFu7E2dMmrCbMokpeeCzBn3vZjD2m.mxl
-            # mxl/7/35/QmPoMvfBbue8BcyLfHS9Mi5t2gr2jzHBS9ZjdgpsHCMDuc.mxl
-            # mxl/12/15/QmUdXKCraLCwqBY88Vs2FBqE1scAT269a5yMBWyonCedtq.mxl
-            # mxl/9/42/QmRsPzxT4G8yAc8GQEpCa5j9xNt2yrHe3ey2iUJxnTAabw.mxl
-            # mxl/7/38/QmPqy2Ez3aYAscUrQnPgBYAZeFjzJTH4rKWjDTGnd8yB5S.mxl
-            # mxl/17/0/QmZ1UYCHyajCsSpVZV1Txjqjcrs4M8mjARGERf743vCuBv.mxl
-            # mxl/11/1/QmT2Uxj9FkFriwNPHNRekQaw7dviZXtasa6A2YVDRFzFSB.mxl
-            # mxl/7/7/QmP8Bo7ktMcvCmxMzHXbsTuNViSnef9EyUF7BuKyJbBunJ.mxl
-            # mxl/16/8/QmY91ae2MqimUEJkotKJ3e4P5XbTUYmRPyNX7dqsM48Eae.mxl
-            # mxl/0/36/Qmapy57kuNCWcmbQPKCM8Ydj3SPcsu1qXVdCt1XbvNt7GJ.mxl
-            # mxl/11/10/QmTAKGAwmFn7GkgXUBph5qnnwsgy5JkqLJD9GvQYT7JwYT.mxl
-            # mxl/6/54/QmNypTULaXH2hbGDm1RD785K2QisJaRewqtbfzC6kN5tGt.mxl
-            # mxl/13/48/QmVvXn5JXL2QmW4tkdAa4vVX45Lt8QPbGdhPk514UnpoXv.mxl
-            # mxl/7/36/QmPpco2nD6ZPdPMuyboEHRr1ScBdufnCF4RS5XqWNdVLTV.mxl
-            # mxl/15/24/QmXHBKtofF8ZsSBKsGFe12VLKW3rzqFiCJbECA4egJwpWc.mxl
-            # mxl/1/39/QmbQvDvu33bhGym6N8WYsRd8TnjVqs3fuPknBeqg1RyRFp.mxl
-            # mxl/4/5/Qme62PCP7xuAJXHgkmMp7G1PZJR8QpFLPX4kQNCAnQKtLu.mxl
-            # mxl/11/28/QmTk4QsKNYP6tkd34yjDZNgxCitWCZHXzAyBovUNYKMoyA.mxl
-            # mxl/17/29/QmZKjJkD6UHx6VgvoaP3bx9h1Q7drv2yva6GxvvYarrDrw.mxl
-            # mxl/3/53/QmdXSsW9NUUJyNWsozvdis8ftEd4xTDW3TfxBRYcpxWHZS.mxl
-            # mxl/2/48/QmcvvbpxfXrNi3qumaWKJaa212LpU6QBNMtgTeQSHMF9DD.mxl
-            # mxl/1/38/QmbqWx7kto9C9ozarZVe3v7HzCguPwNWYag3qWMpvh3RS3.mxl
-            # mxl/3/20/QmdFG1XCTR9ZrcCH5cRGmg9yn4XdYKDXq5h28GhCars39c.mxl
-            # mxl/2/21/QmcgvCjLewpCYw5ntUqJ7cQCyvXnDEpdqJejbBt4yBEAh3.mxl
-            # mxl/8/29/QmQKBEykPLyxvsJsHqKTDsCiHAmr1N1ZpHSN99ivUGsBYY.mxl
-            # mxl/4/57/QmeZxs5BDeg8qYKAa2Ma3L5YieABLQWgqu5y6w9cPC6i2T.mxl
-            # mxl/11/2/QmT3ZeY5dd5oDsJHqmJFaEeCtU4fX9FvPvH9PDUfXMnYBv.mxl
-            # mxl/15/43/QmXSxRWL3ypWbMcstRmhDHKR5xRUpCwSQW5mTf2k6XLjNA.mxl
-            # mxl/14/55/QmWYEhtaEVzJeqvUQRMN32qEBFBbNgiezpJQrfa6KZcrJk.mxl
-            # mxl/17/26/QmZjve65HGZpvX3nizZRaosBGUiu4da1WkoASa2Ma6HpSc.mxl
-            # mxl/11/20/QmTFDEgNtKjPWcZFRW9eGBVCTQYvd6rx2XvH5pUPyTCe1d.mxl
-            # mxl/13/42/QmVsCyfCbdbCPP5SwFAkBraMgK34bfFtWjwSaPKvzGg4a2.mxl
-            # mxl/5/4/Qmf5n1MJSwf9YEcKahaoot4FNky3bkcrk9NDHf3mkrPdTj.mxl
-            # mxl/16/31/QmYmJnUdbnSk62tXQ1kmLwPew1X44xiriarbvawThSLaF9.mxl
-            # mxl/7/57/QmPZZa31E4ZL9oFmKwPi7Gp87iCpk3hQjWr6qf6ZgtbLgx.mxl
-            # mxl/1/39/QmbQ2Xg2eCYwJknGCeKh7Z1XWyL2nk66c1pisxbZSpLxVr.mxl
-            # mxl/8/23/QmQhTsmsZfpfgTbmGnRkLZPKxY2pypBUs7fFMtXCG67yJ9.mxl
-            # mxl/15/49/QmXVXiGFJuCUj6K33CecHAjxwxesSy5FdTU3R3uujm58hi.mxl
-            # mxl/15/46/QmXuQbS5P7XvfU9feKmanPY7T61EECrwQdYmsbVDAbuMJX.mxl
-            # mxl/9/34/QmRNmXHY3oJHzhxFCtGv5RWq5B3Fpxr63qCASZ6zPFwGE7.mxl
-            # mxl/9/36/QmRpdqtxfWtWhAsoBZ15J8KJBLX7oZpsHmRfYrkmXnJoAq.mxl
-            # mxl/16/52/QmYxUV4HFbVYe9X6C9yTCLhwJvUDeXQnzbbrYvq97zHdjE.mxl
-            # mxl/11/1/QmT2TDnsyfMFhJY4RbPFFYfMfkVPxrVkMs9kAvQfhhKDEL.mxl
-            # mxl/2/41/QmcRPPrpfK8G3faMysBNR6SShc4xunKad9PLqpMWAidc3m.mxl
-            # mxl/9/56/QmRz96Y4tKm3cVgYz6nuEdVQjqK876XnMVbaHto7Ngqc3S.mxl
-            # mxl/9/14/QmRCDqjZwXnQk5n6UuuZeRJNt4ociPuF1bmWPg5qj6Skbn.mxl
-            # mxl/13/0/QmV1RXgRzuuZy6AzpF5Nrevy2nnPcPbNGvpPwcKzzqFmCx.mxl
-            # mxl/17/7/QmZ8qgaPBT2HPXD3nGJu3oT3NUzm9Sn1ixdNAuD1vE8KBd.mxl
-            # mxl/16/17/QmYeowtb9ba6KtknxxkY1jtc6XT8XPCRQn1FMuo8LZWNkV.mxl
-            # mxl/17/14/QmZCNj6BFozZBacX6N8x8PoXUJGm21ZViQNmADAWPf9mpg.mxl
-            # mxl/1/9/QmbaSPqGaNtDYsV2NNfN1oMfMJTcjLKy8VobaMbPCDY3Lf.mxl
-            # mxl/15/31/QmXmUHA1u4PCEZezmvZMmg1UqTpLzxPRjushXyC7nKnUZM.mxl
-            # mxl/0/46/Qmaubg87gfXggir7JabNWNMfwf5EofoK6EtVFc6rEpotU1.mxl
-            """
-            xml_paths = [
-                self.data_train.directory / p.strip()
-                for p in xml_paths.split("\n")
-                if not p.strip().startswith("#")
-            ]
-            self.data_train.entries = [
-                e for e in self.data_train.entries if e.xml_score in xml_paths
-            ]
-            print(len(self.data_train.entries))
+            # # Limit to problematic batch
+            # xml_paths = """
+            # # mxl/0/52/QmaxmAtF3cq4zjAMBLgeiTJpGpYcMFNazTE1pWzXWi3Srx.mxl
+            # # mxl/11/31/QmTmcP6NQBm1S38WNCUcoasQRyoHvHV3cGQtpVLK8SqnsM.mxl
+            # # mxl/15/17/QmXe3TmPCSPqGMWMKKB5t8hnGpyd6EcfZGmd2fWZoj4BWx.mxl
+            # # mxl/7/14/QmPCqTczE2gm3ZGMcFCdCTEdPJq2TSiqDTScNBnYgD5W7q.mxl
+            # # mxl/14/28/QmWk6oted72QuDdFs4Qtdgrz8zsADpP6YJEQHExgGf8m1w.mxl
+            # # mxl/8/57/QmQZLMnHVSiYmApjwjy3QCAEMwKZtFsitBvMzTQ4n4xc6u.mxl
+            # # mxl/7/49/QmPV6SGCbBurhktX6oQGT2QLJ6aQFXYH4tQ9o44evXD6AL.mxl
+            # # mxl/6/43/QmNSDiZJtyn5Cu85b9QGN4JQ6eDK5PRLR3fLP8PVvJReW7.mxl
+            # # mxl/17/42/QmZsBArhFdmvdJuu59YzW2yYWkvjsZMZfTc9eQt9tcTrLe.mxl
+            # mxl/9/5/QmR6ZvdCfBXecGxiyNTAyvCXuLDsEoAR4QFzcysX66vE2M.mxl
+            # # mxl/4/5/Qme6W7iaCeBNUM6ZM5CiA5opvX4ZV8mwwRKr7muEdts15H.mxl
+            # # mxl/2/35/QmcoUsWfCfE7817WSAFu7E2dMmrCbMokpeeCzBn3vZjD2m.mxl
+            # # mxl/7/35/QmPoMvfBbue8BcyLfHS9Mi5t2gr2jzHBS9ZjdgpsHCMDuc.mxl
+            # # mxl/12/15/QmUdXKCraLCwqBY88Vs2FBqE1scAT269a5yMBWyonCedtq.mxl
+            # # mxl/9/42/QmRsPzxT4G8yAc8GQEpCa5j9xNt2yrHe3ey2iUJxnTAabw.mxl
+            # # mxl/7/38/QmPqy2Ez3aYAscUrQnPgBYAZeFjzJTH4rKWjDTGnd8yB5S.mxl
+            # # mxl/17/0/QmZ1UYCHyajCsSpVZV1Txjqjcrs4M8mjARGERf743vCuBv.mxl
+            # # mxl/11/1/QmT2Uxj9FkFriwNPHNRekQaw7dviZXtasa6A2YVDRFzFSB.mxl
+            # # mxl/7/7/QmP8Bo7ktMcvCmxMzHXbsTuNViSnef9EyUF7BuKyJbBunJ.mxl
+            # # mxl/16/8/QmY91ae2MqimUEJkotKJ3e4P5XbTUYmRPyNX7dqsM48Eae.mxl
+            # # mxl/0/36/Qmapy57kuNCWcmbQPKCM8Ydj3SPcsu1qXVdCt1XbvNt7GJ.mxl
+            # # mxl/11/10/QmTAKGAwmFn7GkgXUBph5qnnwsgy5JkqLJD9GvQYT7JwYT.mxl
+            # # mxl/6/54/QmNypTULaXH2hbGDm1RD785K2QisJaRewqtbfzC6kN5tGt.mxl
+            # # mxl/13/48/QmVvXn5JXL2QmW4tkdAa4vVX45Lt8QPbGdhPk514UnpoXv.mxl
+            # # mxl/7/36/QmPpco2nD6ZPdPMuyboEHRr1ScBdufnCF4RS5XqWNdVLTV.mxl
+            # # mxl/15/24/QmXHBKtofF8ZsSBKsGFe12VLKW3rzqFiCJbECA4egJwpWc.mxl
+            # # mxl/1/39/QmbQvDvu33bhGym6N8WYsRd8TnjVqs3fuPknBeqg1RyRFp.mxl
+            # # mxl/4/5/Qme62PCP7xuAJXHgkmMp7G1PZJR8QpFLPX4kQNCAnQKtLu.mxl
+            # # mxl/11/28/QmTk4QsKNYP6tkd34yjDZNgxCitWCZHXzAyBovUNYKMoyA.mxl
+            # # mxl/17/29/QmZKjJkD6UHx6VgvoaP3bx9h1Q7drv2yva6GxvvYarrDrw.mxl
+            # # mxl/3/53/QmdXSsW9NUUJyNWsozvdis8ftEd4xTDW3TfxBRYcpxWHZS.mxl
+            # # mxl/2/48/QmcvvbpxfXrNi3qumaWKJaa212LpU6QBNMtgTeQSHMF9DD.mxl
+            # # mxl/1/38/QmbqWx7kto9C9ozarZVe3v7HzCguPwNWYag3qWMpvh3RS3.mxl
+            # # mxl/3/20/QmdFG1XCTR9ZrcCH5cRGmg9yn4XdYKDXq5h28GhCars39c.mxl
+            # # mxl/2/21/QmcgvCjLewpCYw5ntUqJ7cQCyvXnDEpdqJejbBt4yBEAh3.mxl
+            # # mxl/8/29/QmQKBEykPLyxvsJsHqKTDsCiHAmr1N1ZpHSN99ivUGsBYY.mxl
+            # # mxl/4/57/QmeZxs5BDeg8qYKAa2Ma3L5YieABLQWgqu5y6w9cPC6i2T.mxl
+            # # mxl/11/2/QmT3ZeY5dd5oDsJHqmJFaEeCtU4fX9FvPvH9PDUfXMnYBv.mxl
+            # # mxl/15/43/QmXSxRWL3ypWbMcstRmhDHKR5xRUpCwSQW5mTf2k6XLjNA.mxl
+            # # mxl/14/55/QmWYEhtaEVzJeqvUQRMN32qEBFBbNgiezpJQrfa6KZcrJk.mxl
+            # # mxl/17/26/QmZjve65HGZpvX3nizZRaosBGUiu4da1WkoASa2Ma6HpSc.mxl
+            # # mxl/11/20/QmTFDEgNtKjPWcZFRW9eGBVCTQYvd6rx2XvH5pUPyTCe1d.mxl
+            # # mxl/13/42/QmVsCyfCbdbCPP5SwFAkBraMgK34bfFtWjwSaPKvzGg4a2.mxl
+            # # mxl/5/4/Qmf5n1MJSwf9YEcKahaoot4FNky3bkcrk9NDHf3mkrPdTj.mxl
+            # # mxl/16/31/QmYmJnUdbnSk62tXQ1kmLwPew1X44xiriarbvawThSLaF9.mxl
+            # # mxl/7/57/QmPZZa31E4ZL9oFmKwPi7Gp87iCpk3hQjWr6qf6ZgtbLgx.mxl
+            # # mxl/1/39/QmbQ2Xg2eCYwJknGCeKh7Z1XWyL2nk66c1pisxbZSpLxVr.mxl
+            # # mxl/8/23/QmQhTsmsZfpfgTbmGnRkLZPKxY2pypBUs7fFMtXCG67yJ9.mxl
+            # # mxl/15/49/QmXVXiGFJuCUj6K33CecHAjxwxesSy5FdTU3R3uujm58hi.mxl
+            # # mxl/15/46/QmXuQbS5P7XvfU9feKmanPY7T61EECrwQdYmsbVDAbuMJX.mxl
+            # # mxl/9/34/QmRNmXHY3oJHzhxFCtGv5RWq5B3Fpxr63qCASZ6zPFwGE7.mxl
+            # # mxl/9/36/QmRpdqtxfWtWhAsoBZ15J8KJBLX7oZpsHmRfYrkmXnJoAq.mxl
+            # # mxl/16/52/QmYxUV4HFbVYe9X6C9yTCLhwJvUDeXQnzbbrYvq97zHdjE.mxl
+            # # mxl/11/1/QmT2TDnsyfMFhJY4RbPFFYfMfkVPxrVkMs9kAvQfhhKDEL.mxl
+            # # mxl/2/41/QmcRPPrpfK8G3faMysBNR6SShc4xunKad9PLqpMWAidc3m.mxl
+            # # mxl/9/56/QmRz96Y4tKm3cVgYz6nuEdVQjqK876XnMVbaHto7Ngqc3S.mxl
+            # # mxl/9/14/QmRCDqjZwXnQk5n6UuuZeRJNt4ociPuF1bmWPg5qj6Skbn.mxl
+            # # mxl/13/0/QmV1RXgRzuuZy6AzpF5Nrevy2nnPcPbNGvpPwcKzzqFmCx.mxl
+            # # mxl/17/7/QmZ8qgaPBT2HPXD3nGJu3oT3NUzm9Sn1ixdNAuD1vE8KBd.mxl
+            # # mxl/16/17/QmYeowtb9ba6KtknxxkY1jtc6XT8XPCRQn1FMuo8LZWNkV.mxl
+            # # mxl/17/14/QmZCNj6BFozZBacX6N8x8PoXUJGm21ZViQNmADAWPf9mpg.mxl
+            # # mxl/1/9/QmbaSPqGaNtDYsV2NNfN1oMfMJTcjLKy8VobaMbPCDY3Lf.mxl
+            # # mxl/15/31/QmXmUHA1u4PCEZezmvZMmg1UqTpLzxPRjushXyC7nKnUZM.mxl
+            # # mxl/0/46/Qmaubg87gfXggir7JabNWNMfwf5EofoK6EtVFc6rEpotU1.mxl
+            # """
+            # xml_paths = [
+            #     self.data_train.directory / p.strip()
+            #     for p in xml_paths.split("\n")
+            #     if not p.strip().startswith("#")
+            # ]
+            # self.data_train.entries = [
+            #     e for e in self.data_train.entries if e.xml_score in xml_paths
+            # ]
+            # print(len(self.data_train.entries))
 
             # self.data_train.entries = self.data_train.entries[:1] + self.data_train.entries[50:51]
             self.data_val.entries = self.data_val.entries[:1]
