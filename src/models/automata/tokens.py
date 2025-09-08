@@ -463,10 +463,18 @@ class Bar(Token):
     numerator: int
     denominator: int
     is_nominal: bool = True  # Whether the measure duration respects the time signature
+    _max_denominator: int = 32
 
     def __post_init__(self):
         if self.denominator.bit_count() != 1:
-            raise ValueError("The denominator of the TS must be a power of 2.")
+            raise ValueError(
+                f"The denominator of the TS ({self.denominator}) must be a power of 2."
+            )
+        if self.denominator > self._max_denominator:
+            raise ValueError(
+                f"The denominator of the TS ({self.denominator}) cannot be larger than "
+                f"{self._max_denominator}."
+            )
         if self.numerator < 1 or self.denominator < 1:
             raise ValueError("All time signature attributes values must be positive integers.")
 
