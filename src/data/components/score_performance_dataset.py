@@ -123,7 +123,14 @@ class ScorePerformanceDataset(Dataset):
     @classmethod
     def apply_transforms(cls, sample: Any, transforms: list[Callable]) -> Any:
         for i, transform in enumerate(transforms):
-            sample = transform(sample)
+            try:
+                sample = transform(sample)
+            except Exception as e:
+                logger.error(
+                    f"Failed to apply transform {transform} on "
+                    f"{sample['entry'].xml_score_relative}: {e}"
+                )
+                raise e
             if isinstance(sample, list):
                 # If the transform returns a list, apply the transforms to each element
                 sample = [cls.apply_transforms(s, transforms[i + 1 :]) for s in sample]
