@@ -184,11 +184,15 @@ class TokensTranscriberModule(L.LightningModule):
         )  # (B, N, E)
 
         # Pass the score input and the encoder outputs through the decoder
-        decoder_outputs = self.transcriber_model.forward_decoder(
-            input_tokens=score_tensor_input,
-            encoder_hidden_states=encoder_outputs,
-            encoder_attention_mask=performance_not_padded_mask,
-        )  # (B, T, E)
+        try:
+            decoder_outputs = self.transcriber_model.forward_decoder(
+                input_tokens=score_tensor_input,
+                encoder_hidden_states=encoder_outputs,
+                encoder_attention_mask=performance_not_padded_mask,
+            )  # (B, T, E)
+        except RuntimeError as e:
+            print(e)
+            import pdb; pdb.set_trace()
 
         # Pass the decoder outputs through the router
         router_logits = self.transcriber_model.forward_router(
