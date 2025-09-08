@@ -141,23 +141,21 @@ class TokensTranscriberModule(L.LightningModule):
         score_not_padded_mask = torch.logical_not(score_padded_mask)
         score_num_tokens: torch.Tensor = batch["score_lengths"]  # B
 
-        from pprint import pformat
-
-        logger.info(
-            pformat(
-                {
-                    token: {
-                        key: (
-                            (value.min().item(), value.max().item()) if value.numel() != 0 else None
-                        )
-                        for key, value in values.items()
-                    }
-                    for token, values in score_tensor.get_as_dict().items()
-                },
-                width=100,
-                indent=2,
-            )
-        )
+        if (
+            score_tensor.size(1)
+            > self.transcriber_model.roformer.encoder.max_max_position_embeddings
+        ):
+            for entry, mask in zip(batch["entries"], score_not_padded_mask):
+                if torch.all(mask[-1] == -100):
+                    raise RuntimeError(
+                        f"The score {entry.xml_score_relative} is too long for the positional "
+                        f"embedding of the roformer: {score_tensor.size(1)} > "
+                        f"{self.transcriber_model.roformer.encoder.max_max_position_embeddings}"
+                    )
+            else:
+                raise RuntimeError(
+                    "Size error detected but no score triggered it, should not happen, just in case"
+                )
 
         # Make sure the first token of all sequences is StartOfScore
         assert all(
@@ -184,15 +182,11 @@ class TokensTranscriberModule(L.LightningModule):
         )  # (B, N, E)
 
         # Pass the score input and the encoder outputs through the decoder
-        try:
-            decoder_outputs = self.transcriber_model.forward_decoder(
-                input_tokens=score_tensor_input,
-                encoder_hidden_states=encoder_outputs,
-                encoder_attention_mask=performance_not_padded_mask,
-            )  # (B, T, E)
-        except RuntimeError as e:
-            print(e)
-            import pdb; pdb.set_trace()
+        decoder_outputs = self.transcriber_model.forward_decoder(
+            input_tokens=score_tensor_input,
+            encoder_hidden_states=encoder_outputs,
+            encoder_attention_mask=performance_not_padded_mask,
+        )  # (B, T, E)
 
         # Pass the decoder outputs through the router
         router_logits = self.transcriber_model.forward_router(
