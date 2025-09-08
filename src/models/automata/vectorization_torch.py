@@ -500,7 +500,7 @@ class TokenTensor(torch.Tensor):
                 f"Expected tokens_mask tensors of shape {self.shape}, "
                 f"got {[m.shape for m in tokens_mask]}"
             )
-        if isinstance(next(iter(tokens_mask.keys())), str):
+        if tokens_mask and isinstance(next(iter(tokens_mask.keys())), str):
             tokens_mask = {tk.TOKEN_STR_TO_TYPE[t_str]: v for t_str, v in tokens_mask.items()}
         if remove_padding:
             # TODO: replace this by extending the tokens_mask rather than cloning
