@@ -208,13 +208,34 @@ def reorder_voices(part: pt.score.Part) -> pt.score.Part:
         )
         # notes = [n for n in notes if n.staff == 2]
         voice_mapping = get_voice_mapping(notes)
+        # print(voice_mapping)
+        removed_notes = {}
         for note in notes:
             if note.voice in voice_mapping:
-                # print(f"Note H{note.staff} V{note.voice} -> V{voice_mapping[note.voice]}")
+                # print(f"Note {note.id} H{note.staff} V{note.voice} -> V{voice_mapping[note.voice]}")
                 note.voice = voice_mapping[note.voice]
             else:
-                # print(f"Note H{note.staff} V{note.voice} has no voice mapping")
+                # print(f"Note {note.id} H{note.staff} V{note.voice} has no voice mapping")
+                removed_notes[note] = (note.start, note.end)
                 part.remove(note)
+        # Fix eventual tuplets with notes removed
+        for tuplet in list(
+            part.iter_all(cls=pt.score.Tuplet, start=measure.start.t, end=measure.end.t)
+        ):
+            start_removed = tuplet.start_note in removed_notes
+            end_removed = tuplet.end_note in removed_notes
+            if start_removed and removed_notes:
+                # print(f"Removing tuplet as notes have been deleted")
+                # part.remove(tuplet)  # does not work bc bug in partitura, hence workaround below
+                tuplet_start = removed_notes[tuplet.start_note][0]
+                tuplet_end = removed_notes[tuplet.end_note][1]
+                tuplet_start.starting_objects[pt.score.Tuplet].remove(tuplet)
+                tuplet_end.ending_objects[pt.score.Tuplet].remove(tuplet)
+            elif start_removed or end_removed:
+                raise ValueError(
+                    "A tuplet have been partially removed during voice reordering, "
+                    "which should not happen."
+                )
     return part
 
 
