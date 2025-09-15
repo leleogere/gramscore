@@ -76,6 +76,7 @@ class CustomRoFormerSelfAttention(nn.Module):
         encoder_attention_mask=None,
         past_key_value=None,
         output_attentions=False,
+        cache_position=None,
     ):
         hidden_states = self.norm(hidden_states)
         if not self.is_cross_attention:
