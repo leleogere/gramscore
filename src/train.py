@@ -63,7 +63,7 @@ def train(cfg: DictConfig) -> None:
     # If running in offline mode, use wandb-osh
     logger.info(f"Instantiating logger {cfg.logger._target_}")
     if os.environ.get("WANDB_MODE", "online") == "offline":
-        communication_dir = hydra_path.parent / "wandb_communication_dir"
+        communication_dir = Path(os.environ.get("WANDB_COMMUNICATION_DIR"))
         communication_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"WandB communication dir: {communication_dir}")
         training_logger = hydra.utils.instantiate(cfg.logger, offline=True)
