@@ -415,7 +415,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
     ) -> list[ScorePerformanceEntry]:
 
         # Read PDMX metadata
-        metadata_path = directory / "PDMX_piano_tokenizable.csv"
+        metadata_path = directory / "PDMX_piano_tokenizable_midi-notes.csv"
         cache_path = metadata_path.with_suffix(".pkl")  # Question: is caching as pkl faster?
         if cache_path.exists():
             df = pd.read_pickle(cache_path)
@@ -436,20 +436,20 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # Filter out excluded indices
         df = df[~df.index.isin(excluded_indices)]
 
-        print(f"Number of entries with <= 500 notes: {len(df[df['n_notes'] <= 500])}")
-        print(f"Number of entries with no repeats: {len(df[~df['has_repeats']])}")
-        print(
-            f"Number of entries with <= 500 notes and no repeats: {len(df[(~df['has_repeats']) & (df['n_notes'] <= 500)])}"
-        )
+        # print(f"Number of entries with <= 500 notes: {len(df[df['n_notes'] <= 500])}")
+        # print(f"Number of entries with no repeats: {len(df[~df['has_repeats']])}")
+        # print(
+        #     f"Number of entries with <= 500 notes and no repeats: {len(df[(~df['has_repeats']) & (df['n_notes'] <= 500)])}"
+        # )
 
         # Filter out long scores
         # df = df[(~df["has_repeats"]) & (df["n_notes"] <= 500)]
-        def count_notes(path: Path) -> int:
-            path = directory / path
-            return sum(len(track.notes) for track in symusic.Score(path).tracks)
+        # def count_notes(path: Path) -> int:
+        #     path = directory / path
+        #     return sum(len(track.notes) for track in symusic.Score(path).tracks)
 
-        # TODO: move offline to avoid computing at each run (and for each split)
-        df["n_notes_midi"] = df["mid"].apply(count_notes)
+        # # TODO: move offline to avoid computing at each run (and for each split)
+        # df["n_notes_midi"] = df["mid"].apply(count_notes)
         df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
 
         logger.debug(f"Number of entries before split: {len(df)}")
