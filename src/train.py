@@ -60,8 +60,19 @@ def train(cfg: DictConfig) -> None:
     lightning.seed_everything(10, workers=True)
 
     # Load WandB logger
+    # If running in offline mode, use wandb-osh
     logger.info(f"Instantiating logger {cfg.logger._target_}")
-    training_logger = hydra.utils.instantiate(cfg.logger)
+    if os.environ.get("WANDB_MODE", "online") == "offline":
+        communication_dir = hydra_path.parent / "wandb_communication_dir"
+        communication_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"WandB communication dir: {communication_dir}")
+        training_logger = hydra.utils.instantiate(cfg.logger, offline=True)
+        from wandb_osh.lightning_hooks import TriggerWandbSyncLightningCallback
+
+        wandb_osh_callback = TriggerWandbSyncLightningCallback(communication_dir=communication_dir)
+    else:
+        training_logger = hydra.utils.instantiate(cfg.logger, offline=False)
+        wandb_osh_callback = None
     training_logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
     logger.info(f"Logger {training_logger} ready!")
 
@@ -97,6 +108,8 @@ def train(cfg: DictConfig) -> None:
 
     logger.info(f"Instantiating callbacks")
     callbacks = instantiate_callbacks(cfg.callbacks)
+    if wandb_osh_callback is not None:
+        callbacks.append(wandb_osh_callback)
     logger.info(f"Callbacks {callbacks} ready!")
 
     logger.info(f"Instantiating trainer {cfg.trainer._target_}")
