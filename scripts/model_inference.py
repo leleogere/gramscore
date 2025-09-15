@@ -61,7 +61,13 @@ def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, t
         "performance"
     ]
     if num_notes > 0:
-        performance.clip(0, performance.tracks[0].notes[num_notes - 1].end, inplace=True)
+        print(len(performance.tracks[0].notes))
+        num_notes = min(num_notes, len(performance.tracks[0].notes))
+        performance.clip(
+            0,
+            performance.tracks[0].notes[num_notes - 1].end,
+            inplace=True,
+        )
         pianoroll = performance.pianoroll(modes=["frame"], pitch_range=(21, 108))
     plt.imshow(
         pianoroll.squeeze(), aspect='auto', cmap='gray_r', origin='lower', interpolation='none'
