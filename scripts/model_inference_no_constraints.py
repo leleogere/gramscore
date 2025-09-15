@@ -22,8 +22,16 @@ from models.tokens_transcriber_module import TokensTranscriberModule
 from models.automata import tokens as tk
 
 # fmt: off
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27/15-12-11/checkpoints/last.ckpt").expanduser()
-performance_path = Path("~/Documents/datasets/asap-dataset/Bach/Prelude/bwv_860/YoungS01M.mid").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
+
+asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
+# performance_path = asap_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
+performance_path = asap_path / "Bach/Prelude/bwv_860/midi_score.mid"
+# performance_path = asap_path / "Bach/Prelude/bwv_883/LuM01M.mid"
+# performance_path = asap_path / "Bach/Prelude/bwv_883/midi_score.mid"
 # fmt: on
 
 # Load the model
@@ -149,18 +157,19 @@ def transcribe_performance(
         return tokens
 
 
-performance = load_performance(performance_path, num_notes=50)
+performance = load_performance(performance_path, num_notes=500)
 transcribed_tokens, logits = transcribe_performance(
     model.transcriber_model,
     performance,
-    max_length=20,
+    max_length=200,
     return_logits=True,
 )
 
 import matplotlib.pyplot as plt
 
 # Plot a heatmap of the logits
-plt.imshow(logits.numpy().T, aspect='auto', cmap='viridis')
+plt.figure(figsize=(len(logits) // 5, 8))
+plt.imshow(logits.numpy().T, cmap='viridis')
 plt.yticks(
     range(len(TokenTensor.TOKEN_INDEXER)),
     [model._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()],
