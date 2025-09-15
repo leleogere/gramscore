@@ -33,14 +33,19 @@ from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 # fmt: off
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
 
-asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
-# performance_path = asap_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
-# performance_path = asap_path / "Bach/Prelude/bwv_860/midi_score.mid"
-performance_path = asap_path / "Bach/Prelude/bwv_883/LuM01M.mid"
-# performance_path = asap_path / "Bach/Prelude/bwv_883/midi_score.mid"
+# base_path = Path("~/Documents/datasets/asap-dataset").expanduser()
+# performance_path = base_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
+# performance_path = base_path / "Bach/Prelude/bwv_860/midi_score.mid"
+# performance_path = base_path / "Bach/Prelude/bwv_883/LuM01M.mid"
+# performance_path = base_path / "Bach/Prelude/bwv_883/midi_score.mid"
 # fmt: on
+
+base_path = Path("~/Documents/datasets/pdmx").expanduser()
+# performance_path = base_path / "mid/0/0/Qma1a1L2c1vSEuGfdPVSEEWfuYAEoBmjpVESX1ok2imu4b.mid"
+performance_path = base_path / "mid/0/0/Qma1a2YHEJ8j9gxLCxgALAfjYaiYJQogh1bgyFSwNSRPCs.mid"
 
 # Load the model
 model: TokensTranscriberModule = TokensTranscriberModule.load_from_checkpoint(
@@ -578,7 +583,7 @@ for token in transcribed_tokens:
 
 score = token_sequence_to_partitura(transcribed_tokens)
 
-file_name = (performance_path.relative_to(asap_path).with_suffix(".musicxml").as_posix()).replace(
+file_name = (performance_path.relative_to(base_path).with_suffix(".musicxml").as_posix()).replace(
     "/", "_"
 )
 pt.save_musicxml(score, Path("/tmp") / file_name)
