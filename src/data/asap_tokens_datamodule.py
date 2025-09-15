@@ -7,7 +7,6 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 
-import git
 import partitura as pt
 import partitura.score
 import torch
@@ -157,6 +156,8 @@ class AsapTokensDataModule(LightningDataModule):
             return
         success_file = self.hparams.data_dir / SUCCESS_FILENAME
         if not success_file.exists():
+            import git
+
             # NOT Clone the MIDI2ScoreTransformer modified ASAP dataset (commit 8cba199e15931975542010a7ea2ff94a6fc9cbee)
             # Clone the (n)-ASAP dataset
             logger.info("Cloning the ASAP dataset")

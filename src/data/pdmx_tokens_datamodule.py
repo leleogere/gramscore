@@ -7,7 +7,6 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 
-import git
 import partitura as pt
 import partitura.score
 import torch
