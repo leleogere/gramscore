@@ -37,6 +37,7 @@ class TokensTranscriberModule(L.LightningModule):
         experts_inner_dims: list[int] = None,
         expert_loss_weight: float = 1.0,
         log_logits_each_n_val_steps: int = 1,
+        val_max_logits_logged: int = 5,
     ):
         super().__init__()
         if experts_inner_dims is None:
@@ -121,6 +122,8 @@ class TokensTranscriberModule(L.LightningModule):
 
         self.validation_counter = 0
         self.validation_logits = defaultdict(list)
+        self.all_flattened_true_token_types = []
+        self.all_flattened_pred_token_types = []
 
     def common_step(self, batch: dict[str, Any]):
         """
@@ -336,56 +339,23 @@ class TokensTranscriberModule(L.LightningModule):
         flattened_true_token_types_ohe = results["flattened_true_token_types"]
         flattened_score_not_padded_mask = results["flattened_score_not_padded_mask"]
 
-        # Log the first chunks of each batch
-        if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
-            n = 1
-            performance_path = batch["entries"][0].midi_performance_relative.as_posix()
-            score_folder = batch["entries"][0].xml_score_relative.parent.as_posix()
-            true_tokens_sequence = true_token_types[0].argmax(-1)
-            pred_tokens_sequence = router_logits[0].argmax(-1)
-            logits = router_logits[0]
+        # Log the first chunks of each of the first val_max_logits_logged batches
+        if (
+            self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0
+            and batch_idx < self.hparams.val_max_logits_logged
+        ):
             entry = batch["entries"][0]
+            performance_path = entry.midi_performance_relative.as_posix()
+            score_folder = entry.xml_score_relative.as_posix()
+            true_tokens_sequence = true_token_types[0].argmax(-1)
+            logits = router_logits[0]
             num_tokens = batch["score_lengths"][0]
-            # for i, (
-            #     true_tokens_sequence,
-            #     pred_tokens_sequence,
-            #     entry,
-            #     num_tokens,
-            #     start,
-            #     end,
-            #     logits,
-            # ) in enumerate(
-            #     zip(
-            #         true_token_types[:n].argmax(-1),
-            #         router_logits[:n].argmax(-1),
-            #         batch["entries"][:n],
-            #         batch["score_lengths"][:n],
-            #         batch["chunk_starts"][:n],
-            #         batch["chunk_ends"][:n],
-            #         router_logits[:n],
-            #     )
-            # ):
+
             # Convert to string
             true_tokens_sequence = [
                 self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
                 for t in true_tokens_sequence[: num_tokens - 1]
             ]
-            # pred_tokens_sequence = [
-            #     self._token_str_mapping[TokenTensor.TOKEN_INDEXER_INV[t.item()]]
-            #     for t in pred_tokens_sequence[: num_tokens - 1]
-            # ]
-            #
-            # # Align the sequences
-            # aligned_true, aligned_pred, diffs = self.align_character_sequences(
-            #     true_tokens_sequence,
-            #     pred_tokens_sequence,
-            # )
-            # # Log the sequences
-            # self.logger.log_text(
-            #     key=f"val_visu_alignments/{entry.xml_score_relative}",
-            #     columns=["true", "pred", "diffs"],
-            #     data=[[" ".join(aligned_true), " ".join(aligned_pred), " ".join(diffs)]],
-            # )
 
             # Log the logits
             data = logits.softmax(-1).tolist()[: num_tokens - 1]
@@ -433,12 +403,8 @@ class TokensTranscriberModule(L.LightningModule):
 
         # Log confusion matrix
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
-            cm = wandb.plot.confusion_matrix(
-                y_true=flattened_true_token_types.cpu().numpy(),
-                preds=flattened_pred_token_types.cpu().numpy(),
-                class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
-            )
-            self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
+            self.all_flattened_true_token_types.append(flattened_true_token_types)
+            self.all_flattened_pred_token_types.append(flattened_pred_token_types)
 
         # Log per-class metrics
         for (name, metric), token_type in zip(
@@ -500,62 +466,18 @@ class TokensTranscriberModule(L.LightningModule):
         tk.TupletEnd: ")",
     }
 
-    @staticmethod
-    def align_character_sequences(
-        seq1: list[str],
-        seq2: list[str],
-        join_results_str: str | None = None,
-    ) -> tuple[list[str], list[str], list[str]] | tuple[str, str, str]:
-        """
-        This function compares two sequences of characters and returns the aligned sequences.
-        The input sequences must be lists of single-character strings.
-        The output depends on the `join_results_str` parameter:
-        - If `join_results_str` is None, the function returns three lists:
-            - aligned1: the first aligned sequence
-            - aligned2: the second aligned sequence
-            - diffs: a list of differences between the two sequences (+ for insertions, - for deletions,
-                ^ for replacements)
-        - If `join_results_str` is a string, the function will return the three previous lists joined
-            into strings using the provided string as a separator.
-
-        :param seq1: The first sequence of characters to compare.
-        :param seq2: The second sequence of characters to compare.
-        :param join_results_str: The string to join the results. If None, the function returns lists.
-        :return: A tuple containing the aligned sequences and the differences.
-        """
-        assert all(
-            all(len(token) == 1 for token in seq) for seq in (seq1, seq2)
-        ), "All tokens must be single characters"
-
-        matcher = difflib.SequenceMatcher(None, seq1, seq2)
-        aligned1, aligned2, diffs = [], [], []
-        for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
-            if opcode == 'equal':
-                aligned1.extend(seq1[i1:i2])
-                aligned2.extend(seq2[j1:j2])
-                diffs.extend(" " * (i2 - i1))
-            elif opcode == 'insert':
-                aligned1.extend([' '] * (j2 - j1))
-                aligned2.extend(seq2[j1:j2])
-                diffs.extend(["+"] * (j2 - j1))
-            elif opcode == 'delete':
-                aligned1.extend(seq1[i1:i2])
-                aligned2.extend([' '] * (i2 - i1))
-                diffs.extend(["-"] * (i2 - i1))
-            elif opcode == 'replace':
-                aligned1.extend(seq1[i1:i2])
-                aligned2.extend(seq2[j1:j2])
-                diffs.extend(["^"] * (i2 - i1))
-        if join_results_str is not None:
-            return (
-                join_results_str.join(aligned1),
-                join_results_str.join(aligned2),
-                join_results_str.join(diffs),
-            )
-        else:
-            return aligned1, aligned2, diffs
-
     def on_validation_end(self) -> None:
+        # Log confusion matrix
+        cm = wandb.plot.confusion_matrix(
+            y_true=torch.concat(self.all_flattened_true_token_types).cpu().numpy(),
+            preds=torch.concat(self.all_flattened_pred_token_types).cpu().numpy(),
+            class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
+        )
+        self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
+        self.all_flattened_true_token_types = []
+        self.all_flattened_pred_token_types = []
+
+        # Log loggits when needed
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
             for score_folder, logits in self.validation_logits.items():
                 self.logger.log_table(
@@ -573,6 +495,7 @@ class TokensTranscriberModule(L.LightningModule):
                 )
             self.validation_logits = defaultdict(list)
         self.validation_counter += 1
+
         logger.info("Validation finished!")
 
 
