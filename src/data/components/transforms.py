@@ -62,7 +62,7 @@ class ScoreReader(AbstractProcessor):
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         worker = torch.utils.data.get_worker_info()
         if worker is not None:
-            logger.debug(
+            logger.trace(
                 f"Worker {worker.id + 1}/{worker.num_workers}: "
                 f"Reading score {sample['entry'].xml_score.as_posix()}"
             )
@@ -141,7 +141,7 @@ class AllowedTranspositionComputer(AbstractProcessor):
                 else:
                     raise
 
-        logger.debug(
+        logger.trace(
             f"Allowed transpositions for {sample['entry'].xml_score.as_posix()}: "
             + ", ".join(
                 f"{'-' if i.direction == 'down' else ''}{i.number}{i.quality}"
@@ -212,7 +212,7 @@ class RandomTransposer(AbstractProcessor):
         # Randomly sample an allowed interval
         interval = random.choice(non_overflowing_intervals)
         semitones = interval.semitones * (1 if interval.direction == "up" else -1)
-        logger.debug(
+        logger.trace(
             f"Transposing {entry.xml_score.as_posix()} {interval.direction} by "
             f"{interval.number}{interval.quality} ({semitones} semitones)"
         )
@@ -365,7 +365,7 @@ class MusicChunker(AbstractProcessor):
                     }
                     # If less than 5 measures left, recompute the last segment with the remaining
                     if 0 < end - num_measures + 1 < 10:
-                        logger.debug(
+                        logger.trace(
                             f"Last segment with {num_measures - end} measures, adding it to the last chunk"
                         )
                         new_result["chunk_end"] = num_measures - 1
@@ -452,7 +452,7 @@ class Cache(AbstractProcessor):
         worker = torch.utils.data.get_worker_info()
         if key not in self.cache:
             if worker is not None:
-                logger.debug(
+                logger.trace(
                     f"Worker {worker.id + 1}/{worker.num_workers}: "
                     f"Cache miss for {sample['entry'].xml_score.as_posix()}!"
                 )
@@ -465,7 +465,7 @@ class Cache(AbstractProcessor):
             }
         else:
             if worker is not None:
-                logger.debug(
+                logger.trace(
                     f"Worker {worker.id + 1}/{worker.num_workers}: "
                     f"Cache hit for {sample['entry'].xml_score.as_posix()}!"
                 )
