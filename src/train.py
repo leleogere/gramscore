@@ -50,7 +50,7 @@ def train(cfg: DictConfig) -> None:
     os.environ["OC_CAUSE"] = "1"
 
     # Redirect loguru logs to hydra output directory
-    hydra_path = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    hydra_path = Path(cfg.paths.output_dir)
     logger.remove()
     logger.add(sys.stderr, level=cfg.get("log_level", "INFO").upper())
     logger.add(hydra_path / "train.log")
