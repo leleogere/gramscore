@@ -477,7 +477,7 @@ class TokensTranscriberModule(L.LightningModule):
         self.all_flattened_true_token_types = []
         self.all_flattened_pred_token_types = []
 
-        # Log loggits when needed
+        # Log logits when needed
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
             for score_folder, logits in self.validation_logits.items():
                 self.logger.log_table(
