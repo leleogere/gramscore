@@ -20,7 +20,7 @@ def count_notes(path: Path) -> int:
 
 
 pdmx_csv_path = PDMX_PATH / "PDMX_piano_tokenizable.csv"
-pdmx = pd.read_csv(pdmx_csv_path)
+pdmx = pd.read_csv(pdmx_csv_path, index_col=0)
 pdmx = pdmx[pdmx["subset:all_valid"]]
 
 # with mp.Pool(12) as pool:

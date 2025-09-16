@@ -416,17 +416,17 @@ class PdmxPianoDataset(ScorePerformanceDataset):
 
         # Read PDMX metadata
         metadata_path = directory / "PDMX_piano_tokenizable_midi-notes.csv"
-        cache_path = metadata_path.with_suffix(".pkl")  # Question: is caching as pkl faster?
-        if cache_path.exists():
-            df = pd.read_pickle(cache_path)
-        else:
-            if not metadata_path.exists():
-                raise FileNotFoundError(
-                    "PDMX_piano_tokenizable.csv not found, make sure to generate it first. "
-                    "It's the PDMX.csv file, filtered to only contain tokenizable solo piano scores."
-                )
-            df = pd.read_csv(metadata_path)
-            df.to_pickle(cache_path)
+        # cache_path = metadata_path.with_suffix(".pkl")  # Question: is caching as pkl faster?
+        # if cache_path.exists():
+        #     df = pd.read_pickle(cache_path)
+        # else:
+        if not metadata_path.exists():
+            raise FileNotFoundError(
+                "PDMX_piano_tokenizable.csv not found, make sure to generate it first. "
+                "It's the PDMX.csv file, filtered to only contain tokenizable solo piano scores."
+            )
+        df = pd.read_csv(metadata_path, index_col=0)
+        # df.to_pickle(cache_path)
 
         # Filter out invalid entries
         # Question: already filtered out in PDMX_piano_tokenizable.csv, isn't it?
@@ -452,7 +452,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # df["n_notes_midi"] = df["mid"].apply(count_notes)
         df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
 
-        logger.debug(f"Number of entries before split: {len(df)}")
+        logger.info(f"Number of entries before split: {len(df)}")
 
         # Create splits
         num_validation_pieces = 1000
