@@ -354,6 +354,7 @@ class TokensTranscriberModule(L.LightningModule):
         loss, outputs = self.common_step(batch, train=True)
         self.log("[T|V] Global metrics/Train loss", loss)
         self._log_loss_components(outputs["losses"], name="T")
+        self.log("Learning rate", self.trainer.optimizers[0].param_groups[0]["lr"])
         return loss
 
     def on_validation_start(self) -> None:
