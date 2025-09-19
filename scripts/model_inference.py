@@ -287,7 +287,7 @@ def decode_next_token_contrained(
         classification_distributions = [
             (
                 F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.MULTI_CLASSIFICATION
+                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
                 else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
             )
             for name, value in expert_outputs.items()
@@ -344,7 +344,7 @@ def decode_next_token_contrained(
         classification_distributions = [
             (
                 F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.MULTI_CLASSIFICATION
+                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
                 else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
             )
             for name, value in expert_outputs.items()
@@ -392,7 +392,7 @@ def decode_next_token_contrained(
         classification_distributions = [
             (
                 F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.MULTI_CLASSIFICATION
+                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
                 else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
             )
             for name, value in expert_outputs.items()
@@ -430,7 +430,7 @@ def decode_next_token_contrained(
         # classification_distributions = [
         #     (
         #         F.softmax(value, dim=-1)
-        #         if TokenTensor.PROBLEM_TYPES[name] == ProblemType.MULTI_CLASSIFICATION
+        #         if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
         #         else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
         #     )
         #     for name, value in expert_outputs.items()

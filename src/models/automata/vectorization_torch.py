@@ -11,8 +11,7 @@ from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 
 
 class ProblemType(Enum):
-    BINARY_CLASSIFICATION = "binary_classification"
-    MULTI_CLASSIFICATION = "multi_classification"
+    CLASSIFICATION = "classification"
     REGRESSION = "regression"
 
 
@@ -51,24 +50,24 @@ class TokenTensor(torch.Tensor):
     STEM_INDEXER = {stem: i for i, stem in enumerate(["up", "down", None])}
     STEM_INDEXER_INV = {i: stem for stem, i in STEM_INDEXER.items()}
     _DIMS_AND_PROBLEM_TYPE = {
-        "token_type": (len(TOKEN_INDEXER), ProblemType.MULTI_CLASSIFICATION),
+        "token_type": (len(TOKEN_INDEXER), ProblemType.CLASSIFICATION),
         "bar_numerator": (1, ProblemType.REGRESSION),
-        "bar_denominator": (len(TS_DENOMINATOR_INDEXER), ProblemType.MULTI_CLASSIFICATION),
-        "bar_is_nominal": (1, ProblemType.BINARY_CLASSIFICATION),  # Boolean
-        "key_signature": (15, ProblemType.MULTI_CLASSIFICATION),  # -7 to 7
-        "clef_type": (1, ProblemType.BINARY_CLASSIFICATION),  # G or F
-        "staff_idx": (4, ProblemType.MULTI_CLASSIFICATION),  # Max 4 staves
-        "voice_idx": (16, ProblemType.MULTI_CLASSIFICATION),  # Max 4 voices per staff
-        "duration_type": (len(DURATION_INDEXER), ProblemType.MULTI_CLASSIFICATION),
-        "duration_dots": (4, ProblemType.MULTI_CLASSIFICATION),  # Max 3 dots
-        "measure_rest": (1, ProblemType.BINARY_CLASSIFICATION),
-        "note_class": (7, ProblemType.MULTI_CLASSIFICATION),
-        "note_octave": (9, ProblemType.MULTI_CLASSIFICATION),
-        "note_accidental": (5, ProblemType.MULTI_CLASSIFICATION),
-        "note_tied": (1, ProblemType.BINARY_CLASSIFICATION),
-        "note_stem_direction": (len(STEM_INDEXER), ProblemType.MULTI_CLASSIFICATION),
-        "fermata": (1, ProblemType.BINARY_CLASSIFICATION),
-        **{art: (1, ProblemType.BINARY_CLASSIFICATION) for art in ARTICULATIONS_AND_ORNAMENTS},
+        "bar_denominator": (len(TS_DENOMINATOR_INDEXER), ProblemType.CLASSIFICATION),
+        "bar_is_nominal": (2, ProblemType.CLASSIFICATION),  # Boolean
+        "key_signature": (15, ProblemType.CLASSIFICATION),  # -7 to 7
+        "clef_type": (2, ProblemType.CLASSIFICATION),  # G or F
+        "staff_idx": (4, ProblemType.CLASSIFICATION),  # Max 4 staves
+        "voice_idx": (16, ProblemType.CLASSIFICATION),  # Max 4 voices per staff
+        "duration_type": (len(DURATION_INDEXER), ProblemType.CLASSIFICATION),
+        "duration_dots": (4, ProblemType.CLASSIFICATION),  # Max 3 dots
+        "measure_rest": (2, ProblemType.CLASSIFICATION),
+        "note_class": (7, ProblemType.CLASSIFICATION),
+        "note_octave": (9, ProblemType.CLASSIFICATION),
+        "note_accidental": (5, ProblemType.CLASSIFICATION),
+        "note_tied": (2, ProblemType.CLASSIFICATION),
+        "note_stem_direction": (len(STEM_INDEXER), ProblemType.CLASSIFICATION),
+        "fermata": (2, ProblemType.CLASSIFICATION),
+        **{art: (2, ProblemType.CLASSIFICATION) for art in ARTICULATIONS_AND_ORNAMENTS},
         "tuplet_actual_notes": (1, ProblemType.REGRESSION),
         "tuplet_normal_notes": (1, ProblemType.REGRESSION),
     }
@@ -216,7 +215,7 @@ class TokenTensor(torch.Tensor):
             numerator = self["bar_numerator"][0]
             denominator_idx = self._onehot_decode("bar_denominator")
             denominator = self.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
-            is_nominal = bool(self["bar_is_nominal"][0] > 0.5)
+            is_nominal = self._onehot_decode(self["bar_is_nominal"]) == 1
             return tk.Bar(
                 numerator=clip_cast(numerator, 1, type_=int),
                 denominator=denominator,
@@ -233,7 +232,7 @@ class TokenTensor(torch.Tensor):
 
         # Clef
         if token_type == tk.Clef:
-            clef_idx = int(self["clef_type"][0] > 0.5)
+            clef_idx = self._onehot_decode(self["clef_type"])
             clef_type = "G" if clef_idx == 0 else "F"
             return tk.Clef(clef=clef_type, staff_idx=staff_idx)
 
@@ -250,12 +249,12 @@ class TokenTensor(torch.Tensor):
             note_class = self.NOTE_INDEXER_INV[self._onehot_decode("note_class")]
             octave = self._onehot_decode("note_octave")
             accidental = self._onehot_decode("note_accidental") - 2
-            tied = bool(self["note_tied"][0] > 0.5)
+            tied = self._onehot_decode(self["note_tied"]) == 1
             stem_direction_idx = self._onehot_decode("note_stem_direction")
             stem_direction = self.STEM_INDEXER_INV[stem_direction_idx]
             # Articulations and ornaments
             articulations_and_ornaments = {
-                art: bool(self[art][0] > 0.5)
+                art: self._onehot_decode(self[art]) == 1
                 for art in [
                     "accent",
                     "strong_accent",
@@ -288,8 +287,8 @@ class TokenTensor(torch.Tensor):
 
         # Rest
         if token_type == tk.Rest:
-            measure_rest = bool(self["measure_rest"][0] > 0.5)
-            fermata = bool(self["fermata"][0] > 0.5)
+            measure_rest = self._onehot_decode(self["measure_rest"]) == 1
+            fermata = self._onehot_decode(self["fermata"]) == 1
             if measure_rest:
                 duration = tk.SymbolicDuration(
                     type=tk.SymbolicDurationType.WHOLE,
@@ -364,7 +363,7 @@ class TokenTensor(torch.Tensor):
             "bar_denominator",
             self.TS_DENOMINATOR_INDEXER[bar.denominator],
         )
-        self["bar_is_nominal"][0] = int(bar.is_nominal)
+        self["bar_is_nominal"] = self._create_onehot("bar_is_nominal", int(bar.is_nominal))
 
     def __embed_key_signature_information(self, key_signature: tk.KeySignature) -> Self:
         fifths = key_signature.accidentals + 7
@@ -372,7 +371,7 @@ class TokenTensor(torch.Tensor):
 
     def __embed_clef_information(self, clef: tk.Clef) -> Self:
         clef_type = 0 if clef.clef == "G" else 1
-        self["clef_type"][0] = clef_type
+        self["clef_type"] = self._create_onehot("clef_type", clef_type)
         self.__embed_staff_information(clef)
 
     def __embed_duration_information(self, has_duration: tk.HasDurationMixin) -> Self:
@@ -392,20 +391,20 @@ class TokenTensor(torch.Tensor):
         self["note_class"] = self._create_onehot("note_class", self.NOTE_INDEXER[note.note_class])
         self["note_octave"] = self._create_onehot("note_octave", note.octave)
         self["note_accidental"] = self._create_onehot("note_accidental", note.accidental + 2)
-        self["note_tied"][0] = 1 if note.tied else 0
+        self["note_tied"] = self._create_onehot("note_tied", int(note.tied))
         stem_direction = self.STEM_INDEXER[note.stem_direction]
         self["note_stem_direction"] = self._create_onehot("note_stem_direction", stem_direction)
         # Articulations and ornaments
         for art in ARTICULATIONS_AND_ORNAMENTS + ["fermata"]:
-            self[art][0] = 1 if getattr(note, art) else 0
+            self[art] = self._create_onehot(art, 1 if getattr(note, art) else 0)
         # Inherited attributes
         self.__embed_staff_information(note)
         self.__embed_voice_information(note)
         self.__embed_duration_information(note)
 
     def __embed_rest_information(self, rest: tk.Rest) -> Self:
-        self["measure_rest"][0] = 1 if rest.measure_rest else 0
-        self["fermata"][0] = 1 if rest.fermata else 0
+        self["measure_rest"] = self._create_onehot("measure_rest", int(rest.measure_rest))
+        self["fermata"] = self._create_onehot("fermata", int(rest.fermata))
         self.__embed_staff_information(rest)
         self.__embed_voice_information(rest)
         self.__embed_duration_information(rest)

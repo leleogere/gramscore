@@ -6,6 +6,7 @@ from typing import Any
 
 import lightning as L
 import torch
+import torch.nn.functional as F
 import wandb.plot
 from torchmetrics import MetricCollection
 from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, BinaryF1Score
@@ -36,6 +37,8 @@ class TokensTranscriberModule(L.LightningModule):
         layer_norm_eps: float = 1e-12,
         experts_inner_dims: list[int] = None,
         expert_loss_weight: float = 1.0,
+        performance_dropout: float = 0.05,
+        score_dropout: float = 0.75,
         log_logits_each_n_val_steps: int = 1,
         val_max_logits_logged: int = 5,
     ):
@@ -125,7 +128,11 @@ class TokensTranscriberModule(L.LightningModule):
         self.all_flattened_true_token_types = []
         self.all_flattened_pred_token_types = []
 
-    def common_step(self, batch: dict[str, Any]):
+    def common_step(
+        self,
+        batch: dict[str, Any],
+        train: bool,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         """
         Common part between training_step and validation_step
 
@@ -134,6 +141,7 @@ class TokensTranscriberModule(L.LightningModule):
                 "score_tensor": torch.Tensor,  # input tensor representing the score
                 "performance_streams": dict[str, torch.Tensor],  # dict of performance streams
             }
+        :param train: Whether the step is for training or validation (affects dropout)
         """
         performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]  # B * N * F_str
         performance_padded_mask: torch.Tensor = batch["performance_padding_mask"]  # B * N
@@ -177,6 +185,28 @@ class TokensTranscriberModule(L.LightningModule):
         # Shift score tokens to the right
         score_tensor_input: TokenTensor = score_tensor[:, :-1]
         score_tensor_expected: TokenTensor = score_tensor[:, 1:]
+
+        # Dropout some tokens when training
+        if train:
+            # Dropout performance tokens
+            # QUESTION: in Beyer's, dropout is applied independently on all keys, is it OK?
+            performance_dropout = self.hparams.performance_dropout
+            performance_streams = {
+                key: mask_tokens_randomly(
+                    value,
+                    p=performance_dropout,
+                    padding_mask=performance_padded_mask,
+                )
+                for key, value in performance_streams.items()
+            }
+            # Dropout score tokens
+            score_dropout = self.hparams.score_dropout
+            for key in score_tensor_input.DIMS:
+                score_tensor_input[key] = mask_tokens_randomly(
+                    score_tensor_input[key],
+                    p=score_dropout,
+                    padding_mask=score_padded_mask[:, :-1],
+                )
 
         # Pass the performance streams through the encoder
         encoder_outputs = self.transcriber_model.forward_encoder(
@@ -319,7 +349,7 @@ class TokensTranscriberModule(L.LightningModule):
                             self.log(f"{expert_components_prefix}/{dim_name} loss", value)
 
     def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
-        loss, outputs = self.common_step(batch)
+        loss, outputs = self.common_step(batch, train=True)
         self.log("[T|V] Global metrics/Train loss", loss)
         self._log_loss_components(outputs["losses"], name="T")
         return loss
@@ -328,7 +358,7 @@ class TokensTranscriberModule(L.LightningModule):
         logger.info(f"Validation starting")
 
     def validation_step(self, batch: dict[str, Any], batch_idx: int = None):
-        loss, results = self.common_step(batch)
+        loss, results = self.common_step(batch, train=False)
         self.log("[T|V] Global metrics/Validation loss", loss)
         self._log_loss_components(results["losses"], name="V")
 
@@ -497,6 +527,37 @@ class TokensTranscriberModule(L.LightningModule):
         self.validation_counter += 1
 
         logger.info("Validation finished!")
+
+
+def mask_tokens_randomly(
+    input: torch.Tensor,
+    p: float,
+    padding_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    This function randomly masks (set to 0) tokens in the input tensor with a probability p.
+
+    :param input: The input tensor (B, T, F)
+    :param padding_mask: A boolean mask tensor (B, T), where True indicates the padded positions,
+        which are not affected by the masking
+    :param p: The dropout probability
+
+    For example, for:
+        - input of shape (B, N, F)
+        - not_dropped_out_mask of shape (B, N)
+    each of the dropped out (B, N) position will be set to zero for all F features.
+
+    :return: The output tensor with dropout applied
+    """
+    if p == 0.0:
+        return input
+    if p < 0.0 or p > 1.0:
+        raise ValueError(f"Dropout probability has to be between 0 and 1, but got {p}")
+    drop_probabilities = torch.full_like(input, 1 - p)
+    if padding_mask is not None:
+        drop_probabilities[padding_mask] = 1.0  # Never drop padded tokens
+    output = input * torch.bernoulli(drop_probabilities)
+    return output
 
 
 if __name__ == '__main__':

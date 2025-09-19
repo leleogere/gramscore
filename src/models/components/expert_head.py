@@ -59,12 +59,10 @@ class ExpertHead(nn.Module):
             if not include_token_type and dim_name == "token_type":
                 continue
             match TokenTensor.PROBLEM_TYPES[dim_name]:
-                case ProblemType.MULTI_CLASSIFICATION:
+                case ProblemType.CLASSIFICATION:
                     losses[dim_name] = nn.CrossEntropyLoss()
                 case ProblemType.REGRESSION:
                     losses[dim_name] = nn.MSELoss()
-                case ProblemType.BINARY_CLASSIFICATION:
-                    losses[dim_name] = nn.BCEWithLogitsLoss()
                 case _:
                     raise ValueError(f"Unsupported problem type for dimension {dim_name}")
         return losses
