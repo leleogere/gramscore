@@ -13,5 +13,6 @@ expert_loss_weight: 1.0
 performance_dropout: 0.05
 score_dropout: 0.75
 log_logits_each_n_val_steps: 1
+val_max_logits_logged: 5
 
 load_from_checkpoint: ""
