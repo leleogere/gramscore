@@ -29,6 +29,7 @@ class TokensTranscriberModule(L.LightningModule):
     def __init__(
         self,
         optimizer: Callable[[Any], torch.optim.Optimizer],
+        scheduler: Callable[[Any], torch.optim.lr_scheduler.LRScheduler] | None = None,
         embedding_dim: int = 512,
         num_hidden_layers: int = 4,
         num_attention_heads: int = 8,
@@ -65,6 +66,7 @@ class TokensTranscriberModule(L.LightningModule):
             expert_inner_dims=experts_inner_dims,
         )
         self.optimizer = optimizer
+        self.scheduler = scheduler
 
         # See scripts/estimate_tokens_distribution.py for the weights
         self.token_weights = {
@@ -480,7 +482,12 @@ class TokensTranscriberModule(L.LightningModule):
         raise NotImplementedError
 
     def configure_optimizers(self):
-        return self.optimizer(self.transcriber_model.parameters())
+        optimizer = self.optimizer(self.transcriber_model.parameters())
+        if self.scheduler is None:
+            return optimizer
+        else:
+            scheduler = {"scheduler": self.scheduler(optimizer), "interval": "step", "frequency": 1}
+            return [optimizer], [scheduler]
 
     _token_str_mapping = {
         tk.StartOfScore: "S",
