@@ -215,7 +215,7 @@ class TokenTensor(torch.Tensor):
             numerator = self["bar_numerator"][0]
             denominator_idx = self._onehot_decode("bar_denominator")
             denominator = self.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
-            is_nominal = self._onehot_decode(self["bar_is_nominal"]) == 1
+            is_nominal = self._onehot_decode("bar_is_nominal") == 1
             return tk.Bar(
                 numerator=clip_cast(numerator, 1, type_=int),
                 denominator=denominator,
@@ -232,7 +232,7 @@ class TokenTensor(torch.Tensor):
 
         # Clef
         if token_type == tk.Clef:
-            clef_idx = self._onehot_decode(self["clef_type"])
+            clef_idx = self._onehot_decode("clef_type")
             clef_type = "G" if clef_idx == 0 else "F"
             return tk.Clef(clef=clef_type, staff_idx=staff_idx)
 
@@ -249,12 +249,12 @@ class TokenTensor(torch.Tensor):
             note_class = self.NOTE_INDEXER_INV[self._onehot_decode("note_class")]
             octave = self._onehot_decode("note_octave")
             accidental = self._onehot_decode("note_accidental") - 2
-            tied = self._onehot_decode(self["note_tied"]) == 1
+            tied = self._onehot_decode("note_tied") == 1
             stem_direction_idx = self._onehot_decode("note_stem_direction")
             stem_direction = self.STEM_INDEXER_INV[stem_direction_idx]
             # Articulations and ornaments
             articulations_and_ornaments = {
-                art: self._onehot_decode(self[art]) == 1
+                art: self._onehot_decode(art) == 1
                 for art in [
                     "accent",
                     "strong_accent",
@@ -287,8 +287,8 @@ class TokenTensor(torch.Tensor):
 
         # Rest
         if token_type == tk.Rest:
-            measure_rest = self._onehot_decode(self["measure_rest"]) == 1
-            fermata = self._onehot_decode(self["fermata"]) == 1
+            measure_rest = self._onehot_decode("measure_rest") == 1
+            fermata = self._onehot_decode("fermata") == 1
             if measure_rest:
                 duration = tk.SymbolicDuration(
                     type=tk.SymbolicDurationType.WHOLE,
