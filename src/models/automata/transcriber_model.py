@@ -127,7 +127,7 @@ class TokensTranscriberModel(nn.Module):
         )  # 4 * B * N * E
         src_emb = torch.sum(stream_projected, dim=0)  # B * N * E
         # Question: should the PE be placed before or after the layer norm?
-        src_emb = self.performance_positional_encoding(src_emb)  # B * N * E
+        # src_emb = self.performance_positional_encoding(src_emb)  # B * N * E
         src_emb = self.layer_norm(src_emb)  # B * N * E
         assert src_emb.shape[2] == self.embedding_size
         assert src_emb.shape[0] == tgt_tokens.shape[0]
