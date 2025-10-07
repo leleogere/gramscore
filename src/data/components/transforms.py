@@ -76,7 +76,7 @@ class ScoreReader(AbstractProcessor):
 
 class PerformanceReader(AbstractProcessor):
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        performance = symusic.Score.from_file(sample["entry"].midi_performance)
+        performance = symusic.Score.from_file(sample["entry"].midi_performance, ttype="second")
         # Merge all tracks into first one if multiple ones
         if len(performance.tracks) > 1:
             track = performance.tracks[0]  # Only reference so OK modifying it
