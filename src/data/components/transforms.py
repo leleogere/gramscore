@@ -32,6 +32,8 @@ MIN_PITCH = 21
 
 sys.setrecursionlimit(2**31 - 1)  # For transpose copies
 
+pretty_midi.pretty_midi.MAX_TICK = 1e10  # Some bugs with high PPQ MIDI files
+
 
 class ToDict:
     """Simply transforms an entry into a dict with a single key "entry" containing it."""
