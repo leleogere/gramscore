@@ -11,6 +11,7 @@ import pandas as pd
 import partitura as pt
 import partitura.score
 import partitura.utils
+import pretty_midi
 import symusic
 import torch
 import torch.utils.data
@@ -75,16 +76,30 @@ class ScoreReader(AbstractProcessor):
 
 
 class PerformanceReader(AbstractProcessor):
+    # def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    #     performance = symusic.Score.from_file(sample["entry"].midi_performance, ttype="second")
+    #     # Merge all tracks into first one if multiple ones
+    #     if len(performance.tracks) > 1:
+    #         track = performance.tracks[0]  # Only reference so OK modifying it
+    #         for other in performance.tracks[1:]:
+    #             for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
+    #                 getattr(track, attr).extend(getattr(other, attr))
+    #         track.sort(inplace=True)
+    #         performance.tracks = performance.tracks[:1]
+    #     assert len(performance.tracks) == 1
+    #     return {"performance": performance}
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        performance = symusic.Score.from_file(sample["entry"].midi_performance, ttype="second")
+        performance = pretty_midi.PrettyMIDI(sample["entry"].midi_performance.as_posix())
         # Merge all tracks into first one if multiple ones
-        if len(performance.tracks) > 1:
-            track = performance.tracks[0]  # Only reference so OK modifying it
-            for other in performance.tracks[1:]:
-                for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
-                    getattr(track, attr).extend(getattr(other, attr))
-            performance.tracks = performance.tracks[:1]
-        assert len(performance.tracks) == 1
+        if len(performance.instruments) > 1:
+            track: pretty_midi.Instrument = performance.instruments[
+                0
+            ]  # Only reference so OK modifying it
+            for other in performance.instruments[1:]:
+                track.notes.extend(other.notes)
+            track.notes = sorted(track.notes, key=lambda n: n.start)
+            performance.instruments = [track]
+        assert len(performance.instruments) == 1
         return {"performance": performance}
 
 
@@ -392,14 +407,24 @@ class PerformanceSpeedAugmenter(AbstractProcessor):
         self.min_factor = min_factor
         self.max_factor = max_factor
 
+    # def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    #     # Randomly speed up or slow down the performance
+    #     factor = random.uniform(self.min_factor, self.max_factor)
+    #     performance: symusic.core.ScoreTick = sample["performance"]
+    #     performance.adjust_time(
+    #         original_times=[0, performance.end()],
+    #         new_times=[0, int(performance.end() * factor)],
+    #         inplace=True,
+    #     )
+    #     return {"performance": performance}
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Randomly speed up or slow down the performance
         factor = random.uniform(self.min_factor, self.max_factor)
-        performance: symusic.core.ScoreTick = sample["performance"]
-        performance.adjust_time(
-            original_times=[0, performance.end()],
-            new_times=[0, int(performance.end() * factor)],
-            inplace=True,
+        performance: pretty_midi.PrettyMIDI = sample["performance"]
+        end = performance.get_end_time()
+        performance.adjust_times(
+            original_times=[0, end],
+            new_times=[0, int(end * factor)],
         )
         return {"performance": performance}
 
@@ -418,8 +443,10 @@ class PerformanceVectorizer(AbstractProcessor):
         # sample["performance_tensor"] = torch.FloatTensor(
         #     sample["performance"].pianoroll(modes=["frame"], pitch_range=(MIN_PITCH, MAX_PITCH))
         # )
-        assert len(sample["performance"].tracks) == 1, "Only one track supported"
-        midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
+        assert len(sample["performance"].instruments) == 1, "Only one track supported"
+        # midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
+        midi_list: list[pretty_midi.Note] = sample["performance"].instruments[0].notes
+        midi_list = sorted(midi_list, key=lambda n: (n.start, n.pitch, n.duration))
         # This is directly from Beyer's MIDI2ScoreTransformer code
         midi_streams = {
             "onset": torch.FloatTensor([n.start for n in midi_list]),
