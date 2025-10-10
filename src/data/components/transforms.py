@@ -91,7 +91,9 @@ class PerformanceReader(AbstractProcessor):
     #     assert len(performance.tracks) == 1
     #     return {"performance": performance}
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        performance = pretty_midi.PrettyMIDI(sample["entry"].midi_performance.as_posix())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            performance = pretty_midi.PrettyMIDI(sample["entry"].midi_performance.as_posix())
         # Merge all tracks into first one if multiple ones
         if len(performance.instruments) > 1:
             track: pretty_midi.Instrument = performance.instruments[
