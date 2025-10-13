@@ -294,7 +294,7 @@ class CustomRoFormerEncoder(RoFormerEncoder):
             self.embed_positions = ContinuousPositionalEncoding1D(
                 d_model=config.hidden_size // config.num_attention_heads,
                 shortest_period=0.01,
-                longest_period=1000.0,
+                longest_period=2000.0,
             )
         else:
             d_model = config.hidden_size // config.num_attention_heads
