@@ -135,6 +135,9 @@ class AsapTokensDataModule(LightningDataModule):
             for stream in streams[1:]
         ), "All streams should have the same batch size and number of notes after padding"
 
+        # Also collate the onset times
+        performance_onset_times = [x["performance_onset_times"] for x in batch]
+
         return {
             "entries": [x["entry"] for x in batch],
             "chunk_starts": [x["chunk_start"] for x in batch],
@@ -143,6 +146,7 @@ class AsapTokensDataModule(LightningDataModule):
             "score_padding_mask": score_padding_mask,
             "score_lengths": score_lengths,
             "performance_streams": performances_collated,
+            "performance_onset_times": performance_onset_times,
             "performance_padding_mask": performance_padding_mask,
             "performance_lengths": performance_lengths,
         }

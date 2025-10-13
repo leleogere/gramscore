@@ -20,23 +20,7 @@ class TokensTranscriberModel(nn.Module):
     ):
         super().__init__()
 
-        if roformer is None:
-            self.roformer = Roformer(
-                hidden_size=512,
-                num_hidden_layers=4,
-                num_attention_heads=8,
-                intermediate_size=1536,
-                hidden_dropout_prob=0.1,
-                layer_norm_eps=1e-12,
-                max_position_embeddings=3072,
-            )
-        else:
-            self.roformer = roformer
-        # TODO: move embedding logic from Roformer to here
-        # The roformer should only be responsible for the transformer part, taking
-        # the embeddings as input, and returning the output embeddings
-        # The embedding logic, router logic and token type attribute predictors logic
-        # should all lay in this module
+        self.roformer = roformer
 
         self.embedding_dim = self.roformer.encoder.config.hidden_size
         self.layer_norm_eps = self.roformer.encoder.config.layer_norm_eps
@@ -81,11 +65,28 @@ class TokensTranscriberModel(nn.Module):
     def forward_encoder(
         self,
         input_streams: dict[str, torch.Tensor],
+        onset_times: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        B, T = input_streams[next(iter(input_streams))].shape[:2]
+        if not all(v.shape[:2] == (B, T) for v in input_streams.values()):
+            raise ValueError(
+                f"All input streams must have the same batch size and sequence length. "
+                f"Got {[v.shape for v in input_streams.values()]}"
+            )
+        if onset_times is not None and onset_times.shape != (B, T):
+            raise ValueError(
+                f"onset_times must have shape (B, T). Got {onset_times.shape} instead of {(B, T)}"
+            )
+
+        # Get the embeddings for the input streams
         midi_embeddings = self.midi_embedding.forward(input_streams)
+
+        # Forward through the encoder
         outputs_encoder = self.roformer.forward_enc(
-            midi_embeddings=midi_embeddings, attention_mask=attention_mask
+            midi_embeddings=midi_embeddings,
+            input_positions=onset_times,
+            attention_mask=attention_mask,
         )
         return outputs_encoder
 

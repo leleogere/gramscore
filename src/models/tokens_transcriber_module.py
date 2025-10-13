@@ -36,6 +36,7 @@ class TokensTranscriberModule(L.LightningModule):
         intermediate_size: int = 1536,
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
+        use_time_based_rope_encoder: bool = False,
         experts_inner_dims: list[int] = None,
         expert_loss_weight: float = 1.0,
         performance_dropout: float = 0.05,
@@ -62,6 +63,7 @@ class TokensTranscriberModule(L.LightningModule):
                 num_hidden_layers=num_hidden_layers,
                 num_attention_heads=num_attention_heads,
                 intermediate_size=intermediate_size,
+                use_time_based_rope_encoder=use_time_based_rope_encoder,
             ),
             expert_inner_dims=experts_inner_dims,
         )
@@ -148,6 +150,7 @@ class TokensTranscriberModule(L.LightningModule):
         performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]  # B * N * F_str
         performance_padded_mask: torch.Tensor = batch["performance_padding_mask"]  # B * N
         performance_not_padded_mask = torch.logical_not(performance_padded_mask)
+        performance_onset_times = batch["performance_onset_times"]
         performance_num_notes: torch.Tensor = batch["performance_lengths"]  # B
         score_tensor: TokenTensor = batch["score_tensor"]  # B * T * K
         score_padded_mask: torch.Tensor = batch["score_padding_mask"]  # B * T
@@ -213,6 +216,7 @@ class TokensTranscriberModule(L.LightningModule):
         # Pass the performance streams through the encoder
         encoder_outputs = self.transcriber_model.forward_encoder(
             input_streams=performance_streams,
+            onset_times=performance_onset_times,
             attention_mask=performance_not_padded_mask,
         )  # (B, N, E)
 

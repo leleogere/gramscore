@@ -14,6 +14,7 @@ from HuggingFace Transformers, but contains some modifications:
 
 import math
 from typing import Dict, Optional
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -29,6 +30,7 @@ from transformers.models.roformer.modeling_roformer import (
 from midi2scoretransformer.config import MyModelConfig
 from models.automata.vectorization_torch import TokenTensor
 from models.components.embedding import MIDIEmbedding, ScoreTokenEmbedding
+from models.components.positional_encoding import ContinuousPositionalEncoding1D
 
 
 class CustomRoFormerSelfAttention(nn.Module):
@@ -279,11 +281,36 @@ class CustomRoFormerLayer(RoFormerLayer):
 
 
 class CustomRoFormerEncoder(RoFormerEncoder):
-    def __init__(self, config):
+    def __init__(self, config, continuous_positional_encoding: bool = False):
         super().__init__(config)
         self.layer = nn.ModuleList(
             [CustomRoFormerLayer(config) for _ in range(config.num_hidden_layers)]
         )
+        self.embed_positions._init_weight()
+        # Patch embed positions to support continuous positions
+        self.continuous_positional_encoding = continuous_positional_encoding
+        self._old_embed_positions = self.embed_positions  # TODO: remove when tests done
+        if continuous_positional_encoding:
+            self.embed_positions = ContinuousPositionalEncoding1D(
+                d_model=config.hidden_size // config.num_attention_heads,
+                shortest_period=0.01,
+                longest_period=1000.0,
+            )
+        else:
+            d_model = config.hidden_size // config.num_attention_heads
+            self.embed_positions = ContinuousPositionalEncoding1D(
+                d_model=d_model,
+                shortest_period=2 * math.pi,
+                longest_period=10000 ** ((d_model - 2) / d_model) * 2 * math.pi,
+            )  # Should be equivalent to original RoFormer implementation
+            # TODO: remove tests once sure it works
+            random_test = torch.arange(0, 20, requires_grad=False).unsqueeze(0)
+            print("Testing old vs new positional embeddings (should be equal):")
+            assert torch.allclose(
+                self._old_embed_positions(random_test.shape),
+                self.embed_positions(random_test).squeeze(0),
+                atol=1e-5,
+            )
 
     def forward(
         self,
@@ -292,6 +319,7 @@ class CustomRoFormerEncoder(RoFormerEncoder):
         head_mask=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
+        input_positions=None,  # To use externally computed positions (e.g. based on time)
         past_key_values=None,
         use_cache=None,
         output_attentions=False,
@@ -313,13 +341,19 @@ class CustomRoFormerEncoder(RoFormerEncoder):
         # We have to ensure that positional embeddings work for both encoder and decoder states
         B, T = hidden_states.shape[:-1]
         T = max(encoder_hidden_states.shape[1] if encoder_hidden_states is not None else 0, T)
-        sinusoidal_pos = self.embed_positions(
-            (
-                B,
-                T,
-            ),
-            past_key_values_length,
-        )[None, None, :, :]
+        if (
+            input_positions is None or not self.continuous_positional_encoding
+        ):  # Classical behaviour: index-based position
+            input_positions = torch.arange(
+                past_key_values_length,
+                T + past_key_values_length,
+                device=hidden_states.device,
+            ).unsqueeze(
+                0
+            )  # (B, T)
+        print(input_positions)
+        sinusoidal_pos = self.embed_positions.forward(input_positions).unsqueeze(1)
+        # (B, 1, T, D)  ->  New dimension for the head
 
         next_decoder_cache = () if use_cache else None
         for i, layer_module in enumerate(self.layer):
@@ -391,9 +425,12 @@ class CustomRoFormerEncoder(RoFormerEncoder):
 
 
 class RoFormerModel(RoFormerModelBase):
-    def __init__(self, config):
+    def __init__(self, config, continuous_positional_encoding: bool = False):
         super().__init__(config)
-        self.encoder = CustomRoFormerEncoder(config)
+        self.encoder = CustomRoFormerEncoder(
+            config,
+            continuous_positional_encoding=continuous_positional_encoding,
+        )
         del self.embeddings
 
 
@@ -411,6 +448,7 @@ class Roformer(nn.Module):
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
         max_position_embeddings: int = 3072,
+        use_time_based_rope_encoder: bool = False,
     ):
         super().__init__()
 
@@ -436,8 +474,10 @@ class Roformer(nn.Module):
             is_autoregressive=True,
             **common_configuration,
         )
-
-        self.encoder = RoFormerModel(enc_configuration)
+        self.encoder = RoFormerModel(
+            enc_configuration,
+            continuous_positional_encoding=use_time_based_rope_encoder,
+        )
         self.decoder = RoFormerModel(dec_configuration)
 
         self.norm = nn.LayerNorm(
@@ -449,6 +489,7 @@ class Roformer(nn.Module):
     def forward_enc(
         self,
         midi_embeddings: torch.Tensor,
+        input_positions: torch.Tensor = None,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         output_attentions = self.encoder.config.output_attentions
@@ -474,6 +515,7 @@ class Roformer(nn.Module):
             attention_mask=extended_attention_mask,
             head_mask=None,
             encoder_attention_mask=encoder_extended_attention_mask,
+            input_positions=input_positions,
             use_cache=False,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
