@@ -157,7 +157,7 @@ class AllowedTranspositionComputer(AbstractProcessor):
                         f"{interval.direction} by a {interval.number}{interval.quality} interval "
                         f"(key fifths > 7)."
                     )
-                elif isinstance(Exception, e.args[0].startswith("Unknown mode ")):
+                elif isinstance(e, Exception) and e.args[0].startswith("Unknown mode "):
                     mode = e.args[0].split("Unknown mode ")[1]
                     logger.trace(
                         f"Can't transpose {sample['entry'].xml_score.as_posix()} "
