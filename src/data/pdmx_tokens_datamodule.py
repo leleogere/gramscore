@@ -176,6 +176,22 @@ class PdmxTokensDataModule(LightningDataModule):
                 t.ScoreReader(),
                 t.VoiceRestFiller(),
                 t.VoiceReorderer(),
+                t.Cache(
+                    [
+                        t.AllowedTranspositionComputer(
+                            intervals=[
+                                pt.score.Interval(
+                                    number=int(inter[0]), quality=inter[1:], direction=direction
+                                )
+                                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                                for direction in ["up", "down"]
+                            ]
+                            + [pt.score.Interval(1, "P", "up")]
+                        )
+                    ],
+                    cache_key=lambda sample: sample["entry"].xml_score,
+                    keys_to_cache=["allowed_transpositions"],
+                ),
                 # t.Cache(
                 #     transforms=[
                 #         t.ScoreReader(),
@@ -219,7 +235,7 @@ class PdmxTokensDataModule(LightningDataModule):
                 #     annotations=self.hparams.data_dir / "asap_annotations.json",
                 #     mode="random",
                 # ),
-                # t.RandomTransposer(),
+                t.RandomTransposer(),
                 t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 t.ScoreVectorizer(),
                 t.PerformanceVectorizer(),

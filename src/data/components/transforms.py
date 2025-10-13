@@ -205,7 +205,7 @@ class RandomTransposer(AbstractProcessor):
 
         # Get highest and lowest notes in the performance
         highest_note, lowest_note = MIN_PITCH, MAX_PITCH
-        for note in performance.tracks[0].notes:
+        for note in performance.instruments[0].notes:
             if note.pitch > highest_note:
                 highest_note = note.pitch
             if note.pitch < lowest_note:
@@ -253,7 +253,7 @@ class RandomTransposer(AbstractProcessor):
             raise
 
         # Transpose performance
-        for note in performance.tracks[0].notes:
+        for note in performance.instruments[0].notes:
             note.pitch += semitones
 
         return {"score": transposed_score, "performance": performance}
