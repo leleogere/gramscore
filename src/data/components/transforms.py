@@ -139,7 +139,7 @@ class AllowedTranspositionComputer(AbstractProcessor):
                     f"Score {sample['entry'].xml_score.as_posix()} can be transposed "
                     f"{interval.direction} by a {interval.number}{interval.quality} interval."
                 )
-            except (AssertionError, ValueError) as e:
+            except (AssertionError, ValueError, Exception) as e:
                 # Not ideal but the easiest way to capture the correct exception
                 if isinstance(e, AssertionError) and e.args[0].endswith(
                     "is not in the range -2 to 2."
@@ -156,6 +156,13 @@ class AllowedTranspositionComputer(AbstractProcessor):
                         f"Can't transpose {sample['entry'].xml_score.as_posix()} "
                         f"{interval.direction} by a {interval.number}{interval.quality} interval "
                         f"(key fifths > 7)."
+                    )
+                elif isinstance(Exception, e.args[0].startswith("Unknown mode ")):
+                    mode = e.args[0].split("Unknown mode ")[1]
+                    logger.trace(
+                        f"Can't transpose {sample['entry'].xml_score.as_posix()} "
+                        f"{interval.direction} by a {interval.number}{interval.quality} interval "
+                        f"(unknown mode: {mode})."
                     )
                 else:
                     raise
