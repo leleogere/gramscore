@@ -390,7 +390,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         if not metadata_path.exists():
             raise FileNotFoundError("PDMX.csv not found, make sure the dataset is correct.")
         pdmx = pd.read_csv(metadata_path)
-        pdmx = pdmx.head(100)
+        # pdmx = pdmx.head(100)
         pdmx["usable"] = True
 
         # Extract the instruments of each score
