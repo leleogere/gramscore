@@ -4,7 +4,7 @@ from collections import defaultdict
 from fractions import Fraction
 
 import joblib
-import tabulate
+# import tabulate
 from lxml import etree
 from pathlib import Path
 
@@ -254,4 +254,5 @@ if __name__ == '__main__':
             num_m = f.read().count("<measure")
         proportions.append((path, len(path_exceptions), num_m, len(path_exceptions) / num_m))
     proportions = sorted(proportions, key=lambda p: p[-1], reverse=True)
-    print(tabulate.tabulate(proportions))
+    print(proportions)
+    # print(tabulate.tabulate(proportions))
