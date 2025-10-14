@@ -367,6 +367,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         split: Literal["train", "validation", "all"],
         transforms: Callable | list[Callable] = None,
         force_metadata_extraction: bool = False,
+        asap_path: Path | None = None,  # Used to filter PDMX for overlap
     ):
         self.directory = directory
         self.split = split
@@ -377,7 +378,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         self.additional_metadata_file = self.directory / "PDMX_extended_metadata.csv"
         if not self.additional_metadata_file.exists() or force_metadata_extraction:
             logger.info(f"Extracting additional metadata from {self.metadata_file}")
-            pdmx = self.extract_additional_metadata()
+            pdmx = self.extract_additional_metadata(asap_path=asap_path)
             pdmx.to_csv(self.additional_metadata_file, index=False)
 
         # Read entries
