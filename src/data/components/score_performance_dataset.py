@@ -1,37 +1,31 @@
 import csv
-import itertools
 import json
-import traceback
+import math
+import sys
 import warnings
-from collections import Counter
 from collections.abc import Callable
-from collections.abc import Generator
 from dataclasses import dataclass
-from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Any
 from typing import Literal
-from typing import assert_never
 
-import joblib
 import pandas as pd
 import partitura as pt
 import partitura.score
 import symusic
 import torch
 from loguru import logger
-from lxml import etree
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from transformers import PreTrainedTokenizerBase
 
-from data.components.chunking_utils import ChunkingConfig
-from data.components.chunking_utils import chunk_partitura_score_and_performances
-from utils.abc_xml_conversion import conversion
+from data.components.check_tokenizable import check_full
 from utils.constants import SKIP
-from utils.constants import SUCCESS_FILENAME
 from utils.constants import TEST_PIECE_IDS
 from utils.constants import TO_IGNORE_INDICES
+
+tqdm.pandas()
+sys.setrecursionlimit(2**31 - 1)
 
 
 @dataclass
@@ -371,112 +365,161 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         self,
         directory: Path,
         split: Literal["train", "validation", "all"],
-        only_valid: bool = True,
-        excluded_indices: list[int] | None = None,
-        excluded_indices_paths: list[Path] | Path | None = None,
         transforms: Callable | list[Callable] = None,
+        force_metadata_extraction: bool = False,
     ):
         self.directory = directory
         self.split = split
         assert split in ["all", "train", "validation"], f"Invalid split: {split}"
-        self.only_valid = only_valid
-        self.excluded_indices = excluded_indices if excluded_indices else []
-        if isinstance(excluded_indices_paths, (Path, str)):
-            self.excluded_indices_paths = [Path(excluded_indices_paths)]
-        elif isinstance(excluded_indices_paths, list):
-            self.excluded_indices_paths = [Path(path) for path in excluded_indices_paths]
-        elif excluded_indices_paths is None:
-            self.excluded_indices_paths = []
-        else:
-            raise ValueError(f"excluded_indices_paths must be a list of paths, a path, or None")
 
-        # Read excluded indices paths
-        for path in self.excluded_indices_paths:
-            with path.open("r") as f:
-                self.excluded_indices.extend([int(i.strip()) for i in f.readlines()])
+        # Extract additional metadata
+        self.metadata_file = self.directory / "PDMX.csv"
+        self.additional_metadata_file = self.directory / "PDMX_extended_metadata.csv"
+        if not self.additional_metadata_file.exists() or force_metadata_extraction:
+            logger.info(f"Extracting additional metadata from {self.metadata_file}")
+            pdmx = self.extract_additional_metadata()
+            pdmx.to_csv(self.additional_metadata_file, index=False)
 
         # Read entries
-        entries = self.read_metadata(
-            directory=self.directory,
-            split=self.split,
-            only_valid=self.only_valid,
-            excluded_indices=self.excluded_indices,
-        )
-
+        entries = self.read_metadata()
         super().__init__(entries, transforms)
 
-    @classmethod
-    def read_metadata(
-        cls,
-        directory: Path,
-        split: Literal["train", "validation", "all"],
-        only_valid: bool,
-        excluded_indices: list[int],
-    ) -> list[ScorePerformanceEntry]:
-
-        # Read PDMX metadata
-        metadata_path = directory / "PDMX_piano_tokenizable_midi-notes.csv"
-        # cache_path = metadata_path.with_suffix(".pkl")  # Question: is caching as pkl faster?
-        # if cache_path.exists():
-        #     df = pd.read_pickle(cache_path)
-        # else:
+    def extract_additional_metadata(self, asap_path: Path | None = None) -> pd.DataFrame:
+        """Extract additional metadata from the entries and return it as a DataFrame."""
+        metadata_path: Path = self.directory / "PDMX.csv"
         if not metadata_path.exists():
-            raise FileNotFoundError(
-                "PDMX_piano_tokenizable.csv not found, make sure to generate it first. "
-                "It's the PDMX.csv file, filtered to only contain tokenizable solo piano scores."
+            raise FileNotFoundError("PDMX.csv not found, make sure the dataset is correct.")
+        pdmx = pd.read_csv(metadata_path)
+        pdmx = pdmx.head(100)
+        pdmx["usable"] = True
+
+        # Extract the instruments of each score
+        logger.info(f"Extracting instruments information")
+        pdmx["instruments"] = pdmx["metadata"].progress_apply(self._extract_instrument)
+        piano_indices = pdmx["instruments"].apply(lambda i: i == ["Piano"])
+        logger.info(f"Number of piano scores: {piano_indices.sum()}")
+        pdmx.loc[~piano_indices, "usable"] = False
+
+        # Filter for overlap with ASAP validation and test sets
+        if asap_path is not None:
+            from sentence_transformers import SentenceTransformer
+            import re
+            import numpy as np
+
+            # Load PDMX embeddings
+            logger.info("Loading PDMX embeddings")
+            pdmx_embeddings_path = self.directory / "embeddings.csv"
+            pdmx_magnitudes_path = self.directory / "magnitudes.csv"
+            if not pdmx_embeddings_path.exists() or not pdmx_magnitudes_path.exists():
+                raise FileNotFoundError(
+                    "PDMX embeddings not found, please generate them first."
+                )  # TODO: automate the generation if not found
+            pdmx_embeddings = torch.from_numpy(np.loadtxt(pdmx_embeddings_path, delimiter=","))
+            pdmx_magnitudes = torch.from_numpy(np.loadtxt(pdmx_magnitudes_path, delimiter=","))
+
+            # Function to create a descriptor for an ASAP entry
+            def create_descriptor(title: str, composer: str):
+                descriptor = f"{title}; by {composer}."
+                descriptor = re.sub(pattern=r'[^ a-zA-Z0-9,.?!;:()&-]', repl=" ", string=descriptor)
+                descriptor = " ".join(descriptor.split())  # remove wierd whitespace
+                return descriptor
+
+            # First load ASAP entries
+            logger.info(f"Loading ASAP entries from {asap_path}")
+            asap_val = AsapDataset(asap_path, split="validation")
+            asap_test = AsapDataset(asap_path, split="test")
+            asap_entries = asap_val.entries + asap_test.entries
+            asap_entries = {(e.composer, e.title) for e in asap_entries}
+            asap_descriptions = [
+                create_descriptor(title=title, composer=composer)
+                for composer, title in asap_entries
+            ]
+            logger.info(f"Number of ASAP validation and test pieces: {len(asap_descriptions)}")
+            logger.info(f"Computing ASAP embeddings")
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = SentenceTransformer(model_name_or_path="all-MiniLM-L6-v2", device=str(device))
+            asap_embeddings = model.encode(
+                sentences=asap_descriptions,
+                batch_size=64,
+                show_progress_bar=True,
+                output_value="sentence_embedding",
+                device=device,
+                convert_to_tensor=True,
+            ).to(torch.float64)
+            asap_magnitudes = torch.norm(asap_embeddings, dim=1)
+
+            # Find pieces in PDMX that are too close to ASAP pieces
+            similarity_threshold = 0.8
+            logger.info(
+                f"Finding PDMX pieces too similar to ASAP pieces (sim >= {similarity_threshold})"
             )
-        df = pd.read_csv(metadata_path, index_col=0)
-        # df.to_pickle(cache_path)
+            for query_embedding, query_magnitude in zip(tqdm(asap_embeddings), asap_magnitudes):
+                similarities = torch.matmul(input=pdmx_embeddings, other=query_embedding)
+                similarities = similarities / (pdmx_magnitudes * query_magnitude)
+                similarities = (similarities + 1) / 2
+                pdmx["similar_to_asap"] = similarities >= similarity_threshold
+            logger.info(
+                f"Number of PDMX pieces similar to ASAP pieces: {pdmx['similar_to_asap'].sum()}"
+            )
+            pdmx.loc[pdmx["similar_to_asap"], "usable"] = False
 
-        # Filter out invalid entries
-        # Question: already filtered out in PDMX_piano_tokenizable.csv, isn't it?
-        if only_valid:
-            df = df[df["subset:all_valid"]]
+        # Count the number of notes for each performance
+        logger.info(f"Counting number of notes in each MIDI performance")
+        pdmx["n_notes_midi"] = pdmx["mid"].progress_apply(self._count_midi_notes)
 
-        # Filter out excluded indices
-        df = df[~df.index.isin(excluded_indices)]
+        # Check if scores are tokenizable
+        logger.info(f"Checking tokenizability of each score")
+        pdmx.loc[pdmx["usable"], "errors"] = pdmx.loc[pdmx["usable"], "mxl"].progress_apply(
+            self._check_score_tokenizable
+        )
+        has_errors = pdmx["errors"] != ""
+        pdmx.loc[has_errors, "usable"] = False
+        logger.info(f"Number of scores with errors: {has_errors.sum()}")
 
-        # print(f"Number of entries with <= 500 notes: {len(df[df['n_notes'] <= 500])}")
-        # print(f"Number of entries with no repeats: {len(df[~df['has_repeats']])}")
-        # print(
-        #     f"Number of entries with <= 500 notes and no repeats: {len(df[(~df['has_repeats']) & (df['n_notes'] <= 500)])}"
-        # )
+        # Check the transposition range of each score
+        logger.info(f"Computing allowed transpositions for each score")
+        tested_intervals = [
+            pt.score.Interval(number=int(inter[0]), quality=inter[1:], direction=direction)
+            for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+            for direction in ["up", "down"]
+        ] + [pt.score.Interval(1, "P", "up")]
+        pdmx.loc[pdmx["usable"], "allowed_transpositions"] = pdmx.loc[
+            pdmx["usable"], "mxl"
+        ].progress_apply(partial(self._compute_allowed_transpositions, intervals=tested_intervals))
 
-        # Filter out long scores
-        # df = df[(~df["has_repeats"]) & (df["n_notes"] <= 500)]
-        # def count_notes(path: Path) -> int:
-        #     path = directory / path
-        #     return sum(len(track.notes) for track in symusic.Score(path).tracks)
+        return pdmx
 
-        # # TODO: move offline to avoid computing at each run (and for each split)
-        # df["n_notes_midi"] = df["mid"].apply(count_notes)
+    def read_metadata(self) -> list[ScorePerformanceEntry]:
+        # Read PDMX metadata
+        metadata_path = self.additional_metadata_file
+        df = pd.read_csv(metadata_path)
+        df = df[df["usable"]]
         df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
-
         logger.info(f"Number of entries before split: {len(df)}")
 
         # Create splits
-        num_validation_pieces = 1000
+        num_validation_pieces = 10
         val_every_nth = int(len(df) / num_validation_pieces)
-        if split == "all":
+        if self.split == "all":
             indices = list(range(len(df)))
-        elif split == "validation":
+        elif self.split == "validation":
             indices = [i for i in range(len(df)) if i % val_every_nth == 0]
-        elif split == "train":
+        elif self.split == "train":
             indices = [i for i in range(len(df)) if i % val_every_nth != 0]
         else:
-            assert_never(split)
+            raise ValueError(f"Invalid split: {self.split}")
 
         # Create entries
         entries = [
             ScorePerformanceEntry(
-                xml_score=directory / row["mxl"],
-                midi_performance=directory / row["mid"],
+                xml_score=self.directory / row["mxl"],
+                midi_performance=self.directory / row["mid"],
                 midi_score_annotations=None,
                 midi_score=None,
                 folder=None,
-                base_path=directory,
-                composer=cls._get_composer(row),
-                title=cls._get_title(row),
+                base_path=self.directory,
+                composer=self._get_composer(row),
+                title=self._get_title(row),
             )
             for _, row in df.iloc[indices].iterrows()
         ]
@@ -512,6 +555,101 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             full_title += f" [{subtitle}]"
         return full_title
 
+    def _extract_instrument(self, path: Path | str) -> list[str] | None:
+        file_path = self.directory / path
+        try:
+            with file_path.open('r') as file:
+                data = json.load(file)
+                # Extract the instrument information
+                instruments = [i["name"] for i in data["data"]["score"]["instruments"]]
+                return instruments
+        except KeyError as e:
+            print(f"Error reading {file_path}: {e}")
+            return None
+
+    def _count_midi_notes(self, path: Path) -> int:
+        if isinstance(path, float) and math.isnan(path):
+            return -1  # Path not available
+        path = self.directory / path
+        try:
+            score = symusic.Score(path)
+            return sum(len(track.notes) for track in score.tracks)
+        except Exception as e:
+            print(f"Error reading {path}: {e}")
+            return -1  # Indicate an error
+
+    def _check_score_tokenizable(self, path: Path) -> str:
+        if isinstance(path, float) and math.isnan(path):
+            return "MissingScore"
+        path = self.directory / path
+        error = check_full(path)
+        if error is None:
+            return ""
+        else:
+            return type(error).__name__
+
+    def _compute_allowed_transpositions(
+        self,
+        path: Path,
+        intervals: list[pt.score.Interval],
+    ) -> list[str]:
+        if isinstance(path, float) and math.isnan(path):
+            return []
+        path = self.directory / path
+        # No try as this assumes that any reading error has been caught before
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            score = pt.load_musicxml(path)
+        allowed_intervals = []
+        for interval in intervals:
+            try:
+                pt.utils.music.transpose(
+                    score,
+                    interval,
+                    transpose_key_signatures=True,
+                    inplace=False,
+                )
+                allowed_intervals.append(interval)
+                logger.trace(
+                    f"Score {path} can be transposed "
+                    f"{interval.direction} by a {interval.number}{interval.quality} interval."
+                )
+            except (AssertionError, ValueError, Exception) as e:
+                # Not ideal but the easiest way to capture the correct exception
+                if isinstance(e, AssertionError) and e.args[0].endswith(
+                    "is not in the range -2 to 2."
+                ):
+                    logger.trace(
+                        f"Can't transpose {path} {interval.direction} by a "
+                        f"{interval.number}{interval.quality} interval (alterations > 2)."
+                    )
+                elif isinstance(e, ValueError) and e.args[0].endswith(
+                    "The maximum number of fifths is +/- 7."
+                ):
+                    logger.trace(
+                        f"Can't transpose {path} {interval.direction} by a "
+                        f"{interval.number}{interval.quality} interval (key fifths > 7)."
+                    )
+                elif isinstance(e, Exception) and e.args[0].startswith("Unknown mode "):
+                    mode = e.args[0].split("Unknown mode ")[1]
+                    logger.trace(
+                        f"Can't transpose {path} {interval.direction} by a "
+                        f"{interval.number}{interval.quality} interval (unknown mode: {mode})."
+                    )
+                else:
+                    raise
+        logger.trace(
+            f"Allowed transpositions for {path}: "
+            + ", ".join(
+                f"{'-' if i.direction == 'down' else ''}{i.number}{i.quality}"
+                for i in allowed_intervals
+            )
+        )
+        return [
+            f"{('-' if i.direction == 'down' else '')}{i.number}{i.quality}"
+            for i in allowed_intervals
+        ]
+
 
 # if __name__ == '__main__':
 #     ds = AsapDataset(
@@ -528,8 +666,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
 if __name__ == '__main__':
     ds = PdmxPianoDataset(
         Path("~/Documents/datasets/pdmx").expanduser(),
-        excluded_indices_paths=Path("~/Documents/datasets/pdmx/overlapping_asap.csv").expanduser(),
         split="train",
+        force_metadata_extraction=True,
     )
     print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
     print(ds[0].midi_performance)
