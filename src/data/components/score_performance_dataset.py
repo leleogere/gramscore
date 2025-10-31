@@ -463,7 +463,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 similarities = torch.matmul(input=pdmx_embeddings, other=query_embedding)
                 similarities = similarities / (pdmx_magnitudes * query_magnitude)
                 similarities = (similarities + 1) / 2
-                pdmx["similar_to_asap"] = similarities >= similarity_threshold
+                pdmx["similar_to_asap"] = (similarities >= similarity_threshold).cpu()
             logger.info(
                 f"Number of PDMX pieces similar to ASAP pieces: {pdmx['similar_to_asap'].sum()}"
             )
