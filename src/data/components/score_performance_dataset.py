@@ -416,8 +416,13 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 raise FileNotFoundError(
                     "PDMX embeddings not found, please generate them first."
                 )  # TODO: automate the generation if not found
-            pdmx_embeddings = torch.from_numpy(np.loadtxt(pdmx_embeddings_path, delimiter=","))
-            pdmx_magnitudes = torch.from_numpy(np.loadtxt(pdmx_magnitudes_path, delimiter=","))
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            pdmx_embeddings = torch.from_numpy(np.loadtxt(pdmx_embeddings_path, delimiter=",")).to(
+                device
+            )
+            pdmx_magnitudes = torch.from_numpy(np.loadtxt(pdmx_magnitudes_path, delimiter=",")).to(
+                device
+            )
 
             # Function to create a descriptor for an ASAP entry
             def create_descriptor(title: str, composer: str):
@@ -438,7 +443,6 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             ]
             logger.info(f"Number of ASAP validation and test pieces: {len(asap_descriptions)}")
             logger.info(f"Computing ASAP embeddings")
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             model = SentenceTransformer(model_name_or_path="all-MiniLM-L6-v2", device=str(device))
             asap_embeddings = model.encode(
                 sentences=asap_descriptions,
