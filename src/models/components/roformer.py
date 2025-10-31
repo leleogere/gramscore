@@ -305,7 +305,7 @@ class CustomRoFormerEncoder(RoFormerEncoder):
             )  # Should be equivalent to original RoFormer implementation
             # TODO: remove tests once sure it works
             random_test = torch.arange(0, 20, requires_grad=False).unsqueeze(0)
-            print("Testing old vs new positional embeddings (should be equal):")
+            # print("Testing old vs new positional embeddings (should be equal):")
             assert torch.allclose(
                 self._old_embed_positions(random_test.shape),
                 self.embed_positions(random_test).squeeze(0),
@@ -351,7 +351,7 @@ class CustomRoFormerEncoder(RoFormerEncoder):
             ).unsqueeze(
                 0
             )  # (B, T)
-        print(input_positions)
+        # print(input_positions)
         sinusoidal_pos = self.embed_positions.forward(input_positions).unsqueeze(1)
         # (B, 1, T, D)  ->  New dimension for the head
 

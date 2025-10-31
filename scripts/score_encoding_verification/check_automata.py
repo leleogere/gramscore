@@ -74,7 +74,7 @@ def check_path(
     try:
         tokens = tk.partitura_to_token_sequence(score)
     except Exception as e:
-        raise TokenizationError(*e.args)
+        return {"global": [TokenizationError(f"Tokenization error: {e}")]}
     # for token in tokens:
     #     print(token)
     try:
@@ -90,12 +90,15 @@ def check_path(
 
 
 # if __name__ == '__main__':
-#     path = Path("/home/gerel/Documents/papiers/asap_fixes/scores/bad_measure_rest/example.musicxml")
-#     excs = check_path(path, allow_longer_measures=False, allow_duplicate_notes_in_chord=False)
-#     for measure, mexcs in excs.items():
-#         print(measure)
-#         for exc in mexcs:
-#             print(f"  - {exc}")
+## path = Path("/home/gerel/Documents/papiers/asap_fixes/scores/bad_measure_rest/example.musicxml")
+# path = Path(
+# "/home/gerel/Documents/datasets/pdmx/mxl/13/2/QmV3Cpt73R6ZDy8xvgPYnzhYfPwXMyE3BpUze4YsJjbQxP.mxl"
+# )
+# excs = check_path(path, allow_longer_measures=False, allow_duplicate_notes_in_chord=False)
+# for measure, mexcs in excs.items():
+# print(measure)
+# for exc in mexcs:
+# print(f"  - {exc}")
 
 if __name__ == '__main__':
     # fmt: off
@@ -103,7 +106,7 @@ if __name__ == '__main__':
     asap_path = Path("~/Documents/datasets/asap-dataset-original").expanduser()
     # fmt: on
 
-    allow_longer_measures = True
+    allow_longer_measures = False
     allow_duplicate_notes_in_chord = False
 
     invalid_file = asap_path / f"{asap_path.stem}_exceptions.json"
@@ -111,7 +114,7 @@ if __name__ == '__main__':
         asap_path / f"{asap_path.stem}_transition_errors"
         f"_{allow_longer_measures=}"
         f"_{allow_duplicate_notes_in_chord=}"
-        f".json"
+        f"_NEW.json"
     )
 
     with invalid_file.open("r") as f:

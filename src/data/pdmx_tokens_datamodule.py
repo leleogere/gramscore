@@ -40,22 +40,23 @@ class PdmxTokensDataModule(LightningDataModule):
         prefetch_factor: int = None,
         persistent_workers: bool = False,
         pin_memory: bool = False,
+        asap_path: Optional[Path] = None,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
         :param data_dir: The data directory.
         :param batch_size: The batch size.
-        :param include_midi_scores: Whether to include the MIDI scores as performances.
-        :param filter_fn: A function to filter the entries.
-        :param valid_tsv_file: An eventual TSV file with a column "folder" and a column "valid"
-            being "True" for included folders (and eventually False for excluded but not needed)
         :param num_workers: The number of workers to use for data loading.
+        :param prefetch_factor: The number of samples to prefetch per worker.
+        :param persistent_workers: Whether to use persistent workers.
+        :param pin_memory: Whether to pin memory.
+        :param asap_path: Optional path to the ASAP dataset (to exclude PDMX pieces that are also in ASAP val and test sets).
         """
         super().__init__()
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(ignore="multiprocessing_manager")
+        self.save_hyperparameters()
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -64,8 +65,6 @@ class PdmxTokensDataModule(LightningDataModule):
         self.batch_size_per_device = batch_size
 
         self.splits = ["train", "validation"]
-
-        self._prepared = False
 
     @staticmethod
     def collate_fn(
@@ -184,22 +183,7 @@ class PdmxTokensDataModule(LightningDataModule):
                 t.ScoreReader(),
                 t.VoiceRestFiller(),
                 t.VoiceReorderer(),
-                t.Cache(
-                    [
-                        t.AllowedTranspositionComputer(
-                            intervals=[
-                                pt.score.Interval(
-                                    number=int(inter[0]), quality=inter[1:], direction=direction
-                                )
-                                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-                                for direction in ["up", "down"]
-                            ]
-                            + [pt.score.Interval(1, "P", "up")]
-                        )
-                    ],
-                    cache_key=lambda sample: sample["entry"].xml_score,
-                    keys_to_cache=["allowed_transpositions"],
-                ),
+                t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
                 # t.Cache(
                 #     transforms=[
                 #         t.ScoreReader(),
@@ -280,8 +264,7 @@ class PdmxTokensDataModule(LightningDataModule):
                     directory=self.hparams.data_dir,
                     split=split,
                     transforms=transforms[split],
-                    only_valid=True,
-                    excluded_indices_paths=self.hparams.data_dir / "overlapping_asap.csv",
+                    asap_path=self.hparams.asap_path,
                 )
                 for split in self.splits
             }

@@ -8,6 +8,11 @@ data_dir:
     _args_:
         - ${paths.data_dir}/pdmx
 
+asap_path:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset
+
 batch_size: 2
 num_workers: 2
 prefetch_factor: 2

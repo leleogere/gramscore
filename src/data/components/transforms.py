@@ -107,6 +107,31 @@ class PerformanceReader(AbstractProcessor):
         return {"performance": performance}
 
 
+class PreComputedAllowedTranspositionsReader(AbstractProcessor):
+    """
+    This class reads a pre-computed list of allowed transpositions from a ScorePerformanceEntry.
+    This list is added to the sample as "allowed_transpositions".
+    """
+
+    def __init__(self, limit_semitones: int = None):
+        self.limit_semitones = limit_semitones
+
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        allowed_intervals = sample["entry"].allowed_transpositions
+        if self.limit_semitones is not None:
+            allowed_intervals = [
+                i for i in allowed_intervals if i.semitones <= self.limit_semitones
+            ]
+        logger.trace(
+            f"Pre-computed allowed transpositions for {sample['entry'].xml_score.as_posix()}: "
+            + ", ".join(
+                f"{'-' if i.direction == 'down' else ''}{i.number}{i.quality}"
+                for i in allowed_intervals
+            )
+        )
+        return {"allowed_transpositions": allowed_intervals}
+
+
 class AllowedTranspositionComputer(AbstractProcessor):
     """
     This class simply computes a list of allowed transpositions for a given score:

@@ -39,6 +39,7 @@ class ScorePerformanceEntry:
     composer: str | None = None
     title: str | None = None
     split: str | None = None
+    allowed_transpositions: list[pt.score.Interval] | None = None
 
     def _get_relative_path(self, absolute_path: Path) -> Path:
         if self.base_path is None:
@@ -494,6 +495,10 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # Read PDMX metadata
         metadata_path = self.additional_metadata_file
         df = pd.read_csv(metadata_path)
+        # Convert additional metadata columns from strings to lists
+        df["allowed_transpositions"] = df["allowed_transpositions"].apply(
+            lambda x: x.strip("[]").replace("'", "").split(", ") if isinstance(x, str) else []
+        )
         df = df[df["usable"]]
         df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
         logger.info(f"Number of entries before split: {len(df)}")
@@ -521,11 +526,26 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 base_path=self.directory,
                 composer=self._get_composer(row),
                 title=self._get_title(row),
+                allowed_transpositions=[
+                    self._interval_str_to_interval(interval)
+                    for interval in row["allowed_transpositions"]
+                ],
             )
             for _, row in df.iloc[indices].iterrows()
         ]
 
         return entries
+
+    @staticmethod
+    def _interval_str_to_interval(interval_str: str) -> pt.score.Interval:
+        if interval_str.startswith("-"):
+            direction = "down"
+            interval_str = interval_str[1:]
+        else:
+            direction = "up"
+        number = int(interval_str[0])
+        quality = interval_str[1]
+        return pt.score.Interval(number=number, quality=quality, direction=direction)
 
     @staticmethod
     def _get_composer(row) -> str:
@@ -668,7 +688,7 @@ if __name__ == '__main__':
     ds = PdmxPianoDataset(
         Path("~/Documents/datasets/pdmx").expanduser(),
         split="train",
-        force_metadata_extraction=True,
+        # force_metadata_extraction=True,
     )
     print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
     print(ds[0].midi_performance)
