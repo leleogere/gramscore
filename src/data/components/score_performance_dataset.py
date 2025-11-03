@@ -501,8 +501,12 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         df = pd.read_csv(metadata_path)
         # Convert additional metadata columns from strings to lists
         df["allowed_transpositions"] = df["allowed_transpositions"].apply(
-            lambda x: x.strip("[]").replace("'", "").split(", ") if isinstance(x, str) else []
-        )
+            lambda x: (
+                [i for i in x.strip("[]").replace("'", "").split(", ") if i != '']
+                if isinstance(x, str)
+                else []
+            )
+        )  # TODO: avoid using the list repr for export/import
         df = df[df["usable"]]
         df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
         logger.info(f"Number of entries before split: {len(df)}")
