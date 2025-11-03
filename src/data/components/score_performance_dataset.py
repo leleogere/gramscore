@@ -499,7 +499,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # Read PDMX metadata
         metadata_path = self.additional_metadata_file
         df = pd.read_csv(metadata_path)
-        # Convert additional metadata columns from strings to lists
+        # Parse allowed transpositions from string to list
         df["allowed_transpositions"] = df["allowed_transpositions"].apply(
             lambda x: (
                 [i for i in x.strip("[]").replace("'", "").split(", ") if i != '']
