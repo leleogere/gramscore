@@ -243,16 +243,13 @@ class TokensTranscriberModule(L.LightningModule):
         ), f"Router logits shape {router_logits.shape} does not match true token types shape {true_token_types.shape}"
 
         # Pass the decoder outputs through the expert heads
-        correctly_predicted_tokens_per_type = {
-            t_str: torch.logical_and(
-                true_token_types_argmax == TokenTensor.TOKEN_INDEXER[t_cls],
-                correct_predictions,  # Only continue with correctly predicted token types
-            )
+        true_token_type_masks = {
+            t_str: true_token_types_argmax == TokenTensor.TOKEN_INDEXER[t_cls]
             for t_cls, t_str in zip(tk.TOKEN_TYPES, tk.TOKEN_TYPES_STR)
         }
         expert_outputs: dict[str, dict[str, torch.Tensor]] = self.transcriber_model.forward_experts(
             decoder_outputs=decoder_outputs.last_hidden_state,
-            token_type_masks=correctly_predicted_tokens_per_type,
+            token_type_masks=true_token_type_masks,
             convert_to_tokentensor=False,
         )
 
@@ -296,7 +293,7 @@ class TokensTranscriberModule(L.LightningModule):
             include_token_type_dim=False,
             remove_padding=True,
             token_type_keys_as_str=True,
-            tokens_mask=correctly_predicted_tokens_per_type,
+            tokens_mask=true_token_type_masks,
         )
         for token_type in expert_outputs:
             losses["expert_losses"][token_type] = {}
