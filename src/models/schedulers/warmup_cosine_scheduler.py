@@ -38,3 +38,25 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LambdaLR):
         # progress after warmup
         progress = (step - self.warmup_steps) / max(1, self.total_steps - self.warmup_steps)
         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * float(self.cycles) * 2.0 * progress)))
+
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    scheduler = WarmupCosineScheduler(
+        optimizer=torch.optim.AdamW(params=[torch.nn.Parameter(torch.zeros(1))]),
+        warmup_steps=1000,
+        total_steps=10000,
+        cycles=0.0,
+    )
+
+    lrs = []
+    for step in range(10000):
+        lrs.append(scheduler.get_last_lr()[0])
+        scheduler.step()
+
+    plt.plot(lrs)
+    plt.xlabel("Training Steps")
+    plt.ylabel("Learning Rate")
+    plt.title("Warmup Cosine Learning Rate Scheduler")
+    plt.show()
