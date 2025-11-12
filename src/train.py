@@ -119,7 +119,7 @@ def train(cfg: DictConfig) -> None:
     logger.info(f"Trainer {trainer} ready!")
 
     # Fit model
-    trainer.fit(model, datamodule)
+    trainer.fit(model, datamodule, ckpt_path=load_from_checkpoint if load_from_checkpoint else None)
 
     # logger.info("Testing model")
     # trainer.test(model, datamodule)
