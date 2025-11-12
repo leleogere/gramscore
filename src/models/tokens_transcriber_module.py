@@ -43,6 +43,7 @@ class TokensTranscriberModule(L.LightningModule):
         score_dropout: float = 0.75,
         log_logits_each_n_val_steps: int = 1,
         val_max_logits_logged: int = 5,
+        scale_expert_losses_with_token_frequency: bool = True,
     ):
         super().__init__()
         if experts_inner_dims is None:
@@ -311,11 +312,17 @@ class TokensTranscriberModule(L.LightningModule):
             )
 
         # Combine all losses
-        loss = losses["router_loss"] + self.hparams.expert_loss_weight * sum(
-            self.token_weights[tk.TOKEN_STR_TO_TYPE[token_type]]
-            * losses["expert_losses"][token_type]["_global"]
-            for token_type in losses["expert_losses"]
-        )
+        if self.hparams.scale_expert_losses_with_token_frequency:
+            loss = losses["router_loss"] + self.hparams.expert_loss_weight * sum(
+                self.token_weights[tk.TOKEN_STR_TO_TYPE[token_type]]
+                * losses["expert_losses"][token_type]["_global"]
+                for token_type in losses["expert_losses"]
+            )
+        else:
+            loss = losses["router_loss"] + self.hparams.expert_loss_weight * sum(
+                losses["expert_losses"][token_type]["_global"]
+                for token_type in losses["expert_losses"]
+            )
 
         return loss, {
             "losses": losses,
