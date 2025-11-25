@@ -1,3 +1,4 @@
+import pretty_midi as pm
 import csv
 import json
 import math
@@ -473,6 +474,14 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         logger.info(f"Counting number of notes in each MIDI performance")
         pdmx["n_notes_midi"] = pdmx["mid"].progress_apply(self._count_midi_notes)
 
+        # Count the number of measures in the unfolded score
+        logger.info(f"Counting number of measures in each MusicXML score")
+        pdmx["n_measures_score"] = pdmx["mxl"].progress_apply(self._count_unfolded_score_measures)
+
+        # Count the number of measures in the unfolded midi score
+        logger.info(f"Counting number of measures in each MIDI score")
+        pdmx["n_measures_midi"] = pdmx["mid"].progress_apply(self._count_unfolded_midi_measures)
+
         # Check if scores are tokenizable
         logger.info(f"Checking tokenizability of each score")
         pdmx.loc[pdmx["usable"], "errors"] = pdmx.loc[pdmx["usable"], "mxl"].progress_apply(
@@ -678,6 +687,35 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             f"{('-' if i.direction == 'down' else '')}{i.number}{i.quality}"
             for i in allowed_intervals
         ]
+
+    def _count_unfolded_score_measures(self, mxl_path: Path) -> int:
+        if isinstance(mxl_path, float) and math.isnan(mxl_path):
+            return -1
+        mxl_path = self.directory / mxl_path
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                score = pt.load_musicxml(mxl_path)
+                part = score.parts[0]
+                unfolded_part: pt.score.Part = pt.score.unfold_part_maximal(
+                    part, ignore_leaps=False
+                )
+            n_measures = len(list(unfolded_part.measures))
+            return n_measures
+        except Exception as e:
+            logger.error(f"Error reading {mxl_path}: {e}")
+            return -1  # Indicate an error
+
+    def _count_unfolded_midi_measures(self, midi_path: Path) -> int:
+        if isinstance(midi_path, float) and math.isnan(midi_path):
+            return -1
+        path = self.directory / midi_path
+        try:
+            midi = pm.PrettyMIDI(path.as_posix())
+            return len(midi.get_downbeats())
+        except Exception as e:
+            logger.error(f"Error reading {path}: {e}")
+            return -1  # Indicate an error
 
 
 # if __name__ == '__main__':
