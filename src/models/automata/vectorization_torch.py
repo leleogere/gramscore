@@ -15,14 +15,12 @@ class ProblemType(Enum):
     REGRESSION = "regression"
 
 
-def clip_cast(x, lower=None, upper=None, type_=None):
+def clip(x, lower=None, upper=None):
     assert lower is None or upper is None or lower <= upper
     if lower is not None:
         x = max(x, lower)
     if upper is not None:
         x = min(x, upper)
-    if type_ is not None:
-        x = type_(x)
     return x
 
 
@@ -217,7 +215,7 @@ class TokenTensor(torch.Tensor):
             denominator = self.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
             is_nominal = self._onehot_decode("bar_is_nominal") == 1
             return tk.Bar(
-                numerator=clip_cast(numerator, 1, type_=int),
+                numerator=round(clip(numerator.item(), 1)),
                 denominator=denominator,
                 is_nominal=is_nominal,
             )
@@ -323,8 +321,8 @@ class TokenTensor(torch.Tensor):
 
         # TupletStart
         if token_type == tk.TupletStart:
-            n_actual = clip_cast(self["tuplet_actual_notes"][0], 1, type_=int)
-            n_normal = clip_cast(self["tuplet_normal_notes"][0], 1, type_=int)
+            n_actual = round(clip(self["tuplet_actual_notes"][0].item(), 1))
+            n_normal = round(clip(self["tuplet_normal_notes"][0].item(), 1))
             return tk.TupletStart(
                 n_actual=n_actual,
                 n_normal=n_normal,
