@@ -11,7 +11,7 @@ import pandas as pd
 import partitura as pt
 import partitura.score
 import partitura.utils
-import pretty_midi
+import pretty_midi as pm
 import symusic
 import torch
 import torch.utils.data
@@ -19,6 +19,7 @@ from loguru import logger
 
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.music_chunking import clip_midi
+from data.music_chunking import clip_quantized_midi
 from data.music_chunking import clip_score
 from data.music_chunking import read_chunk_file
 from midi2scoretransformer.tokenizer import MultistreamTokenizer
@@ -26,13 +27,14 @@ from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
+from scripts.chunk_score_and_performance import clip_quantized_pretty_midi
 
 MAX_PITCH = 108
 MIN_PITCH = 21
 
 sys.setrecursionlimit(2**31 - 1)  # For transpose copies
 
-pretty_midi.pretty_midi.MAX_TICK = 1e10  # Some bugs with high PPQ MIDI files
+pm.pretty_midi.MAX_TICK = 1e10  # Some bugs with high PPQ MIDI files
 
 
 class ToDict:
@@ -93,12 +95,10 @@ class PerformanceReader(AbstractProcessor):
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            performance = pretty_midi.PrettyMIDI(sample["entry"].midi_performance.as_posix())
+            performance = pm.PrettyMIDI(sample["entry"].midi_performance.as_posix())
         # Merge all tracks into first one if multiple ones
         if len(performance.instruments) > 1:
-            track: pretty_midi.Instrument = performance.instruments[
-                0
-            ]  # Only reference so OK modifying it
+            track: pm.Instrument = performance.instruments[0]  # Only reference so OK modifying it
             for other in performance.instruments[1:]:
                 track.notes.extend(other.notes)
             track.notes = sorted(track.notes, key=lambda n: n.start)
@@ -303,6 +303,128 @@ class VoiceRestFiller(AbstractProcessor):
         return {"score": sample["score"]}
 
 
+class QuantizedMusicChunker(AbstractProcessor):
+    def __init__(
+        self,
+        num_performed_notes: int,
+        mode: Literal["random", "all_w_overlap", "all_wo_overlap", "first"] | int = "random",
+    ):
+        """
+        This class chunks a score and a performance into smaller segments.
+
+        :param num_performed_notes: Approx number of performed notes to keep in the chunk
+        :param mode: Mode of chunking:
+            - "random": Randomly sample a chunk of num_performed_notes notes
+            - "all_w_overlap": Sample all chunks of num_performed_notes notes, with a sliding
+                window of one measure
+            - "all_wo_overlap": Sample all chunks of num_performed_notes notes without overlap
+            - int: Measure number to start the chunking from
+        """
+        self.num_performed_notes = num_performed_notes
+        self.mode = mode
+
+    def _process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        # Get the score and performance
+        entry: ScorePerformanceEntry = sample["entry"]
+        score: pt.score.Part = sample["score"]
+        performance: pm.PrettyMIDI = sample["performance"]
+
+        num_measures = len(score.measures)
+
+        def clip_performance_and_score(
+            start_measure: int,
+            num_notes: int,
+        ) -> tuple[pm.PrettyMIDI, pt.score.Part, int, int]:
+            clipped_performance, (start, end) = clip_quantized_midi(
+                midi=performance,
+                start_measure=start_measure,
+                num_notes=num_notes,
+                inplace=False,
+                check_num_measures=num_measures,
+            )
+            clipped_score = clip_score(
+                score=score,
+                start_measure=start,
+                end_measure=end,
+            )
+            return clipped_performance, clipped_score, start, end
+
+        if self.mode == "random" or isinstance(self.mode, int):
+            start_measure = (
+                random.randint(0, num_measures - 1)  # Random sample start measure
+                if self.mode == "random"
+                else self.mode
+            )
+            clipped_perf, clipped_sco, start, end = clip_performance_and_score(
+                start_measure, self.num_performed_notes
+            )
+            results = {
+                "score": clipped_sco,
+                "performance": clipped_perf,
+                "chunk_start": start,
+                "chunk_end": end,
+            }
+
+        else:
+            results = []
+            # In case of overlap, clip until the end of the score
+            if self.mode == "all_w_overlap":
+                for start_meas in range(num_measures):
+                    clipped_perf, clipped_sco, start, end = clip_performance_and_score(
+                        start_meas, self.num_performed_notes
+                    )
+                    assert start_meas == start, "Start measure should be the same, probable bug"
+                    results.append(
+                        {
+                            "score": clipped_sco,
+                            "performance": clipped_perf,
+                            "chunk_start": start,
+                            "chunk_end": end,
+                        }
+                    )
+                    if end == num_measures - 1:
+                        break
+            elif self.mode == "all_wo_overlap":
+                start_meas = 0
+                end = 0
+                while end < num_measures - 1:
+                    # Get the next chunk
+                    clipped_perf, clipped_sco, start, end = clip_performance_and_score(
+                        start_meas, self.num_performed_notes
+                    )
+                    assert start_meas == start, "Start measure should be the same, probable bug"
+                    new_result = {
+                        "score": clipped_sco,
+                        "performance": clipped_perf,
+                        "chunk_start": start,
+                        "chunk_end": end,
+                    }
+                    # If less than 5 measures left, recompute the last segment with the remaining
+                    if 0 < end - num_measures + 1 < 10:
+                        logger.trace(
+                            f"Last segment with {num_measures - end} measures, "
+                            f"adding it to the last chunk"
+                        )
+                        new_result["chunk_end"] = num_measures - 1
+                        clipped_perf, clipped_sco, start, end = clip_performance_and_score(
+                            start_meas,
+                            self.num_performed_notes
+                            + 100_000_000,  # Large number to get all remaining
+                        )
+                        new_result = {
+                            "score": clipped_sco,
+                            "performance": clipped_perf,
+                            "chunk_start": start,
+                            "chunk_end": end,
+                        }
+                    results.append(new_result)
+                    start_meas = end + 1
+            else:
+                raise ValueError(f"Unknown mode {self.mode}")
+
+        return results
+
+
 class MusicChunker(AbstractProcessor):
     def __init__(
         self,
@@ -456,7 +578,7 @@ class PerformanceSpeedAugmenter(AbstractProcessor):
     def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Randomly speed up or slow down the performance
         factor = random.uniform(self.min_factor, self.max_factor)
-        performance: pretty_midi.PrettyMIDI = sample["performance"]
+        performance: pm.PrettyMIDI = sample["performance"]
         end = performance.get_end_time()
         performance.adjust_times(
             original_times=[0, end],
@@ -481,7 +603,7 @@ class PerformanceVectorizer(AbstractProcessor):
         # )
         assert len(sample["performance"].instruments) == 1, "Only one track supported"
         # midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
-        midi_list: list[pretty_midi.Note] = sample["performance"].instruments[0].notes
+        midi_list: list[pm.Note] = sample["performance"].instruments[0].notes
         midi_list = sorted(midi_list, key=lambda n: (n.start, n.pitch, n.duration))
         # This is directly from Beyer's MIDI2ScoreTransformer code
         midi_streams = {

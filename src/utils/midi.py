@@ -1,3 +1,7 @@
+import copy
+
+import numpy as np
+import pretty_midi as pm
 import symusic
 from partitura.utils.music import midi_pitch_to_pitch_spelling
 
@@ -24,3 +28,98 @@ def midi_pitch_to_note_name(pitch: int) -> str:
     step, alteration, octave = midi_pitch_to_pitch_spelling(pitch)
     pitch_name = step + alteration * "♯" + -alteration * "♭" + str(octave)
     return pitch_name
+
+
+def crop_pretty_midi(
+    midi: pm.PrettyMIDI, start: float = None, end: float = None, inplace: bool = False
+) -> pm.PrettyMIDI:
+    """
+    Crop a PrettyMIDI object between start and end time (in seconds).
+    If inplace is True, modify the original object.
+    """
+    if not inplace:
+        midi = copy.deepcopy(midi)
+
+    # Track the last event for sanity checks
+    midi_end = 0.0
+
+    # Loop over instruments
+    new_instruments = []
+    for instrument in midi.instruments:
+
+        # Loop over notes, only keeping those within the time range (and cropping them if necessary)
+        new_notes = []
+        for note in instrument.notes:
+            if note.end <= start or note.start >= end:
+                continue
+            new_start = max(note.start, start) - start if start is not None else note.start
+            new_end = min(note.end, end) - start if end is not None else note.end
+            new_note = pm.Note(
+                velocity=note.velocity, pitch=note.pitch, start=new_start, end=new_end
+            )
+            new_notes.append(new_note)
+            if new_end > midi_end:
+                midi_end = new_end
+        instrument.notes = new_notes
+
+        # Loop over other instrument events, only keeping those within the time range
+        for attribute in ["control_changes", "pitch_bends"]:
+            new_events = []
+            for event in getattr(instrument, attribute):
+                if event.time < start or event.time > end:
+                    continue
+                new_event = copy.deepcopy(event)
+                new_event.time = event.time - start if start is not None else event.time
+                new_events.append(new_event)
+                if new_event.time > midi_end:
+                    midi_end = new_event.time
+            setattr(instrument, attribute, new_events)
+
+        new_instruments.append(instrument)
+    midi.instruments = new_instruments
+
+    # Loop over other events
+    for attribute, move_to_start in [
+        ("key_signature_changes", True),
+        ("time_signature_changes", True),
+        ("lyrics", False),
+        ("text_events", False),
+    ]:
+        new_events = []
+        for event in getattr(midi, attribute):
+            if event.time < start or event.time > end:
+                continue
+            new_event = copy.deepcopy(event)
+            if move_to_start:
+                new_event.time = event.time - start if start is not None else event.time
+            new_events.append(new_event)
+            if new_event.time > midi_end:
+                midi_end = new_event.time
+        setattr(midi, attribute, new_events)
+
+    # print(midi._tick_scales)
+
+    # Loop over tempo changes
+    # Not working currently, it should not be very important, as long as we do not need metrical
+    # information after cropping
+
+    # Sanity check
+    computed_midi_end = max(
+        [i.get_end_time() for i in midi.instruments]
+        + [
+            e.time
+            for m in [
+                midi.time_signature_changes,
+                midi.key_signature_changes,
+                midi.lyrics,
+                midi.text_events,
+            ]
+            for e in m
+        ],
+        default=0.0,
+    )  # all events except tempo changes
+    assert midi_end == computed_midi_end, (
+        f"Sanity check failed: cropped MIDI end time does not match: "
+        f"{midi_end} != {computed_midi_end}"
+    )
+    return midi

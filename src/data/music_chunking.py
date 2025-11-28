@@ -1,3 +1,4 @@
+import pretty_midi as pm
 import copy
 import itertools
 import json
@@ -16,6 +17,7 @@ import models.automata.tokens as tk
 from models.automata.io import partitura_to_token_sequence
 from models.automata.io import token_sequence_to_partitura
 from models.automata.tokens import HasStaffMixin
+from utils.midi import crop_pretty_midi
 from utils.musicxml import voice_absolute_into_voice_relative_to_staff
 
 
@@ -381,6 +383,86 @@ def clip_score(
             clipped_score.add(new_element, start=0)
 
     return clipped_score
+
+
+def clip_quantized_midi(
+    midi: pm.PrettyMIDI,
+    start_measure: int,
+    num_notes: int,
+    inplace: bool = True,
+    check_num_measures: int | None = None,
+) -> tuple[pm.PrettyMIDI, tuple[int, int]]:
+    """
+    Clip a quantized MIDI performance (with correct metricl information) to an approximate number
+    of notes, starting from a given measure.
+    This function can return more than the required number of notes as it will accumulate notes
+    to the end of the last measure so that it returns a complete last measure.
+    This function can also return less than the required number of notes if there are less than
+    the required number of notes in the performance starting from the given measure.
+
+    :param midi: The quantized MIDI performance to clip.
+    :param start_measure: Index of the measure to start the chunk.
+    :param num_notes: Required number of notes to gather, starting from the start measure.
+        Note that there might be more than the required number of notes (if there are still notes
+        in the last downbeat group), or less (if the remaining notes from the start measure is
+        less than the required number of notes).
+    :param inplace: Whether to modify the input MIDI performance or return a new one.
+    :param check_num_measures: Only used to check that the total number of measures in the MIDI
+        performance matches some externally computed number of measures.
+
+    :return: The clipped MIDI performance and the range of measures (inclusive) used to clip it.
+    """
+    if len(midi.instruments) > 1:
+        raise ValueError("MIDI performance must have only one instrument.")
+
+    if not inplace:
+        midi = copy.deepcopy(midi)
+
+    # Get downbeat times
+    downbeat_times = midi.get_downbeats()
+    total_measures = len(downbeat_times)
+
+    # Check number of measures if needed
+    if check_num_measures is not None and check_num_measures != total_measures:
+        raise ValueError(
+            f"Number of measures in the MIDI ({total_measures}) does not match the "
+            f"required number of measures ({check_num_measures})"
+        )
+    if start_measure >= total_measures:
+        raise ValueError(
+            f"Start measure {start_measure} is greater than or equal to the total number of "
+            f"measures ({total_measures})"
+        )
+
+    # Find start and end times
+    start_time = downbeat_times[start_measure]
+    accumulated_notes = 0
+    end_measure = start_measure
+    for measure_idx in range(start_measure, total_measures):
+        measure_start_time = downbeat_times[measure_idx]
+        measure_end_time = (
+            downbeat_times[measure_idx + 1]
+            if measure_idx + 1 < total_measures
+            else midi.get_end_time()
+        )
+        # Count notes in this measure
+        notes_in_measure = [
+            note
+            for note in midi.instruments[0].notes
+            if note.start >= measure_start_time and note.start < measure_end_time
+        ]
+        accumulated_notes += len(notes_in_measure)
+        end_measure = measure_idx
+        if accumulated_notes >= num_notes:
+            break
+    end_time = (
+        downbeat_times[end_measure + 1] if end_measure + 1 < total_measures else midi.get_end_time()
+    )
+
+    # Crop the MIDI
+    midi = crop_pretty_midi(midi, start=start_time, end=end_time, inplace=True)
+
+    return midi, (start_measure, end_measure)
 
 
 def clip_token_sequence(

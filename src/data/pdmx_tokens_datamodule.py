@@ -222,11 +222,10 @@ class PdmxTokensDataModule(LightningDataModule):
                 # ),
                 t.PerformanceReader(),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
-                # t.MusicChunker(
-                #     num_performed_notes=500,
-                #     annotations=self.hparams.data_dir / "asap_annotations.json",
-                #     mode="random",
-                # ),
+                t.QuantizedMusicChunker(
+                    num_performed_notes=500,
+                    mode="random",
+                ),
                 t.RandomTransposer(),
                 t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 t.ScoreVectorizer(),
@@ -252,6 +251,10 @@ class PdmxTokensDataModule(LightningDataModule):
                 #     annotations=self.hparams.data_dir / "asap_annotations.json",
                 #     mode="all_wo_overlap",
                 # ),
+                t.QuantizedMusicChunker(
+                    num_performed_notes=500,
+                    mode=0,
+                ),
                 t.ScoreVectorizer(),
                 t.PerformanceVectorizer(),
             ],
