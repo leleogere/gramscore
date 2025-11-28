@@ -357,6 +357,7 @@ class QuantizedMusicChunker(AbstractProcessor):
             clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                 start_measure, self.num_performed_notes
             )
+            logger.debug(f"Clipping {sample['entry'].xml_score_relative} from {start, end}")
             results = {
                 "score": clipped_sco,
                 "performance": clipped_perf,
