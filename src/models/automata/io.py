@@ -173,10 +173,7 @@ def token_sequence_to_partitura(
                 octave_change=token.octave_change,
             )
             if clef.staff in pending_clefs:
-                raise ValueError(
-                    f"Can't add {clef}, another clef is already waiting to be added "
-                    f"{pending_clefs[clef]}"
-                )
+                logger.warning("Another clef is already pending for this staff, replacing it")
             # In case of start of measure, put the clef right away
             if time == measure.start.t:
                 score.add(clef, start=time)
