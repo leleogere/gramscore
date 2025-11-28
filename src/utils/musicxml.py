@@ -1,3 +1,6 @@
+import zipfile
+from pathlib import Path
+
 ARTICULATIONS = [
     "accent",
     "strong_accent",
@@ -68,3 +71,21 @@ def voice_relative_to_staff_into_voice_absolute(
         voice_in_staff_idx -= 1
     voice_idx = voice_in_staff_idx + staff_idx * 4
     return voice_idx + 1 if one_based else voice_idx
+
+
+def read_musicxml(path: Path) -> str:
+    """
+    Reads a (maybe zipped) MusicXML file and returns its content as a string.
+
+    :param path: Path to the MusicXML file.
+    :return: Content of the MusicXML file as a string.
+    """
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as zipped_xml:
+            contained_xml_name = zipped_xml.namelist()[-1]
+            xml = zipped_xml.open(contained_xml_name)
+            xml = xml.read().decode("utf-8")
+    else:
+        with open(path, "r") as f:
+            xml = f.read()
+    return xml
