@@ -27,6 +27,7 @@ from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
+from utils.midi import merge_pretty_midi_into_single_track
 
 MAX_PITCH = 108
 MIN_PITCH = 21
@@ -96,12 +97,7 @@ class PerformanceReader(AbstractProcessor):
             warnings.simplefilter("ignore")
             performance = pm.PrettyMIDI(sample["entry"].midi_performance.as_posix())
         # Merge all tracks into first one if multiple ones
-        if len(performance.instruments) > 1:
-            track: pm.Instrument = performance.instruments[0]  # Only reference so OK modifying it
-            for other in performance.instruments[1:]:
-                track.notes.extend(other.notes)
-            track.notes = sorted(track.notes, key=lambda n: n.start)
-            performance.instruments = [track]
+        performance = merge_pretty_midi_into_single_track(performance, inplace=True)
         assert len(performance.instruments) == 1
         return {"performance": performance}
 

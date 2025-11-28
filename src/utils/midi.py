@@ -21,6 +21,25 @@ def merge_into_single_track(midi: ScoreType, inplace: bool = True) -> ScoreType:
     return midi
 
 
+def merge_pretty_midi_into_single_track(midi: pm.PrettyMIDI, inplace: bool = True) -> pm.PrettyMIDI:
+    if not inplace:
+        midi = copy.deepcopy(midi)
+    if len(midi.instruments) > 1:
+        track: pm.Instrument = midi.instruments[0]  # Only reference so OK modifying it
+        merged_attributes = {
+            "notes": (track.notes, lambda n: n.start),
+            "control_changes": (track.control_changes, lambda cc: cc.time),
+            "pitch_bends": (track.pitch_bends, lambda pb: pb.time),
+        }
+        for attr_name, (attr_values, sort_fn) in merged_attributes.items():
+            for other_track in midi.instruments[1:]:
+                attr_values.extend(getattr(other_track, attr_name))
+            # Sort values
+            setattr(track, attr_name, sorted(attr_values, key=sort_fn))
+        midi.instruments = midi.instruments[:1]
+    return midi
+
+
 def midi_pitch_to_note_name(pitch: int) -> str:
     """
     Convert MIDI pitch to note name.
