@@ -163,7 +163,7 @@ class TokensTranscriberModule(L.LightningModule):
             > self.transcriber_model.roformer.encoder.config.max_position_embeddings
         ):
             for entry, mask in zip(batch["entries"], score_not_padded_mask):
-                if torch.all(mask[-1] == -100):
+                if torch.all(mask[-1] != -100):
                     raise RuntimeError(
                         f"The score {entry.xml_score_relative} is too long for the positional "
                         f"embedding of the roformer: {score_tensor.size(1)} > "
