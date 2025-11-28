@@ -27,7 +27,6 @@ from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
-from scripts.chunk_score_and_performance import clip_quantized_pretty_midi
 
 MAX_PITCH = 108
 MIN_PITCH = 21
