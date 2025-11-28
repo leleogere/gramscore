@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from typing import Literal
 import sys
+from typing import assert_never
 
 import pandas as pd
 import partitura as pt
@@ -345,11 +346,15 @@ class QuantizedMusicChunker(AbstractProcessor):
             return clipped_performance, clipped_score, start, end
 
         if self.mode == "random" or isinstance(self.mode, int):
-            start_measure = (
-                random.randint(0, num_measures - 2)  # Random sample start measure
-                if self.mode == "random"
-                else self.mode
-            )
+            if self.mode == "random":
+                if num_measures >= 2:
+                    start_measure = random.randint(0, num_measures - 2)
+                else:
+                    start_measure = 0
+            elif isinstance(self.mode, int):
+                start_measure = self.mode
+            else:
+                assert_never(self.mode)
             clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                 start_measure, self.num_performed_notes
             )
