@@ -260,6 +260,15 @@ class PdmxTokensDataModule(LightningDataModule):
             ],
         }
 
+        if stage is None or stage == "fit":
+            splits = self.splits
+        elif stage == "validate":
+            splits = ["validation"]
+        elif stage == "test":
+            splits = ["test"]
+        else:
+            raise ValueError(f"Unknown stage: {stage}")
+
         # Load the splits
         if not self.data_train and not self.data_val:
             sets = {
