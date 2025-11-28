@@ -327,6 +327,12 @@ class QuantizedMusicChunker(AbstractProcessor):
 
         num_measures = len(score.measures)
 
+        if num_measures == 1:
+            return {
+                "chunk_start": 0,
+                "chunk_end": 0,
+            }
+
         def clip_performance_and_score(
             start_measure: int,
             num_notes: int,
@@ -358,8 +364,10 @@ class QuantizedMusicChunker(AbstractProcessor):
             clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                 start_measure, self.num_performed_notes
             )
-            if len(clipped_perf.instruments[0].notes) == 0:
-                logger.warning(f"Empty performance {sample['entry'].midi_performance_relative} clipped at {start, end}, returning the first chunk.")
+            if len(clipped_perf.instruments[0].notes) == 0 or len(clipped_sco.notes) == 0:
+                logger.warning(
+                    f"Empty performance or score {sample['entry'].midi_performance_relative} clipped at {start, end}, returning the first chunk."
+                )
                 clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                     0, self.num_performed_notes
                 )
