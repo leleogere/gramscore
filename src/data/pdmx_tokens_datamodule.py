@@ -230,7 +230,6 @@ class PdmxTokensDataModule(LightningDataModule):
                     mode="random",
                 ),
                 t.RandomTransposer(),
-                t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 t.ScoreVectorizer(),
                 t.PerformanceVectorizer(),
             ],
