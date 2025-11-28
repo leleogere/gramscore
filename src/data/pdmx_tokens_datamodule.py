@@ -221,6 +221,9 @@ class PdmxTokensDataModule(LightningDataModule):
                 #     cache=allowed_transpositions_cache,  # shared across workers
                 # ),
                 t.PerformanceReader(),
+                t.PerformanceSpeedAugmenter(
+                    min_factor=0.8, max_factor=1.2
+                ),  # Before chunking to avoid issues
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 t.QuantizedMusicChunker(
                     num_performed_notes=500,
