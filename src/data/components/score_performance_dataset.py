@@ -517,8 +517,16 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             )
         )  # TODO: avoid using the list repr for export/import
         df = df[df["usable"]]
-        df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
+
+        # Remove pieces too short
+        # df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
+        df = df[df["n_notes_midi"] >= 3]
+
+        # Remove pieces with mismatching number of measures between score and midi
+        df = df[(df["n_measures_score"] == df["n_measures_midi"]) & (df["n_measures_score"] != -1)]
+
         logger.info(f"Number of entries before split: {len(df)}")
+        logger.info(f"Number of measures: {sum(df['n_measures_score'])}")
 
         # Create splits
         num_validation_pieces = 1000
