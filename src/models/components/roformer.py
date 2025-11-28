@@ -448,7 +448,7 @@ class Roformer(nn.Module):
         intermediate_size: int = 1536,
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
-        max_position_embeddings: int = 3072,
+        max_position_embeddings: int = 4096,
         use_time_based_rope_encoder: bool = False,
     ):
         super().__init__()
