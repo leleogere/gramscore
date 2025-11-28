@@ -350,7 +350,7 @@ class QuantizedMusicChunker(AbstractProcessor):
 
         if self.mode == "random" or isinstance(self.mode, int):
             start_measure = (
-                random.randint(0, num_measures - 1)  # Random sample start measure
+                random.randint(0, num_measures - 2)  # Random sample start measure
                 if self.mode == "random"
                 else self.mode
             )
