@@ -129,7 +129,8 @@ class CustomRoFormerSelfAttention(nn.Module):
             # if encoder bi-directional self-attention `past_key_value` is always `None`
             past_key_value = (key_layer, value_layer)
 
-        if head_mask is None:
+        context_layer = None
+        if head_mask is None and not output_attentions:
             if self.is_decoder and not self.is_cross_attention:
                 context_layer = F.scaled_dot_product_attention(
                     query_layer,
@@ -149,7 +150,7 @@ class CustomRoFormerSelfAttention(nn.Module):
                 )
 
         # We sometimes ran into nan's with flash attention, thus a fallback here.
-        if head_mask is not None or context_layer.isnan().any():
+        if context_layer is None or context_layer.isnan().any():
             # Take the dot product between "query" and "key" to get the raw attention scores.
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
