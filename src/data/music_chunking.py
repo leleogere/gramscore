@@ -443,7 +443,7 @@ def clip_quantized_midi(
         measure_end_time = (
             downbeat_times[measure_idx + 1]
             if measure_idx + 1 < total_measures
-            else midi.get_end_time()
+            else midi.instruments[0].get_end_time()
         )
         # Count notes in this measure
         notes_in_measure = [
@@ -456,7 +456,9 @@ def clip_quantized_midi(
         if accumulated_notes >= num_notes:
             break
     end_time = (
-        downbeat_times[end_measure + 1] if end_measure + 1 < total_measures else midi.get_end_time()
+        downbeat_times[end_measure + 1]
+        if end_measure + 1 < total_measures
+        else midi.instruments[0].get_end_time()
     )
 
     # Crop the MIDI
