@@ -593,11 +593,10 @@ class PerformanceSpeedAugmenter(AbstractProcessor):
         # Randomly speed up or slow down the performance
         factor = random.uniform(self.min_factor, self.max_factor)
         performance: pm.PrettyMIDI = sample["performance"]
-        end = performance.get_end_time()
-        performance.adjust_times(
-            original_times=[0, end],
-            new_times=[0, int(end * factor)],
-        )
+        for instrument in performance.instruments:
+            for note in instrument.notes:
+                note.start *= factor
+                note.end *= factor
         return {"performance": performance}
 
 
