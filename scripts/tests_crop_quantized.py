@@ -26,14 +26,20 @@ dataset = PdmxPianoDataset(
         t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
         t.PerformanceReader(),
         t.QuantizedMusicChunker(
-            num_performed_notes=500,
-            mode="random",
+            num_performed_notes=21,
+            mode=28,
         ),
         t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
         t.RandomTransposer(),
     ],
 )
-random.shuffle(dataset.entries)
+# random.shuffle(dataset.entries)
+dataset.entries = [
+    e
+    for e in dataset.entries
+    if e.xml_score_relative.as_posix()
+    == "mxl/2/3/Qmc4PvPfVJdH6ZAmMHmBsm96soqi8u89FwL5jZrmvGr4mc.mxl"
+] * 1
 
 path_no_ext = Path("/tmp/cropped")
 score_path = path_no_ext.with_suffix(".musicxml")

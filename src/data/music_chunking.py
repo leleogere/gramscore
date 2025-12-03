@@ -280,7 +280,12 @@ def clip_score(
                 notes_to_remove[next_tie.id] = next_tie
                 # Also track this timepoint to add a rest there too if needed (only needed once
                 # as subsequent iteration on this timepoint will be the same)
-                if not (next_tie.voice, next_tie.start.t) in num_notes_per_voice_and_start:
+                # The first None check is required for some weird case to investigate, e.g. in
+                # bar 28 of PDMX score mxl/2/3/Qmc4PvPfVJdH6ZAmMHmBsm96soqi8u89FwL5jZrmvGr4mc.mxl
+                if (
+                    next_tie.start is not None
+                    and not (next_tie.voice, next_tie.start.t) in num_notes_per_voice_and_start
+                ):
                     num_notes_per_voice_and_start[(next_tie.voice, next_tie.start.t)] = len(
                         list(next_tie.iter_chord())
                     )
@@ -462,7 +467,14 @@ def clip_quantized_midi(
     )
 
     # Crop the MIDI
-    midi = crop_pretty_midi(midi, start=start_time, end=end_time, inplace=True)
+    midi = crop_pretty_midi(
+        midi,
+        start=start_time,
+        end=end_time,
+        inplace=True,
+        start_mode="drop",
+        end_mode="clip",
+    )
 
     return midi, (start_measure, end_measure)
 

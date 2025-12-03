@@ -1,4 +1,6 @@
 import copy
+import math
+from typing import Literal
 
 import numpy as np
 import pretty_midi as pm
@@ -50,7 +52,12 @@ def midi_pitch_to_note_name(pitch: int) -> str:
 
 
 def crop_pretty_midi(
-    midi: pm.PrettyMIDI, start: float = None, end: float = None, inplace: bool = False
+    midi: pm.PrettyMIDI,
+    start: float = None,
+    end: float = None,
+    start_mode: Literal["drop", "clip"] = "drop",
+    end_mode: Literal["keep", "drop", "clip"] = "clip",
+    inplace: bool = False,
 ) -> pm.PrettyMIDI:
     """
     Crop a PrettyMIDI object between start and end time (in seconds).
@@ -58,6 +65,11 @@ def crop_pretty_midi(
     """
     if not inplace:
         midi = copy.deepcopy(midi)
+
+    if start is None:
+        start = 0
+    if end is None:
+        end = math.inf
 
     # Track the last event for sanity checks
     midi_end = 0.0
@@ -71,8 +83,32 @@ def crop_pretty_midi(
         for note in instrument.notes:
             if note.end <= start or note.start >= end:
                 continue
-            new_start = max(note.start, start) - start if start is not None else note.start
-            new_end = min(note.end, end) - start if end is not None else note.end
+
+            # Check note at the beginning of the range
+            if start_mode == "drop":
+                if note.start < start:
+                    continue
+                else:
+                    new_start = note.start - start
+            elif start_mode == "clip":
+                new_start = max(note.start, start) - start
+            else:
+                raise ValueError(f"Unknown mode '{start_mode}' for start_mode")
+
+            # Check notes at the end of the range
+            if end_mode == "drop":
+                if note.end > end:
+                    continue
+                else:
+                    new_end = note.end - start
+            elif end_mode == "keep":
+                new_end = note.end - start
+            elif end_mode == "clip":
+                new_end = min(note.end, end) - start
+            else:
+                raise ValueError(f"Unknown mode '{end_mode}' for end_mode")
+
+            # Create the new note
             new_note = pm.Note(
                 velocity=note.velocity, pitch=note.pitch, start=new_start, end=new_end
             )
@@ -123,7 +159,16 @@ def crop_pretty_midi(
     # information after cropping
 
     # Sanity check
-    computed_midi_end = max(
+    computed_midi_end = compute_midi_end_without_tempo_changes(midi)
+    assert midi_end == computed_midi_end, (
+        f"Sanity check failed: cropped MIDI end time does not match: "
+        f"{midi_end} != {computed_midi_end}"
+    )
+    return midi
+
+
+def compute_midi_end_without_tempo_changes(midi: pm.PrettyMIDI) -> float:
+    return max(
         [i.get_end_time() for i in midi.instruments]
         + [
             e.time
@@ -136,9 +181,4 @@ def crop_pretty_midi(
             for e in m
         ],
         default=0.0,
-    )  # all events except tempo changes
-    assert midi_end == computed_midi_end, (
-        f"Sanity check failed: cropped MIDI end time does not match: "
-        f"{midi_end} != {computed_midi_end}"
     )
-    return midi
