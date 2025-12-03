@@ -284,6 +284,12 @@ class PdmxTokensDataModule(LightningDataModule):
             self.data_val = sets.get("validation", None)
             self.data_test = sets.get("test", None)
 
+            if stage == "fit" or stage == "validate":
+                logger.info(
+                    f"List of validation pieces:\n"
+                    + "\n".join([e.xml_score_relative.as_posix() for e in self.data_val.entries])
+                )
+
             # Limit to problematic batch
             # xml_paths = """
             # # mxl/9/5/QmR6ZvdCfBXecGxiyNTAyvCXuLDsEoAR4QFzcysX66vE2M.mxl
