@@ -270,7 +270,7 @@ class PdmxTokensDataModule(LightningDataModule):
             raise ValueError(f"Unknown stage: {stage}")
 
         # Load the splits
-        if not self.data_train and not self.data_val:
+        if not self.data_train and not self.data_val:  # TODO: fix this IF
             sets = {
                 split: PdmxPianoDataset(
                     directory=self.hparams.data_dir,
@@ -278,10 +278,11 @@ class PdmxTokensDataModule(LightningDataModule):
                     transforms=transforms[split],
                     asap_path=self.hparams.asap_path,
                 )
-                for split in self.splits
+                for split in splits
             }
-            self.data_train = sets["train"]
-            self.data_val = sets["validation"]
+            self.data_train = sets.get("train", None)
+            self.data_val = sets.get("validation", None)
+            self.data_test = sets.get("test", None)
 
             # Limit to problematic batch
             # xml_paths = """
