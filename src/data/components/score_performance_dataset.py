@@ -1,4 +1,4 @@
-import pretty_midi as pm
+import ast
 import csv
 import json
 import math
@@ -11,19 +11,24 @@ from pathlib import Path
 from typing import Any
 from typing import Literal
 
+import joblib
 import pandas as pd
 import partitura as pt
 import partitura.score
+import pretty_midi as pm
 import symusic
 import torch
 from loguru import logger
+from lxml import etree
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from data.components.check_tokenizable import check_full
+from models.automata.vectorization_torch import TokenTensor
 from utils.constants import SKIP
 from utils.constants import TEST_PIECE_IDS
 from utils.constants import TO_IGNORE_INDICES
+from utils.musicxml import read_musicxml
 
 tqdm.pandas()
 sys.setrecursionlimit(2**31 - 1)
@@ -378,33 +383,59 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # Extract additional metadata
         self.metadata_file = self.directory / "PDMX.csv"
         self.additional_metadata_file = self.directory / "PDMX_extended_metadata.csv"
-        if not self.additional_metadata_file.exists() or force_metadata_extraction:
-            logger.info(f"Extracting additional metadata from {self.metadata_file}")
-            pdmx = self.extract_additional_metadata(asap_path=asap_path)
-            pdmx.to_csv(self.additional_metadata_file, index=False)
+        logger.info(f"Extracting additional metadata from {self.metadata_file}")
+        pdmx = self.extract_additional_metadata(
+            asap_path=asap_path,
+            prev=None if force_metadata_extraction else pd.read_csv(self.additional_metadata_file),
+        )
+        pdmx.to_csv(self.additional_metadata_file, index=False)
 
         # Read entries
         entries = self.read_metadata()
         super().__init__(entries, transforms)
 
-    def extract_additional_metadata(self, asap_path: Path | None = None) -> pd.DataFrame:
+    def extract_additional_metadata(
+        self, asap_path: Path | None = None, prev: pd.DataFrame = None
+    ) -> pd.DataFrame:
         """Extract additional metadata from the entries and return it as a DataFrame."""
         metadata_path: Path = self.directory / "PDMX.csv"
         if not metadata_path.exists():
             raise FileNotFoundError("PDMX.csv not found, make sure the dataset is correct.")
-        pdmx = pd.read_csv(metadata_path)
-        # pdmx = pdmx.head(100)
-        pdmx["usable"] = True
+        if prev is not None:
+            logger.info("Only adding missing information to existing file.")
+            pdmx = prev
+        else:
+            pdmx = pd.read_csv(metadata_path)
+            # pdmx = pdmx.head(100)
+            pdmx["usable"] = True
 
         # Extract the instruments of each score
-        logger.info(f"Extracting instruments information")
-        pdmx["instruments"] = pdmx["metadata"].progress_apply(self._extract_instrument)
-        piano_indices = pdmx["instruments"].apply(lambda i: i == ["Piano"])
-        logger.info(f"Number of piano scores: {piano_indices.sum()}")
-        pdmx.loc[~piano_indices, "usable"] = False
+        if "instruments" not in pdmx.columns:
+            logger.info(f"Extracting instruments information")
+            pdmx["instruments"] = pdmx["metadata"].progress_apply(self._extract_instrument)
+            piano_indices = pdmx["instruments"].apply(lambda i: i == ["Piano"])
+            logger.info(f"Number of piano scores: {piano_indices.sum()}")
+            pdmx.loc[~piano_indices, "usable"] = False
+
+        # Get all time signatures in the piece
+        if "time_signatures" not in pdmx.columns:
+            logger.info(f"Extracting time signatures for each score")
+            # pdmx.loc[pdmx["usable"], "time_signatures"] = pdmx["mxl"].progress_apply(
+            #     self._extract_time_signatures
+            # )
+            pdmx.loc[pdmx["usable"], "time_signatures"] = [
+                _
+                for _ in tqdm(
+                    joblib.Parallel(n_jobs=-1, return_as="generator")(
+                        joblib.delayed(self._extract_time_signatures)(path)
+                        for path in pdmx.loc[pdmx["usable"], "mxl"]
+                    ),
+                    total=pdmx["usable"].sum(),
+                )
+            ]
 
         # Filter for overlap with ASAP validation and test sets
-        if asap_path is not None:
+        if asap_path is not None and "similar_to_asap" not in pdmx.columns:
             from sentence_transformers import SentenceTransformer
             import re
             import numpy as np
@@ -471,36 +502,45 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             pdmx.loc[pdmx["similar_to_asap"], "usable"] = False
 
         # Count the number of notes for each performance
-        logger.info(f"Counting number of notes in each MIDI performance")
-        pdmx["n_notes_midi"] = pdmx["mid"].progress_apply(self._count_midi_notes)
+        if "n_notes_midi" not in pdmx.columns:
+            logger.info(f"Counting number of notes in each MIDI performance")
+            pdmx["n_notes_midi"] = pdmx["mid"].progress_apply(self._count_midi_notes)
 
         # Count the number of measures in the unfolded score
-        logger.info(f"Counting number of measures in each MusicXML score")
-        pdmx["n_measures_score"] = pdmx["mxl"].progress_apply(self._count_unfolded_score_measures)
+        if "n_measures_score" not in pdmx.columns:
+            logger.info(f"Counting number of measures in each MusicXML score")
+            pdmx["n_measures_score"] = pdmx["mxl"].progress_apply(
+                self._count_unfolded_score_measures
+            )
 
         # Count the number of measures in the unfolded midi score
-        logger.info(f"Counting number of measures in each MIDI score")
-        pdmx["n_measures_midi"] = pdmx["mid"].progress_apply(self._count_unfolded_midi_measures)
+        if "n_measures_midi" not in pdmx.columns:
+            logger.info(f"Counting number of measures in each MIDI score")
+            pdmx["n_measures_midi"] = pdmx["mid"].progress_apply(self._count_unfolded_midi_measures)
 
         # Check if scores are tokenizable
-        logger.info(f"Checking tokenizability of each score")
-        pdmx.loc[pdmx["usable"], "errors"] = pdmx.loc[pdmx["usable"], "mxl"].progress_apply(
-            self._check_score_tokenizable
-        )
-        has_errors = pdmx["errors"] != ""
-        pdmx.loc[has_errors, "usable"] = False
-        logger.info(f"Number of scores with errors: {has_errors.sum()}")
+        if "errors" not in pdmx.columns:
+            logger.info(f"Checking tokenizability of each score")
+            pdmx.loc[pdmx["usable"], "errors"] = pdmx.loc[pdmx["usable"], "mxl"].progress_apply(
+                self._check_score_tokenizable
+            )
+            has_errors = pdmx["errors"] != ""
+            pdmx.loc[has_errors, "usable"] = False
+            logger.info(f"Number of scores with errors: {has_errors.sum()}")
 
         # Check the transposition range of each score
-        logger.info(f"Computing allowed transpositions for each score")
-        tested_intervals = [
-            pt.score.Interval(number=int(inter[0]), quality=inter[1:], direction=direction)
-            for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-            for direction in ["up", "down"]
-        ] + [pt.score.Interval(1, "P", "up")]
-        pdmx.loc[pdmx["usable"], "allowed_transpositions"] = pdmx.loc[
-            pdmx["usable"], "mxl"
-        ].progress_apply(partial(self._compute_allowed_transpositions, intervals=tested_intervals))
+        if "allowed_transpositions" not in pdmx.columns:
+            logger.info(f"Computing allowed transpositions for each score")
+            tested_intervals = [
+                pt.score.Interval(number=int(inter[0]), quality=inter[1:], direction=direction)
+                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                for direction in ["up", "down"]
+            ] + [pt.score.Interval(1, "P", "up")]
+            pdmx.loc[pdmx["usable"], "allowed_transpositions"] = pdmx.loc[
+                pdmx["usable"], "mxl"
+            ].progress_apply(
+                partial(self._compute_allowed_transpositions, intervals=tested_intervals)
+            )
 
         return pdmx
 
@@ -508,6 +548,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # Read PDMX metadata
         metadata_path = self.additional_metadata_file
         df = pd.read_csv(metadata_path)
+
         # Parse allowed transpositions from string to list
         df["allowed_transpositions"] = df["allowed_transpositions"].apply(
             lambda x: (
@@ -516,6 +557,15 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 else []
             )
         )  # TODO: avoid using the list repr for export/import
+
+        # Parse time signatures from string to set
+        df["time_signatures"] = df["time_signatures"].apply(
+            lambda set_str: (
+                ast.literal_eval(set_str) if isinstance(set_str, str) and set_str != "{}" else set()
+            )
+        )
+
+        # Only keep usable scores
         df = df[df["usable"]]
 
         # Remove pieces too short
@@ -524,6 +574,16 @@ class PdmxPianoDataset(ScorePerformanceDataset):
 
         # Remove pieces with mismatching number of measures between score and midi
         df = df[(df["n_measures_score"] == df["n_measures_midi"]) & (df["n_measures_score"] != -1)]
+
+        # Remove pieces with unallowed time signatures
+        df = df[
+            (len(df["time_signatures"]) > 0)  # At least one time signature (empty set = error)
+            & (  # TS allowed to be vectorized
+                df["time_signatures"].map(
+                    lambda tss: all(ts in TokenTensor.TS_INDEXER for ts in tss)
+                )
+            )
+        ]
 
         logger.info(f"Number of entries before split: {len(df)}")
         logger.info(f"Number of measures: {sum(df['n_measures_score'])}")
@@ -724,6 +784,23 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         except Exception as e:
             logger.error(f"Error reading {path}: {e}")
             return -1  # Indicate an error
+
+    def _extract_time_signatures(self, mxl_path: Path) -> set[tuple[int, int]]:
+        if isinstance(mxl_path, float) and math.isnan(mxl_path):
+            return set()
+        # Read XML
+        xml = read_musicxml(self.directory / mxl_path)
+        root = etree.fromstring(xml.encode("utf-8"))
+        # Finding all <time> element
+        time_elements = root.findall(".//time")
+        time_signatures = set()
+        for time in time_elements:
+            try:
+                time_signatures.add((int(time.findtext("beats")), int(time.findtext("beat-type"))))
+            except ValueError as e:
+                logger.error(f"Error reading TS in {mxl_path}: {e}")
+                return set()
+        return time_signatures
 
 
 # if __name__ == '__main__':
