@@ -10,6 +10,10 @@ from utils.constants import PADDING_VALUE
 from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 
 
+TS_MAX_NUMERATOR = 30
+TS_DENOMINATORS = [1, 2, 4, 8, 16, 32]
+
+
 class ProblemType(Enum):
     CLASSIFICATION = "classification"
     REGRESSION = "regression"
@@ -39,8 +43,13 @@ class TokenTensor(torch.Tensor):
 
     TOKEN_INDEXER = {token: i for i, token in enumerate(tk.TOKEN_TYPES)}
     TOKEN_INDEXER_INV = {i: token for token, i in TOKEN_INDEXER.items()}
-    TS_DENOMINATOR_INDEXER = {den: i for i, den in enumerate([1, 2, 4, 8, 16, 32])}
-    TS_DENOMINATOR_INDEXER_INV = {i: den for den, i in TS_DENOMINATOR_INDEXER.items()}
+    TS_INDEXER = {
+        ts: i
+        for i, ts in enumerate(
+            [(n, d) for d in TS_DENOMINATORS for n in range(1, TS_MAX_NUMERATOR + 1)]
+        )
+    }
+    TS_INDEXER_INV = {i: ts for ts, i in TS_INDEXER.items()}
     DURATION_INDEXER = {dur.value: i for i, dur in enumerate(tk.SymbolicDurationType)}
     DURATION_INDEXER_INV = {i: dur for dur, i in DURATION_INDEXER.items()}
     NOTE_INDEXER = {note: i for i, note in enumerate("CDEFGAB")}
@@ -49,8 +58,7 @@ class TokenTensor(torch.Tensor):
     STEM_INDEXER_INV = {i: stem for stem, i in STEM_INDEXER.items()}
     _DIMS_AND_PROBLEM_TYPE = {
         "token_type": (len(TOKEN_INDEXER), ProblemType.CLASSIFICATION),
-        "bar_numerator": (1, ProblemType.REGRESSION),
-        "bar_denominator": (len(TS_DENOMINATOR_INDEXER), ProblemType.CLASSIFICATION),
+        "bar_time_signature": (len(TS_INDEXER), ProblemType.CLASSIFICATION),
         "bar_is_nominal": (2, ProblemType.CLASSIFICATION),  # Boolean
         "key_signature": (15, ProblemType.CLASSIFICATION),  # -7 to 7
         "clef_type": (2, ProblemType.CLASSIFICATION),  # G or F
@@ -76,7 +84,7 @@ class TokenTensor(torch.Tensor):
     TOKEN_TYPE_TO_DIMS = {
         tk.StartOfScore: ["token_type"],
         tk.EndOfScore: ["token_type"],
-        tk.Bar: ["token_type", "bar_numerator", "bar_denominator", "bar_is_nominal"],
+        tk.Bar: ["token_type", "bar_time_signature", "bar_is_nominal"],
         tk.KeySignature: ["token_type", "key_signature"],
         tk.Clef: ["token_type", "clef_type", "staff_idx"],
         tk.Rest: [
@@ -119,7 +127,9 @@ class TokenTensor(torch.Tensor):
     def __new__(cls, *args, **kwargs):
         tensor = super().__new__(*args, **kwargs)
         if tensor.dim() < 1 or tensor.size(-1) != cls.TOTAL_DIMENSIONS:
-            raise ValueError(f"Last dimension must be of size {cls.TOTAL_DIMENSIONS}")
+            raise ValueError(
+                f"Last dimension must be of size {cls.TOTAL_DIMENSIONS}, but is {tensor.size(-1)}"
+            )
         return tensor
 
     def new_empty(
@@ -210,12 +220,11 @@ class TokenTensor(torch.Tensor):
 
         # Bar
         if token_type == tk.Bar:
-            numerator = self["bar_numerator"][0]
-            denominator_idx = self._onehot_decode("bar_denominator")
-            denominator = self.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
+            time_signature_idx = self._onehot_decode("bar_time_signature")
+            numerator, denominator = self.TS_INDEXER_INV[time_signature_idx]
             is_nominal = self._onehot_decode("bar_is_nominal") == 1
             return tk.Bar(
-                numerator=round(clip(numerator.item(), 1)),
+                numerator=numerator,
                 denominator=denominator,
                 is_nominal=is_nominal,
             )
@@ -356,10 +365,9 @@ class TokenTensor(torch.Tensor):
         pass  # Nothing to do
 
     def __embed_bar_information(self, bar: tk.Bar) -> Self:
-        self["bar_numerator"][0] = bar.numerator
-        self["bar_denominator"] = self._create_onehot(
-            "bar_denominator",
-            self.TS_DENOMINATOR_INDEXER[bar.denominator],
+        self["bar_time_signature"] = self._create_onehot(
+            "bar_time_signature",
+            self.TS_INDEXER[(bar.numerator, bar.denominator)],
         )
         self["bar_is_nominal"] = self._create_onehot("bar_is_nominal", int(bar.is_nominal))
 
@@ -560,15 +568,16 @@ class TokenTensor(torch.Tensor):
 
 if __name__ == '__main__':
     # token_tensor = TokenTensor(torch.arange(2 * 110, dtype=torch.float).reshape(2, 97))
-    token_tensor = TokenTensor(torch.randn(2, 110))
+    token_tensor = TokenTensor(torch.randn(2, 299))
     # token_tensor = TokenTensor(torch.zeros(2, 110))
     print(token_tensor)
     print(f"{token_tensor[..., 5] = }")
     print(f"{token_tensor[0, 'token_type'] = }")
     print(f"{token_tensor['duration_dots'] = }")
+    print(f"{token_tensor['bar_time_signature'] = }")
 
     # Test allocation
-    token_tensor["bar_denominator"] = torch.ones(1, 6) * 1000
+    token_tensor["bar_time_signature"] = torch.ones(1, 180) * 1000
     # token_tensor[0, "bar_denominator"] = torch.ones(6, dtype=torch.float) * 1000
     print(token_tensor)
 
@@ -599,7 +608,7 @@ if __name__ == '__main__':
     print(token_tensor)
 
     # Test encoding/decoding
-    random_token_tensor = TokenTensor(torch.randn(3, 100, 2, 110))
+    random_token_tensor = TokenTensor(torch.randn(3, 100, 2, 299))
     tokens = random_token_tensor.to_tokens()
     revectorized = TokenTensor.from_tokens(tokens)
     retokenized = revectorized.to_tokens()
