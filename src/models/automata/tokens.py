@@ -252,7 +252,12 @@ class VoiceCompletionState(SegmentCompletionState):
 
 
 class TranscriptionState:
-    def __init__(self, num_voices: int = 1, initial_measure_number: int = 1):
+    def __init__(
+        self,
+        num_voices: int = 1,
+        initial_measure_number: int = 1,
+        allowed_pitches: set[int] = None,
+    ):
         self._voices: list[VoiceCompletionState] = [
             VoiceCompletionState(None) for _ in range(num_voices)
         ]
@@ -261,6 +266,7 @@ class TranscriptionState:
         self.started = False  # Whether the SOS token has been produced
         self.finished = False  # Whether the EOS token has been produced
         self.first_bar_started = False  # Whether the first bar has been started
+        self.allowed_pitches = allowed_pitches
 
     @property
     def num_voices(self) -> int:
@@ -743,15 +749,19 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
 
     def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
         voice = state.voices[self.voice_idx]
+        pitch_allowed = state.allowed_pitches is None or self.pitch in state.allowed_pitches
         # If not in chord
         if not voice.in_chord:
-            return self.duration.quarter_length <= voice.segment_remaining_duration or (
-                self.grace and voice.has_space_left
+            return (
+                pitch_allowed
+                and (self.duration.quarter_length <= voice.segment_remaining_duration)
+                or (self.grace and voice.has_space_left)
             )
         # If in chord
         else:
             return (
-                self.duration == voice.chord.duration  # SymbolicDuration matches chord duration
+                pitch_allowed
+                and self.duration == voice.chord.duration  # SymbolicDuration matches chord duration
                 and not self.note_tuple in voice.chord.notes  # Note not already in chord
                 and not self.grace  # Not a grace note
             )
