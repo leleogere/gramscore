@@ -763,9 +763,14 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             state.tied_notes.pop(self.pitch)
         # If tied, add the note to tied notes
         if self.tied:
+            actual_duration = self.duration.quarter_length * (
+                1
+                if not voice.in_tuplet
+                else self.duration.quarter_length * voice.tuplet.duration_multiplier
+            )
             state.tied_notes[self.pitch] = TieProperties(
                 note_tuple=self.note_tuple,
-                min_resolution_pos=voice.current_position + self.duration.quarter_length,
+                min_resolution_pos=voice.current_position + actual_duration,
             )
         # Only advance position if not in chord of grace note
         if voice.in_chord:

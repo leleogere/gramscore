@@ -290,12 +290,30 @@ def clip_score(
                         list(next_tie.iter_chord())
                     )
     # Go over notes to remove, remove them and if needed replace by rests
+    # Also make sure that tuplets are correctly updated in case of rest replacement
+    tuplets_to_fix = []
     for note_id, original_note in notes_to_remove.items():
         # Remove the note from the clipped score
         if note_id not in id_to_clipped_score_note:
             logger.warning(f"{note_id} absent so can't be removed from score")
             continue
         note_to_remove = id_to_clipped_score_note[note_id]
+        # Check if a tuplet was linked to that note
+        for tuplet in clipped_score.first_point.starting_objects[pt.score.Tuplet]:
+            if note_to_remove is tuplet.start_note:
+                # Store the tuplet with its updated start and end note times and voice
+                tuplets_to_fix.append(
+                    (
+                        tuplet,
+                        tuplet.start_note.start.t,
+                        tuplet.end_note.start.t,
+                        tuplet.start_note.voice,
+                    )
+                )
+                assert (
+                    tuplet.start_note.voice == tuplet.end_note.voice
+                ), "Mismatching voices in tuplet"
+        # Remove the note
         clipped_score.remove(note_to_remove)
         # Make as removed
         num_notes_per_voice_and_start[(note_to_remove.voice, original_note.start.t)] -= 1
@@ -311,6 +329,35 @@ def clip_score(
                 start=original_note.start.t - start_point.t,
                 end=original_note.end.t - start_point.t,
             )
+
+    # Fix the eventual tuplets
+    for tuplet, start_note_time, end_note_time, voice in tuplets_to_fix:
+        # Try to find the new start/end notes of the tuplet
+        # Simple matching with ID is not feasible, as in the previous loop, the note might have
+        # been removed (in which case try to find a note in the same voice and at the same time)
+        # or replaced by a rest (same but with a rest)
+        start_pt: pt.score.TimePoint = clipped_score.get_point(start_note_time)
+        start_element = next(
+            filter(
+                lambda e: e.voice == voice,
+                itertools.chain(
+                    start_pt.starting_objects[pt.score.Note],
+                    start_point.starting_objects[pt.score.Rest],
+                ),
+            )
+        )
+        tuplet.start_note = start_element
+        end_pt: pt.score.TimePoint = clipped_score.get_point(end_note_time)
+        end_element = next(
+            filter(
+                lambda e: e.voice == voice,
+                itertools.chain(
+                    end_pt.starting_objects[pt.score.Note],
+                    end_pt.starting_objects[pt.score.Rest],
+                ),
+            )
+        )
+        tuplet.end_note = end_element
 
     # Finally, add back global context elements (key/time signature and clefs)
     context_elements_classes_still_to_be_found = [
