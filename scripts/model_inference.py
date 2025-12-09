@@ -2,19 +2,21 @@
 Try to load and run inference on a model
 """
 
+import pretty_midi as pm
+
 import heapq
 from collections.abc import Callable
 from collections.abc import Generator
-from functools import partial
 from pathlib import Path
 
+import numpy as np
+import pretty_midi
 import torch
-import symusic
 import matplotlib.pyplot as plt
+from loguru import logger
 from tqdm import tqdm
 import torch.nn.functional as F
 import partitura as pt
-import partitura.score
 
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.components.transforms import PerformanceReader
@@ -24,28 +26,56 @@ from models.automata.io import token_sequence_to_partitura
 from models.automata.tokens import TranscriptionState
 from models.automata.vectorization_torch import ProblemType
 from models.automata.vectorization_torch import TokenTensor
-from models.automata.vectorization_torch import clip_cast
+from models.automata.vectorization_torch import clip
 from models.components.tokens_transcriber_model import TokensTranscriberModel
 from models.tokens_transcriber_module import TokensTranscriberModule
 from models.automata import tokens as tk
+from utils.debug import concat_streams
+from utils.debug import open_in_midieditor
+from utils.debug import open_in_musescore
 from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 
 # fmt: off
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-19_14-15-04_cosmic-totem-262/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-22_09-51-15_jumping-shape-264/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-23_15-09-32_grateful-frog-267_vocal-morning-268/checkpoints/last_vocal-morning-268.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/dry-planet-265.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/last-v1.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/rosy-salad-273_partial.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-03_12-53-43/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-03_12-53-43/checkpoints/epoch_060.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-06_18-05-07/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-07_09-30-46/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-12_11-37-22_leafy-serinity-289/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-14_10-23-42_kind-universe-291/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-14_17-13-25_noble-forest-293/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-28_22-23-03_clean-salad-312/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-28_20-21-02_scarlet-pyramid-311/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-12-02_15-26-21_clean-salad-313/checkpoints/last.ckpt").expanduser()
 
 # base_path = Path("~/Documents/datasets/asap-dataset").expanduser()
 # performance_path = base_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
 # performance_path = base_path / "Bach/Prelude/bwv_860/midi_score.mid"
 # performance_path = base_path / "Bach/Prelude/bwv_883/LuM01M.mid"
 # performance_path = base_path / "Bach/Prelude/bwv_883/midi_score.mid"
-# fmt: on
 
 base_path = Path("~/Documents/datasets/pdmx").expanduser()
 # performance_path = base_path / "mid/0/0/Qma1a1L2c1vSEuGfdPVSEEWfuYAEoBmjpVESX1ok2imu4b.mid"
-performance_path = base_path / "mid/0/0/Qma1a2YHEJ8j9gxLCxgALAfjYaiYJQogh1bgyFSwNSRPCs.mid"
+# performance_path = base_path / "mid/0/0/Qma1a2YHEJ8j9gxLCxgALAfjYaiYJQogh1bgyFSwNSRPCs.mid"  # Polyphonic, long
+# performance_path = base_path / "mid/1/11/Qmbbh58jD1ZLT1vevNsnyEZkexnx2USTFz6FSHX3KUiAzC.mid"  # Monophonic
+performance_path = base_path / "mid/15/12/QmXB8B4F9cbHUrnrP4mRGyL3vyhTkyDjuVEbM3VdFu2EY9.mid"  # Polyphonic, chords
+reference_score_path = base_path / "mxl" / performance_path.relative_to(base_path / "mid").with_suffix(".mxl")
+print(f"Reference score path: {reference_score_path.as_posix()}")
+print(f"Performance path: {performance_path.as_posix()}")
+# fmt: on
+
+MAX_PERFORMED_NOTES = 500
+MAX_GENERATED_TOKENS = 400
 
 # Load the model
 model: TokensTranscriberModule = TokensTranscriberModule.load_from_checkpoint(
@@ -62,25 +92,22 @@ def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, t
     performance_metadata = ScorePerformanceEntry(xml_score=None, midi_performance=performance_path)
     performance_reader = PerformanceReader()
     performance_vectorizer = PerformanceVectorizer()
-    performance: symusic.core.ScoreSecond = performance_reader({"entry": performance_metadata})[
+    performance: pretty_midi.PrettyMIDI = performance_reader({"entry": performance_metadata})[
         "performance"
     ]
     if num_notes > 0:
-        print(len(performance.tracks[0].notes))
-        num_notes = min(num_notes, len(performance.tracks[0].notes))
-        performance.clip(
-            0,
-            performance.tracks[0].notes[num_notes - 1].end,
-            inplace=True,
-        )
-        pianoroll = performance.pianoroll(modes=["frame"], pitch_range=(21, 108))
-    plt.imshow(
-        pianoroll.squeeze(), aspect='auto', cmap='gray_r', origin='lower', interpolation='none'
-    )
+        print(len(performance.instruments[0].notes))
+        num_notes = min(num_notes, len(performance.instruments[0].notes))
+        # performance.clip(0, performance.instruments[0].notes[num_notes - 1].end, inplace=True)
+        performance.instruments[0].notes = performance.instruments[0].notes[:num_notes]
+    #     pianoroll = performance.pianoroll(modes=["frame"], pitch_range=(21, 108))
+    # plt.imshow(
+    #     pianoroll.squeeze(), aspect='auto', cmap='gray_r', origin='lower', interpolation='none'
+    # )
+    # plt.show()
+    plt.matshow(performance.get_piano_roll())
     plt.show()
-    vectorized_performance = performance_vectorizer({"performance": performance})[
-        "performance_streams"
-    ]
+    vectorized_performance = performance_vectorizer({"performance": performance})
     return vectorized_performance
 
 
@@ -88,20 +115,23 @@ def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, t
 def transcribe_performance(
     model: TokensTranscriberModel,
     performance_streams: dict[str, torch.Tensor],
+    onset_times: torch.Tensor,
     sample_token_type: bool = False,  # TODO: implement sampling
     max_length: int = 1024,
-    return_logits: bool = False,
+    return_logits_and_mask: bool = False,
     use_cache: bool = True,
-) -> dict[str, torch.Tensor]:
+    allowed_pitches: set[int] = None,
+    force_first_token: tk.AnyToken | None = None,
+) -> TokenTensor | tuple[TokenTensor, torch.Tensor, torch.Tensor]:
     if sample_token_type:
         raise NotImplementedError("Sampling token types is not implemented yet.")  # TODO
 
     # Return logits if requested
-    if return_logits:
-        logits = []
+    if return_logits_and_mask:
+        logits_and_masks = []
 
     num_voices = 16
-    automata = ConstrainedAutomata(num_voices=num_voices)
+    automata = ConstrainedAutomata(num_voices=num_voices, allowed_pitches=allowed_pitches)
     tokens = [tk.StartOfScore()]  # Start with the SOS token
     automata.transition(tokens[0], inplace=True)
     with torch.no_grad():
@@ -109,7 +139,9 @@ def transcribe_performance(
             performance_streams[key] = value.unsqueeze(0)
 
         # Pass performance streams through the encoder
-        encoder_output = model.forward_encoder(input_streams=performance_streams)
+        encoder_output = model.forward_encoder(
+            input_streams=performance_streams, onset_times=onset_times
+        )
 
         # Prepare SOS token
         tokens_tensor: TokenTensor = TokenTensor.from_tokens([[tk.StartOfScore()]])  # (1, 1, 110)
@@ -117,7 +149,33 @@ def transcribe_performance(
         # Prediction loop
         if use_cache:
             past_key_values = None  # Initialize past key values for caching
-        for _ in tqdm(range(max_length)):
+        for i in (pbar := tqdm(range(max_length))):
+
+            # Force the first token if specified (and pass thought model to update past_key_values)
+            if force_first_token is not None and i == 0:
+                next_token = force_first_token
+                automata.transition(next_token, inplace=True)
+                tokens_tensor = torch.concat(
+                    [tokens_tensor, TokenTensor.from_tokens([[next_token]])], dim=1
+                )
+                tokens.append(next_token)
+                if use_cache:
+                    # QUESTION: Why doesn't it work in a single pass?
+                    decoder_outputs = model.forward_decoder(
+                        input_tokens=tokens_tensor[:, :0],
+                        encoder_hidden_states=encoder_output,
+                        past_key_values=None,
+                        use_cache=True,
+                    )
+                    decoder_outputs = model.forward_decoder(
+                        input_tokens=tokens_tensor[:, :-1],
+                        encoder_hidden_states=encoder_output,
+                        past_key_values=decoder_outputs.past_key_values,
+                        use_cache=True,
+                    )
+                    past_key_values = decoder_outputs.past_key_values
+                continue
+
             input_tokens = tokens_tensor[:, -1:] if use_cache else tokens_tensor
             decoder_outputs = model.forward_decoder(
                 input_tokens=input_tokens,
@@ -132,29 +190,42 @@ def transcribe_performance(
             # Pass decoder outputs through the router
             token_type_logits = model.forward_router(last_hidden_state)
             token_type_logits = F.softmax(token_type_logits, dim=-1)
+            model_want_to_predict = torch.argmax(token_type_logits, dim=-1)
 
             # Filter logits for the allowed token types
             allowed_token_types_idx = [
                 TokenTensor.TOKEN_INDEXER[t]
                 for t in automata.allowed_tokens_types()
-                if t not in [tk.StartOfScore, tk.TupletStart, tk.TupletEnd]  # TODO: fix tuplets
+                if t
+                not in [tk.StartOfScore]  # , tk.TupletStart, tk.TupletEnd]  # TODO: fix tuplets
             ]
             if not allowed_token_types_idx:
                 raise RuntimeError("No token type allowed")
-            token_type_logits = mask_unallowed(
-                token_type_logits,
+            token_type_logits_masked = mask_unallowed(
+                token_type_logits.clone(),  # Clone only for debugging purposes to not change the initial one
                 allowed_indices=allowed_token_types_idx,
                 mask_value=-1,
             )
 
-            if return_logits:
-                logits.append(token_type_logits.squeeze(0, 1))
+            if return_logits_and_mask:
+                mask = torch.zeros(
+                    token_type_logits.shape[-1], dtype=torch.bool, device=token_type_logits.device
+                )
+                mask[allowed_token_types_idx] = True
+                logits_and_masks.append([token_type_logits.squeeze(0, 1), mask])
 
             # Get the predicted token types
-            predicted_token_types_tensor = torch.argmax(token_type_logits, dim=-1)
+            predicted_token_types_tensor = torch.argmax(token_type_logits_masked, dim=-1)
             next_token_type = TokenTensor.TOKEN_INDEXER_INV[
                 predicted_token_types_tensor.squeeze(0, 1).item()
             ]
+            if predicted_token_types_tensor != model_want_to_predict:
+                logger.warning(
+                    f"The models wants to predict a token "
+                    f"{TokenTensor.TOKEN_INDEXER_INV[model_want_to_predict.squeeze(0, 1).item()].as_str()}, "
+                    f"but is forced to produce a token {next_token_type.as_str()} because of the current "
+                    f"state:\n" + str(automata.state)
+                )
 
             # Pass the decoder outputs through the correct expert head
             expert_outputs = model.forward_experts(
@@ -172,7 +243,7 @@ def transcribe_performance(
                     },
                 },
                 convert_to_tokentensor=False,
-            )[next_token_type.as_str()]
+            ).get(next_token_type.as_str(), None)
 
             # Decode the expert output constrained by the automata
             next_token = decode_next_token_contrained(
@@ -180,6 +251,7 @@ def transcribe_performance(
                 expert_outputs=expert_outputs,
                 state=automata.state,
             )
+            # pbar.write(str(next_token))
 
             automata.transition(next_token, inplace=True)
             tokens.append(next_token)
@@ -190,11 +262,12 @@ def transcribe_performance(
             # print(next_token)
             # print(automata.state)
 
-            if isinstance(next_token_type, tk.EndOfScore):
+            if isinstance(next_token, tk.EndOfScore):
                 break
 
-    if return_logits:
-        return tokens, torch.stack(logits, dim=0)
+    if return_logits_and_mask:
+        logits, masks = zip(*logits_and_masks)
+        return (tokens, torch.stack(logits, dim=0), torch.stack(masks, dim=0))
     else:
         return tokens
 
@@ -234,9 +307,9 @@ def decode_next_token_contrained(
         numerator = expert_outputs["bar_numerator"][0]
         denominator_idx = expert_outputs["bar_denominator"].argmax().item()
         denominator = TokenTensor.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
-        is_nominal = bool(expert_outputs["bar_is_nominal"][0] > 0.5)
+        is_nominal = bool(expert_outputs["bar_is_nominal"].argmax().item())
         return tk.Bar(
-            numerator=clip_cast(numerator, lower=1, type_=int),
+            numerator=round(clip(numerator.item(), lower=1)),
             denominator=denominator,
             is_nominal=is_nominal,
         )
@@ -249,7 +322,7 @@ def decode_next_token_contrained(
     # Clef
     if token_type == tk.Clef:
         staff_idx = expert_outputs["staff_idx"].argmax().item()
-        clef_idx = int(expert_outputs["clef_type"][0] > 0.5)
+        clef_idx = expert_outputs["clef_type"].argmax().item()
         clef_type = "G" if clef_idx == 0 else "F"
         return tk.Clef(clef=clef_type, staff_idx=staff_idx)
 
@@ -282,14 +355,10 @@ def decode_next_token_contrained(
         classification_dimensions = [
             dim
             for dim in expert_outputs.keys()
-            if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
+            if TokenTensor.PROBLEM_TYPES[dim] == ProblemType.CLASSIFICATION
         ]
         classification_distributions = [
-            (
-                F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
-                else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
-            )
+            F.softmax(value, dim=-1)
             for name, value in expert_outputs.items()
             if name in classification_dimensions
         ]
@@ -304,11 +373,11 @@ def decode_next_token_contrained(
             step = TokenTensor.NOTE_INDEXER_INV[dim_to_index["note_class"]]
             octave = dim_to_index["note_octave"]
             accidental = dim_to_index["note_accidental"] - 2
-            tied = dim_to_index["note_tied"] == 0
+            tied = dim_to_index["note_tied"] == 1
             stem_direction = TokenTensor.STEM_INDEXER_INV[dim_to_index["note_stem_direction"]]
-            fermata = dim_to_index["fermata"] == 0
+            fermata = dim_to_index["fermata"] == 1
             arts_and_orns = {
-                art_or_orn: dim_to_index[art_or_orn] == 0
+                art_or_orn: dim_to_index[art_or_orn] == 1
                 for art_or_orn in ARTICULATIONS_AND_ORNAMENTS
             }
             return tk.Note(
@@ -342,11 +411,7 @@ def decode_next_token_contrained(
             if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
         ]
         classification_distributions = [
-            (
-                F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
-                else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
-            )
+            F.softmax(value, dim=-1)
             for name, value in expert_outputs.items()
             if name in classification_dimensions
         ]
@@ -355,7 +420,7 @@ def decode_next_token_contrained(
             dim_to_index = dict(zip(classification_dimensions, indices, strict=True))
             voice = dim_to_index["voice_idx"]
             staff = dim_to_index["staff_idx"]
-            measure_rest = dim_to_index["measure_rest"] == 0
+            measure_rest = dim_to_index["measure_rest"] == 1
             if measure_rest:
                 duration_type = tk.SymbolicDurationType.WHOLE
                 duration_dots = 0
@@ -363,7 +428,7 @@ def decode_next_token_contrained(
                 duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
                 duration_dots = dim_to_index["duration_dots"]
             duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
-            fermata = dim_to_index["fermata"] == 0
+            fermata = dim_to_index["fermata"] == 1
             return tk.Rest(
                 voice_idx=voice,
                 staff_idx=staff,
@@ -390,11 +455,7 @@ def decode_next_token_contrained(
             if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
         ]
         classification_distributions = [
-            (
-                F.softmax(value, dim=-1)
-                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
-                else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
-            )
+            F.softmax(value, dim=-1)
             for name, value in expert_outputs.items()
             if name in classification_dimensions
         ]
@@ -421,75 +482,57 @@ def decode_next_token_contrained(
 
     # TupletStart
     if token_type == tk.TupletStart:
-        raise NotImplementedError("TupletStart not implemented")
-        # classification_dimensions = [
-        #     dim
-        #     for dim in expert_outputs.keys()
-        #     if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
-        # ]
-        # classification_distributions = [
-        #     (
-        #         F.softmax(value, dim=-1)
-        #         if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
-        #         else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
-        #     )
-        #     for name, value in expert_outputs.items()
-        #     if name in classification_dimensions
-        # ]
-        #
-        # def build_token(indices: tuple[int, ...]) -> tk.Rest:
-        #     dim_to_index = dict(zip(classification_dimensions, indices, strict=True))
-        #     voice = dim_to_index["voice_idx"]
-        #     staff = dim_to_index["staff_idx"]
-        #     measure_rest = dim_to_index["measure_rest"] == 0
-        #     if measure_rest:
-        #         duration_type = tk.SymbolicDurationType.WHOLE
-        #         duration_dots = 0
-        #     else:
-        #         duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
-        #         duration_dots = dim_to_index["duration_dots"]
-        #     duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
-        #     fermata = dim_to_index["fermata"] == 0
-        #     return tk.Rest(
-        #         voice_idx=voice,
-        #         staff_idx=staff,
-        #         duration=duration,
-        #         measure_rest=measure_rest,
-        #         fermata=fermata,
-        #     )
-        #
-        # best_combination, proba = next(
-        #     most_probable_combinations(
-        #         distributions=[dist[0].tolist() for dist in classification_distributions],
-        #         predicate=lambda x: build_token(x).is_token_allowed(state),
-        #     )
-        # )
-        #
-        # best_token = build_token(best_combination)
-        # return best_token
         # raise NotImplementedError("TupletStart not implemented")
-        # n_actual = clip_cast(self["tuplet_actual_notes"][0], 1, type_=int)
-        # n_normal = clip_cast(self["tuplet_normal_notes"][0], 1, type_=int)
-        # return tk.TupletStart(
-        #     n_actual=n_actual,
-        #     n_normal=n_normal,
-        #     unit_duration=tk.SymbolicDuration(
-        #         type=tk.SymbolicDurationType(duration_type),
-        #         dots=duration_dots,
-        #     ),
-        #     voice_idx=voice_idx,
-        # )
+        classification_dimensions = [
+            dim
+            for dim in expert_outputs.keys()
+            if TokenTensor.PROBLEM_TYPES[dim] != ProblemType.REGRESSION
+        ]
+        classification_distributions = [
+            (
+                F.softmax(value, dim=-1)
+                if TokenTensor.PROBLEM_TYPES[name] == ProblemType.CLASSIFICATION
+                # TODO: remove binary classification as everything is now multiclass
+                else torch.concat([(x := F.sigmoid(value)), 1 - x], axis=-1)  # binary classif.
+            )
+            for name, value in expert_outputs.items()
+            if name in classification_dimensions
+        ]
+
+        def build_token(indices: tuple[int, ...]) -> tk.TupletStart:
+            dim_to_index = dict(zip(classification_dimensions, indices, strict=True))
+            voice = dim_to_index["voice_idx"]
+            duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
+            duration_dots = dim_to_index["duration_dots"]
+            n_actual = round(clip(expert_outputs["tuplet_actual_notes"].item(), 1))
+            n_normal = round(clip(expert_outputs["tuplet_normal_notes"].item(), 1))
+            return tk.TupletStart(
+                n_actual=n_actual,
+                n_normal=n_normal,
+                unit_duration=tk.SymbolicDuration(
+                    type=tk.SymbolicDurationType(duration_type),
+                    dots=duration_dots,
+                ),
+                voice_idx=voice,
+            )
+
+        best_combination, proba = next(
+            most_probable_combinations(
+                distributions=[dist[0].tolist() for dist in classification_distributions],
+                predicate=lambda x: build_token(x).is_token_allowed(state),
+            )
+        )
+
+        best_token = build_token(best_combination)
+        return best_token
+
+    elif token_type == tk.TupletEnd:
+        # Find voices that are currently in a tuplet
+        allowed_voices = [i for i, v in enumerate(state.voices) if v.in_tuplet]
+        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        return tk.TupletEnd(voice_idx=voice_idx)
 
     raise ValueError(f"Unknown token type {token_type}")
-
-
-def convert_binary_distributions_into_multiclass_distribution(
-    distributions: list[list[float], float],
-) -> list[list[float]]:
-    for i, distribution in enumerate(distributions):
-        if isinstance(distribution, float):
-            distributions[i] = [distribution, 1 - distribution]
-    return distributions
 
 
 def most_probable_combinations(
@@ -553,38 +596,74 @@ def most_probable_combinations(
                     heapq.heappush(heap, (-proba_combination(neighbor), neighbor))
 
 
-performance = load_performance(performance_path, num_notes=500)
-transcribed_tokens, logits = transcribe_performance(
+performance_vectorized = load_performance(performance_path, num_notes=MAX_PERFORMED_NOTES)
+for k, v in performance_vectorized["performance_streams"].items():
+    print(f"{k}: {v.shape}")
+
+# Plot performance streams
+# plt.figure(figsize=(12, 8))
+plt.matshow(concat_streams(performance_vectorized["performance_streams"], separate_by_none=True))
+plt.tight_layout()
+plt.show()
+
+# Transcribe performance
+# force_first_token = None
+force_first_token = tk.Bar(numerator=3, denominator=4, is_nominal=True)
+use_cache = True
+transcribed_tokens, logits, masks = transcribe_performance(
     model.transcriber_model,
-    performance,
-    max_length=200,
-    return_logits=True,
-    use_cache=True,
+    performance_vectorized["performance_streams"],
+    onset_times=performance_vectorized["performance_onset_times"].unsqueeze(0),
+    max_length=MAX_GENERATED_TOKENS,
+    return_logits_and_mask=True,
+    use_cache=use_cache,
+    force_first_token=force_first_token,
+    allowed_pitches=set(
+        n.pitch for n in performance_vectorized["performance"].instruments[0].notes
+    ),
 )
 logits = logits.numpy()
-logits[logits == -1] = None
+masks = masks.numpy()
+# logits[logits == -1] = None
 
 # Plot a heatmap of the logits
-plt.figure(figsize=(len(logits) // 5, 8))
+plt.figure(figsize=(len(logits) // 5, 4))
 plt.imshow(logits.T, cmap='viridis')
 plt.yticks(
     range(len(TokenTensor.TOKEN_INDEXER)),
     [model._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()],
 )
-plt.colorbar()
+ys, xs = np.where(~masks.T)
+plt.plot(xs, ys, "x", color='red')
+# plt.colorbar()
 plt.ylabel('Token Types')
 plt.xlabel('Time Steps')
 plt.title('Logits Heatmap')
+plt.tight_layout()
 plt.show()
 
 
 for token in transcribed_tokens:
     print(token)
+# Save tokens
+with open(
+    Path(f"/tmp/transcribed_tokens_forced={force_first_token is not None}_cache={use_cache}.txt"),
+    "w",
+) as f:
+    for token in transcribed_tokens:
+        f.write(str(token) + "\n")
 
 score = token_sequence_to_partitura(transcribed_tokens)
 
 file_name = (performance_path.relative_to(base_path).with_suffix(".musicxml").as_posix()).replace(
     "/", "_"
 )
-pt.save_musicxml(score, Path("/tmp") / file_name)
+file_path = Path("/tmp") / file_name
+pt.save_musicxml(score, file_path)
 # print(model)
+
+# performance_vectorized["performance"].write("/tmp/cropped.mid")
+open_in_midieditor(Path("/tmp/cropped.mid"))
+open_in_musescore(file_path)
+# Only open the reference score if there is it is not already loaded by an existing MuseScore instance
+open_in_musescore(reference_score_path, only_if_not_open=True)
