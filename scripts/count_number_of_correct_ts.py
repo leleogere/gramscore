@@ -16,6 +16,7 @@ from loguru import logger
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.pdmx_tokens_datamodule import PdmxTokensDataModule
 from models.automata.vectorization_torch import TokenTensor
 from models.tokens_transcriber_module import TokensTranscriberModule
@@ -24,7 +25,8 @@ from utils.musicxml import read_musicxml
 
 # %% Set paths
 # fmt: off
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-12-02_15-26-21_clean-salad-313/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-12-02_15-26-21_clean-salad-313/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt").expanduser()
 
 pdmx_path = Path("~/Documents/datasets/pdmx").expanduser()
 # performance_path = pdmx_path / "mid/0/0/Qma1a1L2c1vSEuGfdPVSEEWfuYAEoBmjpVESX1ok2imu4b.mid"
@@ -54,6 +56,21 @@ datamodule = PdmxTokensDataModule(
 )
 datamodule.prepare_data()
 datamodule.setup(stage="validate")
+
+# Make sure the validation pieces are the ones in the training
+validation_pieces_file = model_path.parent.parent / "validation.txt"
+with validation_pieces_file.open("r") as f:
+    validation_piece_ids = [line.strip() for line in f.readlines()]
+    print("\n".join(validation_piece_ids))
+datamodule.data_val.entries = [
+    ScorePerformanceEntry(
+        xml_score=pdmx_path / piece_xml_path,
+        midi_performance=pdmx_path / piece_xml_path.replace("mxl", "mid"),
+        base_path=pdmx_path,
+    )
+    for piece_xml_path in validation_piece_ids
+]
+
 dataloader = datamodule.val_dataloader()
 
 
@@ -107,25 +124,21 @@ with torch.no_grad():
 
         # Pass thought Bar expert
         outputs = bar_expert(decoder_outputs.last_hidden_state)
-        numerators = torch.round(outputs["bar_numerator"][:, 0])
-        denominators_idx = outputs["bar_denominator"][:, 0].argmax(-1)
+        ts_idxs = outputs["bar_time_signature"].argmax(-1)
         are_nominal = outputs["bar_is_nominal"][:, 0].argmax(-1)
 
-        for entry, numerator, denominator, is_nominal in zip(
-            batch["entries"], numerators, denominators_idx, are_nominal
-        ):
-            pred_numerator = int(numerator.item())
-            pred_denominator = TokenTensor.TS_DENOMINATOR_INDEXER_INV[denominator.item()]
+        for entry, ts_idx, is_nominal in zip(batch["entries"], ts_idxs, are_nominal):
+            pred_ts = TokenTensor.TS_INDEXER_INV[ts_idx.item()]
             pred_is_nominal = bool(is_nominal.item())
 
             true_numerator, true_denominator = get_first_time_signature(entry.xml_score)
 
-            is_correct = (pred_numerator, pred_denominator) == (true_numerator, true_denominator)
+            is_correct = pred_ts == (true_numerator, true_denominator)
 
             bar_predictions.append(
                 {
-                    "pred_numerator": pred_numerator,
-                    "pred_denominator": pred_denominator,
+                    "pred_numerator": pred_ts[0],
+                    "pred_denominator": pred_ts[1],
                     "pred_is_nominal": pred_is_nominal,
                     "true_numerator": true_numerator,
                     "true_denominator": true_denominator,
@@ -134,13 +147,15 @@ with torch.no_grad():
                 }
             )
 
-            breakpoint()
+            # breakpoint()
 
-# with output_path.open("w") as f:
-#     writer = csv.DictWriter(f, fieldnames=list(bar_predictions[0].keys()))
-#     writer.writeheader()
-#     for row in bar_predictions:
-#         writer.writerow(row)
+
+# %%
+with output_path.open("w") as f:
+    writer = csv.DictWriter(f, fieldnames=list(bar_predictions[0].keys()))
+    writer.writeheader()
+    for row in bar_predictions:
+        writer.writerow(row)
 
 
 # %% Play with predictions
