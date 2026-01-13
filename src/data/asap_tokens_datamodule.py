@@ -144,11 +144,11 @@ class AsapTokensDataModule(LightningDataModule):
             "chunk_ends": [x["chunk_end"] for x in batch],
             "score_tensor": scores_collated,
             "score_padding_mask": score_padding_mask,
-            "score_lengths": score_lengths,
+            "score_length": score_lengths,
             "performance_streams": performances_collated,
             "performance_onset_times": performance_onset_times,
             "performance_padding_mask": performance_padding_mask,
-            "performance_lengths": performance_lengths,
+            "performance_length": performance_lengths,
         }
 
     def prepare_data(self) -> None:

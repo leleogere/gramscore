@@ -154,17 +154,17 @@ class TokensTranscriberModule(L.LightningModule):
         performance_padded_mask: torch.Tensor = batch["performance_padding_mask"]  # B * N
         performance_not_padded_mask = torch.logical_not(performance_padded_mask)
         performance_onset_times = batch["performance_onset_times"]
-        performance_num_notes: torch.Tensor = batch["performance_lengths"]  # B
+        performance_num_notes: torch.Tensor = batch["performance_length"]  # B
         score_tensor: TokenTensor = batch["score_tensor"]  # B * T * K
         score_padded_mask: torch.Tensor = batch["score_padding_mask"]  # B * T
         score_not_padded_mask = torch.logical_not(score_padded_mask)
-        score_num_tokens: torch.Tensor = batch["score_lengths"]  # B
+        score_num_tokens: torch.Tensor = batch["score_length"]  # B
 
         if (
             score_tensor.size(1)
             > self.transcriber_model.roformer.encoder.config.max_position_embeddings
         ):
-            for entry, mask in zip(batch["entries"], score_not_padded_mask):
+            for entry, mask in zip(batch["entry"], score_not_padded_mask):
                 if torch.all(mask[-1] != -100):
                     raise RuntimeError(
                         f"The score {entry.xml_score_relative} is too long for the positional "
@@ -387,12 +387,12 @@ class TokensTranscriberModule(L.LightningModule):
             self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0
             and batch_idx < self.hparams.val_max_logits_logged
         ):
-            entry = batch["entries"][0]
+            entry = batch["entry"][0]
             performance_path = entry.midi_performance_relative.as_posix()
             score_folder = entry.xml_score_relative.as_posix()
             true_tokens_sequence = true_token_types[0].argmax(-1)
             logits = router_logits[0]
-            num_tokens = batch["score_lengths"][0]
+            num_tokens = batch["score_length"][0]
 
             # Convert to string
             true_tokens_sequence = [

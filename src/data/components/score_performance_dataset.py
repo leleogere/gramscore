@@ -80,6 +80,17 @@ class ScorePerformanceEntry:
         """
         return (self.composer, self.title)
 
+    @property
+    def debug_path(self) -> Path:
+        if self.base_path is not None:
+            return (
+                self.xml_score_relative
+                if self.xml_score is not None
+                else self.midi_performance_relative
+            )
+        else:
+            return self.xml_score if self.xml_score is not None else self.midi_performance
+
 
 class ScorePerformanceDataset(Dataset):
     """Dataset for a dataset of pairs of MusicXML scores and MIDI performances."""
@@ -129,7 +140,7 @@ class ScorePerformanceDataset(Dataset):
             except Exception as e:
                 logger.error(
                     f"Failed to apply transform {transform} on "
-                    f"{sample['entry'].xml_score_relative}: {e}"
+                    f"{sample['entry'].debug_path}: {e}"
                 )
                 raise e
             if isinstance(sample, list):

@@ -76,60 +76,77 @@ class PdmxTokensDataModule(LightningDataModule):
         :param batch: The batch to collate.
         :return: The collated batch.
         """
-        # Pad and collate score tensors
-        scores = [x["score_tensor"] for x in batch]  # each N_TOKENS * TOTAL_DIMENSIONS
-        scores_collated: TokenTensor = pad_sequence(
-            scores,
-            batch_first=True,
-            padding_value=PADDING_VALUE,
-        )  # B * N_TOKENS_MAX * TOTAL_DIMENSIONS
-        score_padding_mask = scores_collated[:, :, 0] == PADDING_VALUE  # B * N_TOKENS_MAX
-        score_lengths = torch.LongTensor([s.size(0) for s in scores])
+        fields = [key for key in batch[0]]
+        results = {}
 
-        # Pad and collate performance tensor streams
-        performances = [x["performance_streams"] for x in batch]  # each N_NOTES * N_FEATURES_VALUE
-        streams = ["onset", "duration", "pitch", "velocity"]
-        # Make sure all stream have same batch and num_notes
-        assert all(
-            performance[streams[0]].shape[0] == performance[stream].shape[0]
-            for performance in performances
-            for stream in streams[1:]
-        ), "All streams of a performance should have the same number of notes"
-        performances_collated = {
-            stream: pad_sequence(
-                [x[stream] for x in performances],
-                batch_first=True,
-                padding_value=PADDING_VALUE,
-            )
-            for stream in streams
-        }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
-        performance_padding_mask = (
-            performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
-        )  # B * N_NOTES_MAX
-        performance_lengths = torch.LongTensor([p[streams[0]].size(0) for p in performances])
-        # Security check to catch bug
-        assert all(
-            performances_collated[streams[0]].shape[0:2] == performances_collated[stream].shape[0:2]
-            for stream in streams[1:]
-        ), "All streams should have the same batch size and number of notes after padding"
+        for field in fields:
 
-        # Also collate the onset times
-        performance_onset_times = pad_sequence(
-            [x["performance_onset_times"] for x in batch],
-            batch_first=True,
-            padding_value=PADDING_VALUE,
-        )
+            # Pad and collate score tensors
+            if field == "score_tensor":
+                scores = [x["score_tensor"] for x in batch]  # each N_TOKENS * TOTAL_DIMENSIONS
+                scores_collated: TokenTensor = pad_sequence(
+                    scores,
+                    batch_first=True,
+                    padding_value=PADDING_VALUE,
+                )  # B * N_TOKENS_MAX * TOTAL_DIMENSIONS
+                score_padding_mask = scores_collated[:, :, 0] == PADDING_VALUE  # B * N_TOKENS_MAX
+                score_lengths = torch.LongTensor([s.size(0) for s in scores])
+                # Store results
+                results["score_tensor"] = scores_collated
+                results["score_padding_mask"] = score_padding_mask
+                results["score_length"] = score_lengths
 
-        return {
-            "entries": [x["entry"] for x in batch],
-            "score_tensor": scores_collated,
-            "score_padding_mask": score_padding_mask,
-            "score_lengths": score_lengths,
-            "performance_streams": performances_collated,
-            "performance_onset_times": performance_onset_times,
-            "performance_padding_mask": performance_padding_mask,
-            "performance_lengths": performance_lengths,
-        }
+            # Pad and collate performance tensor streams
+            elif field == "performance_streams":
+                performances = [
+                    x["performance_streams"] for x in batch
+                ]  # each N_NOTES * N_FEATURES_VALUE
+                streams = ["onset", "duration", "pitch", "velocity"]
+                # Make sure all stream have same batch and num_notes
+                assert all(
+                    performance[streams[0]].shape[0] == performance[stream].shape[0]
+                    for performance in performances
+                    for stream in streams[1:]
+                ), "All streams of a performance should have the same number of notes"
+                performances_collated = {
+                    stream: pad_sequence(
+                        [x[stream] for x in performances],
+                        batch_first=True,
+                        padding_value=PADDING_VALUE,
+                    )
+                    for stream in streams
+                }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
+                performance_padding_mask = (
+                    performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
+                )  # B * N_NOTES_MAX
+                performance_lengths = torch.LongTensor(
+                    [p[streams[0]].size(0) for p in performances]
+                )
+                # Security check to catch bug
+                assert all(
+                    performances_collated[streams[0]].shape[0:2]
+                    == performances_collated[stream].shape[0:2]
+                    for stream in streams[1:]
+                ), "All streams should have the same batch size and number of notes after padding"
+                # Also collate the onset times
+                # Store results
+                results["performance_streams"] = performances_collated
+                results["performance_padding_mask"] = performance_padding_mask
+                results["performance_length"] = performance_lengths
+
+            elif field == "performance_onset_times":
+                performance_onset_times = pad_sequence(
+                    [x["performance_onset_times"] for x in batch],
+                    batch_first=True,
+                    padding_value=PADDING_VALUE,
+                )
+                results["performance_onset_times"] = performance_onset_times
+
+            # Simply collate as list other fields
+            else:
+                results[field] = [item[field] for item in batch]
+
+        return results
 
     def prepare_data(self) -> None:
         # """
