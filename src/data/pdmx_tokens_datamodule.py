@@ -138,7 +138,7 @@ class PdmxTokensDataModule(LightningDataModule):
 
             # Simply collate as list other fields
             else:
-                if keep_all:
+                if field in ["entry"] or keep_all:
                     results[field] = [item[field] for item in batch]
 
         return results
