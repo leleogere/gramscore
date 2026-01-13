@@ -202,8 +202,8 @@ class TokenTensor(torch.Tensor):
         if self.PROBLEM_TYPES[dim_name] != ProblemType.CLASSIFICATION:
             raise ValueError(f"Can't decode dimension {dim_name} as {self.PROBLEM_TYPES[dim_name]}")
         return self[
-                ...,
-                self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
+            ...,
+            self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
         ].argmax(-1)
 
     def _quantize_dim(self, dim_name: str):
@@ -287,6 +287,7 @@ class TokenTensor(torch.Tensor):
                 note_class=note_class,
                 octave=octave,
                 accidental=accidental,
+                grace=grace,
                 tied=tied,
                 stem_direction=stem_direction,
                 staff_idx=staff_idx,
@@ -312,10 +313,10 @@ class TokenTensor(torch.Tensor):
             #         type=tk.SymbolicDurationType(duration_type),
             #         dots=duration_dots,
             #     )
-                duration = tk.SymbolicDuration(
-                    type=tk.SymbolicDurationType(duration_type),
-                    dots=duration_dots,
-                )
+            duration = tk.SymbolicDuration(
+                type=tk.SymbolicDurationType(duration_type),
+                dots=duration_dots,
+            )
             return tk.Rest(
                 staff_idx=staff_idx,
                 voice_idx=voice_idx,
