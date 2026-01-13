@@ -23,6 +23,7 @@ from data.components.transforms import PerformanceReader
 from data.components.transforms import PerformanceVectorizer
 from models.automata.automata import ConstrainedAutomata
 from models.automata.io import token_sequence_to_partitura
+from models.automata.io import token_sequence_to_partitura_permissive
 from models.automata.tokens import TranscriptionState
 from models.automata.vectorization_torch import ProblemType
 from models.automata.vectorization_torch import TokenTensor
@@ -30,33 +31,34 @@ from models.automata.vectorization_torch import clip
 from models.components.tokens_transcriber_model import TokensTranscriberModel
 from models.tokens_transcriber_module import TokensTranscriberModule
 from models.automata import tokens as tk
-from utils.debug import concat_streams
+from utils.debug import concat_streams, write_compare_to_file, as_pycharm_link
 from utils.debug import open_in_midieditor
 from utils.debug import open_in_musescore
 from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 
 # fmt: off
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-19_14-15-04_cosmic-totem-262/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-22_09-51-15_jumping-shape-264/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-23_15-09-32_grateful-frog-267_vocal-morning-268/checkpoints/last_vocal-morning-268.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/dry-planet-265.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/last-v1.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/rosy-salad-273_partial.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-03_12-53-43/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-03_12-53-43/checkpoints/epoch_060.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-06_18-05-07/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-07_09-30-46/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-12_11-37-22_leafy-serinity-289/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-14_10-23-42_kind-universe-291/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-14_17-13-25_noble-forest-293/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-28_22-23-03_clean-salad-312/checkpoints/last.ckpt").expanduser()
-# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-28_20-21-02_scarlet-pyramid-311/checkpoints/last.ckpt").expanduser()
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-12-02_15-26-21_clean-salad-313/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-09-19_14-15-04_cosmic-totem-262/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-09-22_09-51-15_jumping-shape-264/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-09-23_15-09-32_grateful-frog-267_vocal-morning-268/checkpoints/last_vocal-morning-268.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/dry-planet-265.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/last-v1.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/rosy-salad-273_partial.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-03_12-53-43/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-03_12-53-43/checkpoints/epoch_060.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-11-06_18-05-07/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-11-07_09-30-46/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-12_11-37-22_leafy-serinity-289/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-11-14_10-23-42_kind-universe-291/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/JZ/2025-11-14_17-13-25_noble-forest-293/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-28_22-23-03_clean-salad-312/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-28_20-21-02_scarlet-pyramid-311/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-12-02_15-26-21_clean-salad-313/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt").expanduser()
 
 # base_path = Path("~/Documents/datasets/asap-dataset").expanduser()
 # performance_path = base_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
@@ -67,8 +69,10 @@ model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-12-02
 base_path = Path("~/Documents/datasets/pdmx").expanduser()
 # performance_path = base_path / "mid/0/0/Qma1a1L2c1vSEuGfdPVSEEWfuYAEoBmjpVESX1ok2imu4b.mid"
 # performance_path = base_path / "mid/0/0/Qma1a2YHEJ8j9gxLCxgALAfjYaiYJQogh1bgyFSwNSRPCs.mid"  # Polyphonic, long
+performance_path = base_path / "mid/0/39/QmaQ5PSCje4wFnvkjYZscvC7sQo46M7UcDZUzjPspUvQMZ.mid"  # test strict
 # performance_path = base_path / "mid/1/11/Qmbbh58jD1ZLT1vevNsnyEZkexnx2USTFz6FSHX3KUiAzC.mid"  # Monophonic
-performance_path = base_path / "mid/15/12/QmXB8B4F9cbHUrnrP4mRGyL3vyhTkyDjuVEbM3VdFu2EY9.mid"  # Polyphonic, chords
+# performance_path = base_path / "mid/15/12/QmXB8B4F9cbHUrnrP4mRGyL3vyhTkyDjuVEbM3VdFu2EY9.mid"  # Polyphonic, chords
+# performance_path = base_path / "mid/1/32/QmbMQQPWGZpGiTV5gngSwmjTbqd7XosW8yyPwkSHnXbhY2.mid"  # Polyphonic, chords
 reference_score_path = base_path / "mxl" / performance_path.relative_to(base_path / "mid").with_suffix(".mxl")
 print(f"Reference score path: {reference_score_path.as_posix()}")
 print(f"Performance path: {performance_path.as_posix()}")
@@ -81,6 +85,7 @@ MAX_GENERATED_TOKENS = 400
 model: TokensTranscriberModule = TokensTranscriberModule.load_from_checkpoint(
     model_path,
     map_location="cpu",
+    weights_only=False,
 )
 model.eval()
 
@@ -118,6 +123,7 @@ def transcribe_performance(
     onset_times: torch.Tensor,
     sample_token_type: bool = False,  # TODO: implement sampling
     max_length: int = 1024,
+    constraint: bool = True,
     return_logits_and_mask: bool = False,
     use_cache: bool = True,
     allowed_pitches: set[int] = None,
@@ -130,10 +136,13 @@ def transcribe_performance(
     if return_logits_and_mask:
         logits_and_masks = []
 
-    num_voices = 16
-    automata = ConstrainedAutomata(num_voices=num_voices, allowed_pitches=allowed_pitches)
     tokens = [tk.StartOfScore()]  # Start with the SOS token
-    automata.transition(tokens[0], inplace=True)
+
+    if constraint:
+        num_voices = 16
+        automata = ConstrainedAutomata(num_voices=num_voices, allowed_pitches=allowed_pitches)
+        automata.transition(tokens[0], inplace=True)
+
     with torch.no_grad():
         for key, value in performance_streams.items():
             performance_streams[key] = value.unsqueeze(0)
@@ -154,7 +163,8 @@ def transcribe_performance(
             # Force the first token if specified (and pass thought model to update past_key_values)
             if force_first_token is not None and i == 0:
                 next_token = force_first_token
-                automata.transition(next_token, inplace=True)
+                if constraint:
+                    automata.transition(next_token, inplace=True)
                 tokens_tensor = torch.concat(
                     [tokens_tensor, TokenTensor.from_tokens([[next_token]])], dim=1
                 )
@@ -177,6 +187,7 @@ def transcribe_performance(
                 continue
 
             input_tokens = tokens_tensor[:, -1:] if use_cache else tokens_tensor
+            write_compare_to_file(input_tokens, f"input_tokens_{i}.txt")
             decoder_outputs = model.forward_decoder(
                 input_tokens=input_tokens,
                 encoder_hidden_states=encoder_output,
@@ -193,19 +204,23 @@ def transcribe_performance(
             model_want_to_predict = torch.argmax(token_type_logits, dim=-1)
 
             # Filter logits for the allowed token types
-            allowed_token_types_idx = [
-                TokenTensor.TOKEN_INDEXER[t]
-                for t in automata.allowed_tokens_types()
-                if t
-                not in [tk.StartOfScore]  # , tk.TupletStart, tk.TupletEnd]  # TODO: fix tuplets
-            ]
-            if not allowed_token_types_idx:
-                raise RuntimeError("No token type allowed")
-            token_type_logits_masked = mask_unallowed(
-                token_type_logits.clone(),  # Clone only for debugging purposes to not change the initial one
-                allowed_indices=allowed_token_types_idx,
-                mask_value=-1,
-            )
+            if constraint:
+                allowed_token_types_idx = [
+                    TokenTensor.TOKEN_INDEXER[t]
+                    for t in automata.allowed_tokens_types()
+                    if t
+                    not in [tk.StartOfScore]  # , tk.TupletStart, tk.TupletEnd]  # TODO: fix tuplets
+                ]
+                if not allowed_token_types_idx:
+                    raise RuntimeError("No token type allowed")
+                token_type_logits_masked = mask_unallowed(
+                    token_type_logits.clone(),  # Clone only for debugging purposes to not change the initial one
+                    allowed_indices=allowed_token_types_idx,
+                    mask_value=-1,
+                )
+            else:
+                token_type_logits_masked = token_type_logits
+                allowed_token_types_idx = list(range(len(tk.TOKEN_TYPES)))
 
             if return_logits_and_mask:
                 mask = torch.zeros(
@@ -228,32 +243,40 @@ def transcribe_performance(
                 )
 
             # Pass the decoder outputs through the correct expert head
-            expert_outputs = model.forward_experts(
-                decoder_outputs=last_hidden_state,  # 1 * E
-                token_type_masks={
-                    next_token_type.as_str(): torch.ones(
+            token_types_mask = {
+                next_token_type.as_str(): torch.ones(
+                    1, 1, dtype=torch.bool, device=last_hidden_state.device
+                ),
+                **{
+                    other_token.as_str(): torch.zeros(
                         1, 1, dtype=torch.bool, device=last_hidden_state.device
-                    ),
-                    **{
-                        other_token.as_str(): torch.zeros(
-                            1, 1, dtype=torch.bool, device=last_hidden_state.device
-                        )
-                        for other_token in TokenTensor.TOKEN_INDEXER_INV.values()
-                        if other_token != next_token_type
-                    },
+                    )
+                    for other_token in TokenTensor.TOKEN_INDEXER_INV.values()
+                    if other_token != next_token_type
                 },
-                convert_to_tokentensor=False,
-            ).get(next_token_type.as_str(), None)
+            }
+            if constraint:
+                expert_outputs = model.forward_experts(
+                    decoder_outputs=last_hidden_state,  # 1 * E
+                    token_type_masks=token_types_mask,
+                    convert_to_tokentensor=False,
+                ).get(next_token_type.as_str(), None)
+                next_token = decode_next_token_contrained(
+                    token_type=next_token_type,
+                    expert_outputs=expert_outputs,
+                    state=automata.state,
+                )
+                automata.transition(next_token, inplace=True)
+            else:
+                next_token_tensor = model.forward_experts(
+                    decoder_outputs=last_hidden_state,  # 1 * E
+                    token_type_masks=token_types_mask,
+                    convert_to_tokentensor=True,
+                )
+                next_token = next_token_tensor.to_tokens()[0][0]
 
-            # Decode the expert output constrained by the automata
-            next_token = decode_next_token_contrained(
-                token_type=next_token_type,
-                expert_outputs=expert_outputs,
-                state=automata.state,
-            )
             # pbar.write(str(next_token))
 
-            automata.transition(next_token, inplace=True)
             tokens.append(next_token)
             tokens_tensor = torch.concat(
                 [tokens_tensor, TokenTensor.from_tokens([[next_token]])], dim=1
@@ -304,12 +327,15 @@ def decode_next_token_contrained(
 
     # Bar
     if token_type == tk.Bar:
-        numerator = expert_outputs["bar_numerator"][0]
-        denominator_idx = expert_outputs["bar_denominator"].argmax().item()
-        denominator = TokenTensor.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
+        # numerator = expert_outputs["bar_numerator"][0]
+        # denominator_idx = expert_outputs["bar_denominator"].argmax().item()
+        # denominator = TokenTensor.TS_DENOMINATOR_INDEXER_INV[denominator_idx]
+        time_signature_idx = expert_outputs["bar_time_signature"].argmax().item()
+        numerator, denominator = TokenTensor.TS_INDEXER_INV[time_signature_idx]
         is_nominal = bool(expert_outputs["bar_is_nominal"].argmax().item())
         return tk.Bar(
-            numerator=round(clip(numerator.item(), lower=1)),
+            # numerator=round(clip(numerator.item(), lower=1)),
+            numerator=numerator,
             denominator=denominator,
             is_nominal=is_nominal,
         )
@@ -607,15 +633,17 @@ plt.tight_layout()
 plt.show()
 
 # Transcribe performance
-# force_first_token = None
-force_first_token = tk.Bar(numerator=3, denominator=4, is_nominal=True)
+force_first_token = None
+# force_first_token = tk.Bar(numerator=3, denominator=4, is_nominal=True)
 use_cache = True
+constraint = True
 transcribed_tokens, logits, masks = transcribe_performance(
     model.transcriber_model,
     performance_vectorized["performance_streams"],
     onset_times=performance_vectorized["performance_onset_times"].unsqueeze(0),
     max_length=MAX_GENERATED_TOKENS,
     return_logits_and_mask=True,
+    constraint=constraint,
     use_cache=use_cache,
     force_first_token=force_first_token,
     allowed_pitches=set(
@@ -644,16 +672,21 @@ plt.show()
 
 
 for token in transcribed_tokens:
-    print(token)
+    print("  * " + str(token))
 # Save tokens
 with open(
-    Path(f"/tmp/transcribed_tokens_forced={force_first_token is not None}_cache={use_cache}.txt"),
+    Path(
+        f"/tmp/transcribed_tokens_forced={force_first_token is not None}_cache={use_cache}_constraint={constraint}.txt"
+    ),
     "w",
 ) as f:
     for token in transcribed_tokens:
         f.write(str(token) + "\n")
 
-score = token_sequence_to_partitura(transcribed_tokens)
+if constraint:
+    score = token_sequence_to_partitura(transcribed_tokens)
+else:
+    score = token_sequence_to_partitura_permissive(transcribed_tokens)
 
 file_name = (performance_path.relative_to(base_path).with_suffix(".musicxml").as_posix()).replace(
     "/", "_"
@@ -663,7 +696,10 @@ pt.save_musicxml(score, file_path)
 # print(model)
 
 # performance_vectorized["performance"].write("/tmp/cropped.mid")
-open_in_midieditor(Path("/tmp/cropped.mid"))
-open_in_musescore(file_path)
+# open_in_midieditor(Path("/tmp/cropped.mid"))
+# open_in_musescore(file_path)
+print(f" Performance MIDI: {as_pycharm_link(file_path)}")
+print(f"  Reference score: {as_pycharm_link(reference_score_path)}")
+print(f"Transcribed score: {as_pycharm_link(file_path)}")
 # Only open the reference score if there is it is not already loaded by an existing MuseScore instance
-open_in_musescore(reference_score_path, only_if_not_open=True)
+# open_in_musescore(reference_score_path, only_if_not_open=True)

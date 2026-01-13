@@ -3,6 +3,7 @@ Try to load and run inference on a model
 """
 
 from pathlib import Path
+from typing import Any
 
 import symusic
 import torch
@@ -25,13 +26,23 @@ from models.automata import tokens as tk
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-05-27_15-12-11/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-11_22-43-52/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-06-27_00-10-57/checkpoints/last.ckpt").expanduser()
-model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-09-09_23-50-39/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-19_14-15-04_cosmic-totem-262/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-09-22_09-51-15_jumping-shape-264/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/2025-11-03_12-53-43/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-06_18-05-07/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore/outputs/server/JZ/2025-11-07_09-30-46/checkpoints/last.ckpt").expanduser()
 
-asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
-# performance_path = asap_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
-performance_path = asap_path / "Bach/Prelude/bwv_860/midi_score.mid"
-# performance_path = asap_path / "Bach/Prelude/bwv_883/LuM01M.mid"
-# performance_path = asap_path / "Bach/Prelude/bwv_883/midi_score.mid"
+
+# base_path = Path("~/Documents/datasets/asap-dataset").expanduser()
+# performance_path = base_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
+# performance_path = base_path / "Bach/Prelude/bwv_860/midi_score.mid"
+# performance_path = base_path / "Bach/Prelude/bwv_883/LuM01M.mid"
+# performance_path = base_path / "Bach/Prelude/bwv_883/midi_score.mid"
+
+base_path = Path("~/Documents/datasets/pdmx").expanduser()
+# performance_path = base_path / "mid/0/0/Qma1a1L2c1vSEuGfdPVSEEWfuYAEoBmjpVESX1ok2imu4b.mid"
+performance_path = base_path / "mid/0/0/Qma1a2YHEJ8j9gxLCxgALAfjYaiYJQogh1bgyFSwNSRPCs.mid"
 # fmt: on
 
 # Load the model
@@ -43,7 +54,7 @@ model.eval()
 
 
 # Load the performance
-def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, torch.Tensor]:
+def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, Any]:
     if not performance_path.exists():
         raise FileNotFoundError(f"Performance file {performance_path} does not exist.")
     performance_metadata = ScorePerformanceEntry(xml_score=None, midi_performance=performance_path)
@@ -53,15 +64,17 @@ def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, t
         "performance"
     ]
     if num_notes > 0:
-        performance.clip(0, performance.tracks[0].notes[num_notes - 1].end, inplace=True)
-        pianoroll = performance.pianoroll(modes=["frame"], pitch_range=(21, 108))
-    plt.imshow(
-        pianoroll.squeeze(), aspect='auto', cmap='gray_r', origin='lower', interpolation='none'
-    )
+        print(len(performance.instruments[0].notes))
+        num_notes = min(num_notes, len(performance.instruments[0].notes))
+        # performance.clip(0, performance.tracks[0].notes[num_notes - 1].end, inplace=True)
+        performance.instruments[0].notes = performance.instruments[0].notes[:num_notes]
+        # pianoroll = performance.pianoroll(modes=["frame"], pitch_range=(21, 108))
+    # plt.imshow(
+    #     pianoroll.squeeze(), aspect='auto', cmap='gray_r', origin='lower', interpolation='none'
+    # )
+    plt.matshow(performance.get_piano_roll())
     plt.show()
-    vectorized_performance = performance_vectorizer({"performance": performance})[
-        "performance_streams"
-    ]
+    vectorized_performance = performance_vectorizer({"performance": performance})
     return vectorized_performance
 
 
@@ -69,9 +82,11 @@ def load_performance(performance_path: Path, num_notes: int = -1) -> dict[str, t
 def transcribe_performance(
     model: TokensTranscriberModel,
     performance_streams: dict[str, torch.Tensor],
+    onset_times: torch.Tensor,
     sample_token_type: bool = False,  # TODO: implement sampling
     max_length: int = 1024,
     return_logits: bool = False,
+    use_cache: bool = True,
 ) -> list[tk.AnyToken]:
     if sample_token_type:
         raise NotImplementedError("Sampling token types is not implemented yet.")  # TODO
@@ -96,21 +111,27 @@ def transcribe_performance(
             performance_streams[key] = value.unsqueeze(0)
 
         # Pass performance streams through the encoder
-        encoder_output = model.forward_encoder(input_streams=performance_streams)
+        encoder_output = model.forward_encoder(
+            input_streams=performance_streams,
+            onset_times=onset_times,
+        )
 
         # Prepare SOS token
         tokens_tensor: TokenTensor = TokenTensor.from_tokens([[tk.StartOfScore()]])  # (1, 1, 110)
 
-        past_key_values = None  # Initialize past key values for caching
+        if use_cache:
+            past_key_values = None  # Initialize past key values for caching
         for _ in tqdm(range(max_length)):
+            input_tokens = tokens_tensor[:, -1:] if use_cache else tokens_tensor
             decoder_outputs = model.forward_decoder(
-                input_tokens=tokens_tensor[:, -1:],
+                input_tokens=input_tokens,
                 encoder_hidden_states=encoder_output,
-                past_key_values=past_key_values,  # TODO: Implement CV caching
-                use_cache=True,  # TODO: Implement CV caching
+                past_key_values=past_key_values if use_cache else None,
+                use_cache=use_cache,
             )
             last_hidden_state = decoder_outputs.last_hidden_state[:, -1:]
-            past_key_values = decoder_outputs.past_key_values
+            if use_cache:
+                past_key_values = decoder_outputs.past_key_values
 
             # Pass decoder outputs through the router
             token_type_logits = model.forward_router(last_hidden_state)
@@ -143,6 +164,8 @@ def transcribe_performance(
             )
             new_token_tensor.squeeze(0, 1)  # Remove batch and sequence dimensions
 
+            new_token_tensor = TokenTensor.from_tokens(new_token_tensor.to_tokens())
+
             tokens_tensor = torch.concat([tokens_tensor, new_token_tensor], dim=1)
 
             if isinstance(next_token_type, tk.EndOfScore):
@@ -157,19 +180,22 @@ def transcribe_performance(
         return tokens
 
 
-performance = load_performance(performance_path, num_notes=500)
+performance_vectorized = load_performance(performance_path, num_notes=500)
 transcribed_tokens, logits = transcribe_performance(
     model.transcriber_model,
-    performance,
+    performance_vectorized["performance_streams"],
+    onset_times=performance_vectorized["performance_onset_times"].unsqueeze(0),
     max_length=200,
     return_logits=True,
+    use_cache=True,
 )
+logits = logits.numpy()
 
 import matplotlib.pyplot as plt
 
 # Plot a heatmap of the logits
 plt.figure(figsize=(len(logits) // 5, 8))
-plt.imshow(logits.numpy().T, cmap='viridis')
+plt.imshow(logits.T, cmap='viridis')
 plt.yticks(
     range(len(TokenTensor.TOKEN_INDEXER)),
     [model._token_str_mapping[t] for t in TokenTensor.TOKEN_INDEXER.keys()],
