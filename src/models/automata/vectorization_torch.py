@@ -154,7 +154,7 @@ class TokenTensor(torch.Tensor):
         # -> return the corresponding slice in the last dimension, but also slice along the other
         #    dimensions
         if (is_simple_str := isinstance(item, str)) or (
-            isinstance(item, tuple) and isinstance(item[-1], str)
+            isinstance(item, tuple) and len(item) > 0 and isinstance(item[-1], str)
         ):
             dim_name, prev_slice = (item, [...]) if is_simple_str else (item[-1], item[:-1])
             if dim_name not in self.DIMS:
@@ -172,7 +172,7 @@ class TokenTensor(torch.Tensor):
     def __setitem__(self, key, value):
         # Similar to __getitem__
         if (is_simple_str := isinstance(key, str)) or (
-            isinstance(key, tuple) and isinstance(key[-1], str)
+            isinstance(key, tuple) and len(key) > 0 and isinstance(key[-1], str)
         ):
             dim_name, prev_slice = (key, [...]) if is_simple_str else (key[-1], key[:-1])
             # if self.DIMS[dim_name] == 1:
@@ -186,29 +186,32 @@ class TokenTensor(torch.Tensor):
             super().__setitem__(key, value)
 
     @classmethod
-    def _create_onehot(cls, dim_name: str, value: int):
+    def _create_onehot(cls, dim_name: str, value: int | torch.Tensor):
+        if cls.PROBLEM_TYPES[dim_name] != ProblemType.CLASSIFICATION:
+            raise ValueError(f"Can't decode dimension {dim_name} as {cls.PROBLEM_TYPES[dim_name]}")
         return torch.nn.functional.one_hot(
-            torch.tensor(value),
+            value if isinstance(value, torch.Tensor) else torch.tensor(value, dtype=torch.long),
             num_classes=cls.DIMS[dim_name],
         )
 
-    def _onehot_decode(self, dim_name: str) -> int:
+    def _onehot_decode(self, dim_name: str) -> torch.Tensor:
         if dim_name not in self.DIMS:
             raise KeyError(f"Unknown dimension name {dim_name}")
-        return (
-            self[
+        if self.PROBLEM_TYPES[dim_name] != ProblemType.CLASSIFICATION:
+            raise ValueError(f"Can't decode dimension {dim_name} as {self.PROBLEM_TYPES[dim_name]}")
+        return self[
                 ...,
                 self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
-            ]
-            .argmax(-1)
-            .item()
-        )
+        ].argmax(-1)
+
+    def _quantize_dim(self, dim_name: str):
+        return self._create_onehot(dim_name, self._onehot_decode(dim_name))
 
     def _to_token_single(self) -> tk.Token:
         if self.dim() != 1:
             raise ValueError("Can only convert single token tensors")
 
-        token_type = self.TOKEN_INDEXER_INV[self._onehot_decode("token_type")]
+        token_type = self.TOKEN_INDEXER_INV[self._onehot_decode("token_type").item()]
 
         # StartOfScore
         if token_type == tk.StartOfScore:
@@ -220,9 +223,9 @@ class TokenTensor(torch.Tensor):
 
         # Bar
         if token_type == tk.Bar:
-            time_signature_idx = self._onehot_decode("bar_time_signature")
+            time_signature_idx = self._onehot_decode("bar_time_signature").item()
             numerator, denominator = self.TS_INDEXER_INV[time_signature_idx]
-            is_nominal = self._onehot_decode("bar_is_nominal") == 1
+            is_nominal = self._onehot_decode("bar_is_nominal").item() == 1
             return tk.Bar(
                 numerator=numerator,
                 denominator=denominator,
@@ -231,37 +234,37 @@ class TokenTensor(torch.Tensor):
 
         # KeySignature
         if token_type == tk.KeySignature:
-            fifths = self._onehot_decode("key_signature") - 7
+            fifths = self._onehot_decode("key_signature").item() - 7
             return tk.KeySignature(accidentals=fifths)
 
         # Get eventual staff
-        staff_idx = self._onehot_decode("staff_idx")
+        staff_idx = self._onehot_decode("staff_idx").item()
 
         # Clef
         if token_type == tk.Clef:
-            clef_idx = self._onehot_decode("clef_type")
+            clef_idx = self._onehot_decode("clef_type").item()
             clef_type = "G" if clef_idx == 0 else "F"
             return tk.Clef(clef=clef_type, staff_idx=staff_idx)
 
         # Get eventual voice
-        voice_idx = self._onehot_decode("voice_idx")
+        voice_idx = self._onehot_decode("voice_idx").item()
 
         # Get eventual duration
-        duration_type_idx = self._onehot_decode("duration_type")
+        duration_type_idx = self._onehot_decode("duration_type").item()
         duration_type = self.DURATION_INDEXER_INV[duration_type_idx]
-        duration_dots = self._onehot_decode("duration_dots")
+        duration_dots = self._onehot_decode("duration_dots").item()
 
         # Note
         if token_type == tk.Note:
-            note_class = self.NOTE_INDEXER_INV[self._onehot_decode("note_class")]
-            octave = self._onehot_decode("note_octave")
-            accidental = self._onehot_decode("note_accidental") - 2
-            tied = self._onehot_decode("note_tied") == 1
-            stem_direction_idx = self._onehot_decode("note_stem_direction")
+            note_class = self.NOTE_INDEXER_INV[self._onehot_decode("note_class").item()]
+            octave = self._onehot_decode("note_octave").item()
+            accidental = self._onehot_decode("note_accidental").item() - 2
+            tied = self._onehot_decode("note_tied").item() == 1
+            stem_direction_idx = self._onehot_decode("note_stem_direction").item()
             stem_direction = self.STEM_INDEXER_INV[stem_direction_idx]
             # Articulations and ornaments
             articulations_and_ornaments = {
-                art: self._onehot_decode(art) == 1
+                art: self._onehot_decode(art).item() == 1
                 for art in [
                     "accent",
                     "strong_accent",
@@ -294,14 +297,18 @@ class TokenTensor(torch.Tensor):
 
         # Rest
         if token_type == tk.Rest:
-            measure_rest = self._onehot_decode("measure_rest") == 1
-            fermata = self._onehot_decode("fermata") == 1
-            if measure_rest:
-                duration = tk.SymbolicDuration(
-                    type=tk.SymbolicDurationType.WHOLE,
-                    dots=0,
-                )
-            else:
+            measure_rest = self._onehot_decode("measure_rest").item() == 1
+            fermata = self._onehot_decode("fermata").item() == 1
+            # if measure_rest:
+            #     duration = tk.SymbolicDuration(
+            #         type=tk.SymbolicDurationType.WHOLE,
+            #         dots=0,
+            #     )
+            # else:
+            #     duration = tk.SymbolicDuration(
+            #         type=tk.SymbolicDurationType(duration_type),
+            #         dots=duration_dots,
+            #     )
                 duration = tk.SymbolicDuration(
                     type=tk.SymbolicDurationType(duration_type),
                     dots=duration_dots,
@@ -554,6 +561,50 @@ class TokenTensor(torch.Tensor):
         if padding_mask is not None:
             tensor[padding_mask] = PADDING_VALUE
         return tensor
+
+    def quantize(self, inplace: bool = False) -> Self:
+        quantized: TokenTensor = self.clone() if not inplace else self
+        quantized["token_type"] = self._quantize_dim("token_type")
+        for token_type, token_type_idx in self.TOKEN_INDEXER.items():
+            related_idx = torch.where(quantized["token_type"][..., token_type_idx] == 1)
+            if related_idx[0].numel() > 0:
+                if self.ndim == 1:
+                    related_idx = ()  # Fix for torch.where behaviour with 0-D tensors
+                for token_sub_dimension in self.DIMS:
+                    # if token_sub_dimension == "duration_dots":
+                    #     breakpoint()
+                    # Token type dimension already quantized
+                    if token_sub_dimension == "token_type":
+                        continue
+                    # Dimension used for the token type
+                    elif token_sub_dimension in self.TOKEN_TYPE_TO_DIMS[token_type]:
+                        if self.PROBLEM_TYPES[token_sub_dimension] == ProblemType.CLASSIFICATION:
+                            quantized[(*related_idx, token_sub_dimension)] = (
+                                self[*related_idx]
+                                ._quantize_dim(token_sub_dimension)
+                                .to(torch.float)
+                            )
+                        elif self.PROBLEM_TYPES[token_sub_dimension] == ProblemType.REGRESSION:
+                            quantized[(*related_idx, token_sub_dimension)] = torch.round(
+                                torch.clamp(
+                                    self[*related_idx, token_sub_dimension],
+                                    min=(
+                                        1
+                                        if token_sub_dimension
+                                        in ("tuplet_actual_notes", "tuplet_normal_notes")
+                                        else None
+                                    ),
+                                )
+                            )
+                        else:  # Should not happen
+                            raise ValueError(
+                                f"Unknown problem type: {self.PROBLEM_TYPES[token_sub_dimension]}"
+                            )
+                    # Dimension unused for the token type
+                    else:
+                        quantized[(*related_idx, token_sub_dimension)] = 0.0
+
+        return quantized
 
     # def get_token_type_specific_part(
     #     self,
