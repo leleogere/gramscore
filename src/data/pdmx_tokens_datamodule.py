@@ -62,6 +62,7 @@ class PdmxTokensDataModule(LightningDataModule):
     @staticmethod
     def collate_fn(
         batch: list[dict[str, Any]],
+        keep_all: bool = False,
     ) -> dict[str, Any]:
         """
         Collate function for the `DataLoader`.
@@ -137,7 +138,8 @@ class PdmxTokensDataModule(LightningDataModule):
 
             # Simply collate as list other fields
             else:
-                results[field] = [item[field] for item in batch]
+                if keep_all:
+                    results[field] = [item[field] for item in batch]
 
         return results
 
