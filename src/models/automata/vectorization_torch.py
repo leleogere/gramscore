@@ -70,6 +70,7 @@ class TokenTensor(torch.Tensor):
         "note_class": (7, ProblemType.CLASSIFICATION),
         "note_octave": (9, ProblemType.CLASSIFICATION),
         "note_accidental": (5, ProblemType.CLASSIFICATION),
+        "note_grace": (2, ProblemType.CLASSIFICATION),
         "note_tied": (2, ProblemType.CLASSIFICATION),
         "note_stem_direction": (len(STEM_INDEXER), ProblemType.CLASSIFICATION),
         "fermata": (2, ProblemType.CLASSIFICATION),
@@ -105,6 +106,7 @@ class TokenTensor(torch.Tensor):
             "note_class",
             "note_octave",
             "note_accidental",
+            "note_grace",
             "note_tied",
             "note_stem_direction",
             "fermata",
@@ -259,6 +261,7 @@ class TokenTensor(torch.Tensor):
             note_class = self.NOTE_INDEXER_INV[self._onehot_decode("note_class").item()]
             octave = self._onehot_decode("note_octave").item()
             accidental = self._onehot_decode("note_accidental").item() - 2
+            grace = self._onehot_decode("note_grace").item() == 1
             tied = self._onehot_decode("note_tied").item() == 1
             stem_direction_idx = self._onehot_decode("note_stem_direction").item()
             stem_direction = self.STEM_INDEXER_INV[stem_direction_idx]
@@ -404,6 +407,7 @@ class TokenTensor(torch.Tensor):
         self["note_class"] = self._create_onehot("note_class", self.NOTE_INDEXER[note.note_class])
         self["note_octave"] = self._create_onehot("note_octave", note.octave)
         self["note_accidental"] = self._create_onehot("note_accidental", note.accidental + 2)
+        self["note_grace"] = self._create_onehot("note_grace", int(note.grace))
         self["note_tied"] = self._create_onehot("note_tied", int(note.tied))
         stem_direction = self.STEM_INDEXER[note.stem_direction]
         self["note_stem_direction"] = self._create_onehot("note_stem_direction", stem_direction)
