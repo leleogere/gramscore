@@ -321,13 +321,12 @@ class QuantizedMusicChunker(AbstractProcessor):
 
     def _process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         # Get the score and performance
-        entry: ScorePerformanceEntry = sample["entry"]
-        score: pt.score.Part = sample["score"]
+        score: pt.score.Part = sample.get("score", None)
         performance: pm.PrettyMIDI = sample["performance"]
 
-        num_measures = len(score.measures)
+        num_score_measures = len(score.measures) if score is not None else None
 
-        if num_measures == 1:
+        if num_score_measures == 1:
             return {
                 "chunk_start": 0,
                 "chunk_end": 0,
@@ -342,19 +341,23 @@ class QuantizedMusicChunker(AbstractProcessor):
                 start_measure=start_measure,
                 num_notes=num_notes,
                 inplace=False,
-                check_num_measures=num_measures,
+                check_num_measures=num_score_measures,
             )
-            clipped_score = clip_score(
-                score=score,
-                start_measure=start,
-                end_measure=end,
+            clipped_score = (
+                clip_score(
+                    score=score,
+                    start_measure=start,
+                    end_measure=end,
+                )
+                if score is not None
+                else None
             )
             return clipped_performance, clipped_score, start, end
 
         if self.mode == "random" or isinstance(self.mode, int):
             if self.mode == "random":
-                if num_measures >= 2:
-                    start_measure = random.randint(0, num_measures - 2)
+                if num_score_measures >= 2:
+                    start_measure = random.randint(0, num_score_measures - 2)
                 else:
                     start_measure = 0
             elif isinstance(self.mode, int):
@@ -364,14 +367,16 @@ class QuantizedMusicChunker(AbstractProcessor):
             clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                 start_measure, self.num_performed_notes
             )
-            if len(clipped_perf.instruments[0].notes) == 0 or len(clipped_sco.notes) == 0:
+            if len(clipped_perf.instruments[0].notes) == 0 or (
+                clipped_sco is not None and len(clipped_sco.notes) == 0
+            ):
                 logger.warning(
                     f"Empty performance or score {sample['entry'].midi_performance_relative} clipped at {start, end}, returning the first chunk."
                 )
                 clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                     0, self.num_performed_notes
                 )
-            logger.debug(f"Clipping {sample['entry'].xml_score_relative} from {start, end}")
+            logger.debug(f"Clipping {sample['entry'].debug_path} from {start, end}")
             results = {
                 "score": clipped_sco,
                 "performance": clipped_perf,
@@ -383,7 +388,7 @@ class QuantizedMusicChunker(AbstractProcessor):
             results = []
             # In case of overlap, clip until the end of the score
             if self.mode == "all_w_overlap":
-                for start_meas in range(num_measures):
+                for start_meas in range(num_score_measures):
                     clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                         start_meas, self.num_performed_notes
                     )
@@ -396,12 +401,12 @@ class QuantizedMusicChunker(AbstractProcessor):
                             "chunk_end": end,
                         }
                     )
-                    if end == num_measures - 1:
+                    if end == num_score_measures - 1:
                         break
             elif self.mode == "all_wo_overlap":
                 start_meas = 0
                 end = 0
-                while end < num_measures - 1:
+                while end < num_score_measures - 1:
                     # Get the next chunk
                     clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                         start_meas, self.num_performed_notes
@@ -414,12 +419,12 @@ class QuantizedMusicChunker(AbstractProcessor):
                         "chunk_end": end,
                     }
                     # If less than 5 measures left, recompute the last segment with the remaining
-                    if 0 < end - num_measures + 1 < 10:
+                    if 0 < end - num_score_measures + 1 < 10:
                         logger.trace(
-                            f"Last segment with {num_measures - end} measures, "
+                            f"Last segment with {num_score_measures - end} measures, "
                             f"adding it to the last chunk"
                         )
-                        new_result["chunk_end"] = num_measures - 1
+                        new_result["chunk_end"] = num_score_measures - 1
                         clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                             start_meas,
                             self.num_performed_notes
