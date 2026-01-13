@@ -303,7 +303,7 @@ class QuantizedMusicChunker(AbstractProcessor):
     def __init__(
         self,
         num_performed_notes: int,
-        mode: Literal["random", "all_w_overlap", "all_wo_overlap", "first"] | int = "random",
+        mode: Literal["random", "all_w_overlap", "all_wo_overlap"] | int = "random",
     ):
         """
         This class chunks a score and a performance into smaller segments.
