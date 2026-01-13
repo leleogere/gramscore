@@ -13,8 +13,6 @@ from HuggingFace Transformers, but contains some modifications:
 """
 
 import math
-from typing import Dict, Optional
-from typing import Union
 
 import torch
 import torch.nn as nn
@@ -28,8 +26,6 @@ from transformers.models.roformer.modeling_roformer import (
 )
 
 from midi2scoretransformer.config import MyModelConfig
-from models.automata.vectorization_torch import TokenTensor
-from models.components.embedding import MIDIEmbedding, ScoreTokenEmbedding
 from models.components.positional_encoding import ContinuousPositionalEncoding1D
 
 
@@ -531,7 +527,7 @@ class Roformer(nn.Module):
         encoder_attention_mask: torch.Tensor | None = None,
         past_key_values: tuple[torch.Tensor] | None = None,
         use_cache: bool = False,
-    ) -> dict[str, torch.Tensor]:
+    ) -> BaseModelOutputWithPastAndCrossAttentions:
 
         output_attentions = self.decoder.config.output_attentions
         output_hidden_states = self.decoder.config.output_hidden_states
@@ -563,7 +559,7 @@ class Roformer(nn.Module):
         if use_cache:
             extended_attention_mask = extended_attention_mask[..., -score_embeddings.size(1) :, :]
 
-        decoder_outputs = self.decoder.encoder(
+        decoder_outputs = self.decoder.encoder.forward(
             score_embeddings,
             attention_mask=extended_attention_mask,
             head_mask=None,
