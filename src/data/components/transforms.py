@@ -28,7 +28,7 @@ from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
-from utils.midi import merge_pretty_midi_into_single_track
+from utils.midi import merge_pretty_midi_into_single_track, compute_midi_end_without_tempo_changes
 
 MAX_PITCH = 108
 MIN_PITCH = 21
@@ -46,7 +46,7 @@ class ToDict:
 
 
 class AbstractProcessor:
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         """
         This method takes a dict sample, and returns only the newly added/modified keys.
 
@@ -55,7 +55,7 @@ class AbstractProcessor:
         raise NotImplementedError("Abstract method")
 
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
-        processed = self._process(sample)
+        processed = self._dict_process(sample)
         if isinstance(processed, list):
             return [
                 {k: v for k, v in sample.items() if k not in new_keys} | new_keys
@@ -65,7 +65,7 @@ class AbstractProcessor:
 
 
 class ScoreReader(AbstractProcessor):
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         worker = torch.utils.data.get_worker_info()
         if worker is not None:
             logger.trace(
@@ -93,7 +93,7 @@ class PerformanceReader(AbstractProcessor):
     #         performance.tracks = performance.tracks[:1]
     #     assert len(performance.tracks) == 1
     #     return {"performance": performance}
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             performance = pm.PrettyMIDI(sample["entry"].midi_performance.as_posix())
@@ -112,7 +112,7 @@ class PreComputedAllowedTranspositionsReader(AbstractProcessor):
     def __init__(self, limit_semitones: int = None):
         self.limit_semitones = limit_semitones
 
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         allowed_intervals = sample["entry"].allowed_transpositions
         if self.limit_semitones is not None:
             allowed_intervals = [
@@ -143,7 +143,7 @@ class AllowedTranspositionComputer(AbstractProcessor):
     def __init__(self, intervals: list[pt.score.Interval]):
         self.intervals = intervals
 
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Try all intervals
         allowed_intervals = []
         for interval in self.intervals:
@@ -219,7 +219,7 @@ class RandomTransposer(AbstractProcessor):
             ] + [pt.score.Interval(1, "P", "up")]
         self.intervals = intervals
 
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # See if some allowed intervals have been precomputed
         if "allowed_transpositions" in sample:
             intervals = sample["allowed_transpositions"]
@@ -288,13 +288,13 @@ class RandomTransposer(AbstractProcessor):
 
 
 class VoiceReorderer(AbstractProcessor):
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         reordered_score = reorder_voices(sample["score"])
         return {"score": reordered_score}
 
 
 class VoiceRestFiller(AbstractProcessor):
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         fill_rests(sample["score"])
         return {"score": sample["score"]}
 
@@ -319,7 +319,7 @@ class QuantizedMusicChunker(AbstractProcessor):
         self.num_performed_notes = num_performed_notes
         self.mode = mode
 
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         # Get the score and performance
         score: pt.score.Part = sample.get("score", None)
         performance: pm.PrettyMIDI = sample["performance"]
@@ -470,7 +470,7 @@ class MusicChunker(AbstractProcessor):
             self.annotations = pd.read_json(annotations, orient="index")
         self.mode = mode
 
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         # Get the score and performance
         entry: ScorePerformanceEntry = sample["entry"]
         score: pt.score.Part = sample["score"]
@@ -580,41 +580,122 @@ class MusicChunker(AbstractProcessor):
 
 
 class PerformanceSpeedAugmenter(AbstractProcessor):
-    def __init__(self, min_factor: float, max_factor: float):
+    def __init__(self, min_factor: float, max_factor: float, end_variation: float | None = None):
+        """
+        Randomly speed up or slow down the performance.
+
+        :param min_factor: Minimum factor to speed up or slow down the performance
+        :param max_factor: Maximum factor to speed up or slow down the performance
+        :param end_variation: If None, simply scale the whole performance of a constant factor. If set, will set the
+            final tempo randomly within (1 +/- end_variation)*initial_scaled_tempo, and linearly interpolate. This will
+            result in the piece slowly speeding up or slowing down for the duration of the piece.
+        :example: For min=0.8, max=1.2, the initial tempo will be randomly scaled between 80% and 120% of the original
+            tempo (let's say 93%). If end_variation is None, the tempo will stay at 93% for the whole piece. If
+            end_variation is set to 0.05, the final tempo will be set randomly between (uniformely) 88% and 98% (let's
+            say 96%). Then the tempo will be linearly interpolated between 93% and 96% for the duration of the piece.
+        """
+        self.min_factor = min_factor
+        self.max_factor = max_factor
+        self.end_variation = end_variation
+
+    # TODO: refactor all processors to use this template: one process function with only the
+    #   needed arguments, and the _dict_process that will take care of the dictionary
+    def process(self, performance: pm.PrettyMIDI) -> pm.PrettyMIDI:
+        # Randomly speed up or slow down the performance
+        initial_speed_factor = random.uniform(self.min_factor, self.max_factor)  # as pos=1/speed
+        initial_position_factor = 1 / initial_speed_factor
+        print(f"{initial_speed_factor=}")
+        print(f"{initial_position_factor=}")
+        if self.end_variation is None:
+            for instrument in performance.instruments:
+                for note in instrument.notes:
+                    note.start *= initial_position_factor
+                    note.end *= initial_position_factor
+        else:
+            # In this case, the initial *factor* (not position) is y0, and the final
+            # factor is yf. Then for a time t, we have factor(t) = y0 + t * (yf - y0) / tf.
+            # Hence, the new time is t * factor(t) = t * (y0 + t * (yf - y0) / tf))
+            end = compute_midi_end_without_tempo_changes(performance)
+            final_speed_factor = max(
+                0.1,  # Do not allow to get slower than 10% of initial speed
+                random.uniform(
+                    initial_speed_factor - self.end_variation,
+                    initial_speed_factor + self.end_variation,
+                ),
+            )
+            final_position_factor = 1 / final_speed_factor
+            print(f"{final_speed_factor=}")
+            print(f"{final_position_factor=}")
+            coef = (final_position_factor - initial_position_factor) / end
+            print(f"{coef=}")
+            for instrument in performance.instruments:
+                for note in instrument.notes:
+                    note.start = note.start * (initial_position_factor + coef * note.start)
+                    note.end = note.end * (initial_position_factor + coef * note.end)
+        return performance
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        augmented_performance = self.process(sample["performance"])
+        return {"performance": augmented_performance}
+
+
+class VectorizedPerformanceInterOnsetJitterer(AbstractProcessor):
+    """
+    Jitter the inter-onset interval of notes, following a centered normal distribution.
+    QUESTION: as in Beyer, but this could cause issues and cause overlapping notes right?
+    """
+
+    def __init__(self, std: float = 0.05):
+        self.std = std
+
+    def process(self, streams: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        assert streams["onset"].ndim == 1, "Onsets should be a 1D tensor"
+        factor = 1 + torch.randn(streams["onset"].shape) * self.std
+        inter_onset_intervals = torch.clamp(
+            torch.diff(streams["onset"], prepend=torch.tensor([0.0]), dim=0),
+            min=0,
+        )
+        streams["onset"] = torch.cumsum(factor * inter_onset_intervals, dim=0)
+        return streams
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        augmented_streams = self.process(sample["performance_streams"])
+        return {"performance_streams": augmented_streams}
+
+
+class VectorizedPerformanceDurationJitterer(AbstractProcessor):
+    """
+    Jitter the inter-onset interval of notes, following a centered normal distribution.
+    QUESTION: as in Beyer, but this could cause issues and cause overlapping notes right?
+    """
+
+    def __init__(self, min_factor: float = 0.95, max_factor: float = 1.05):
         self.min_factor = min_factor
         self.max_factor = max_factor
 
-    # def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
-    #     # Randomly speed up or slow down the performance
-    #     factor = random.uniform(self.min_factor, self.max_factor)
-    #     performance: symusic.core.ScoreTick = sample["performance"]
-    #     performance.adjust_time(
-    #         original_times=[0, performance.end()],
-    #         new_times=[0, int(performance.end() * factor)],
-    #         inplace=True,
-    #     )
-    #     return {"performance": performance}
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        # Randomly speed up or slow down the performance
-        factor = random.uniform(self.min_factor, self.max_factor)
-        performance: pm.PrettyMIDI = sample["performance"]
-        for instrument in performance.instruments:
-            for note in instrument.notes:
-                note.start *= factor
-                note.end *= factor
-        return {"performance": performance}
+    def process(self, streams: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        assert streams["duration"].ndim == 1, "Onsets should be a 1D tensor"
+        factor = self.min_factor + torch.rand(streams["duration"].shape) * (
+            self.max_factor - self.min_factor
+        )
+        streams["duration"] *= factor
+        return streams
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        augmented_streams = self.process(sample["performance_streams"])
+        return {"performance_streams": augmented_streams}
 
 
 class ScoreVectorizer(AbstractProcessor):
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Vectorize score
         score_tokens = partitura_to_token_sequence(sample["score"])
         score_tensor = TokenTensor.from_tokens(score_tokens)
         return {"score_tokens": score_tokens, "score_tensor": score_tensor}
 
 
-class PerformanceVectorizer(AbstractProcessor):
-    def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
+class PerformanceVectorizerUnbucketized(AbstractProcessor):
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         # Vectorize performance
         # sample["performance_tensor"] = torch.FloatTensor(
         #     sample["performance"].pianoroll(modes=["frame"], pitch_range=(MIN_PITCH, MAX_PITCH))
@@ -631,10 +712,16 @@ class PerformanceVectorizer(AbstractProcessor):
             "velocity": torch.LongTensor([n.velocity for n in midi_list]),
         }
         performance_onset_times = torch.FloatTensor([n.start for n in midi_list])
-        performance_streams = MultistreamTokenizer.bucket_midi(midi_streams)
         return {
-            "performance_streams": performance_streams,
+            "performance_streams": midi_streams,
             "performance_onset_times": performance_onset_times,
+        }
+
+
+class VectorizedPerformanceStreamsBucketizer(AbstractProcessor):
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "performance_streams": MultistreamTokenizer.bucket_midi(sample["performance_streams"]),
         }
 
 
@@ -654,7 +741,7 @@ class Cache(AbstractProcessor):
         else:
             self.cache = {}
 
-    def _process(self, sample: Any) -> Any:
+    def _dict_process(self, sample: Any) -> Any:
         key = self.cache_key(sample)
         worker = torch.utils.data.get_worker_info()
         if key not in self.cache:
@@ -686,6 +773,6 @@ class Debugger(AbstractProcessor):
     ):
         self.func = func
 
-    def _process(self, sample: Any) -> Any:
+    def _dict_process(self, sample: Any) -> Any:
         self.func(sample)
         return {}

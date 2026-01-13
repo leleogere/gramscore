@@ -1,7 +1,3 @@
-import itertools
-import multiprocessing as mp
-from collections.abc import Callable
-from multiprocessing.managers import SyncManager
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -17,12 +13,9 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 from data.components import transforms as t
-from data.components.score_performance_dataset import AsapDataset
 from data.components.score_performance_dataset import PdmxPianoDataset
-from data.components.score_performance_dataset import ScorePerformanceEntry
 from models.automata.vectorization_torch import TokenTensor
 from utils.constants import PADDING_VALUE
-from utils.constants import SUCCESS_FILENAME
 
 torch.serialization.add_safe_globals([TokenTensor])
 
@@ -246,7 +239,10 @@ class PdmxTokensDataModule(LightningDataModule):
                 t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
                 t.RandomTransposer(),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizer(),
+                t.PerformanceVectorizerUnbucketized(),
+                t.VectorizedPerformanceInterOnsetJitterer(std=0.05),
+                t.VectorizedPerformanceDurationJitterer(min_factor=0.95, max_factor=1.05),
+                t.VectorizedPerformanceStreamsBucketizer(),
             ],
             "validation": [
                 t.ToDict(),
@@ -273,7 +269,8 @@ class PdmxTokensDataModule(LightningDataModule):
                     mode=0,
                 ),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizer(),
+                t.PerformanceVectorizerUnbucketized(),
+                t.VectorizedPerformanceStreamsBucketizer(),
             ],
         }
 

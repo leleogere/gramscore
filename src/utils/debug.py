@@ -1,3 +1,4 @@
+import pretty_midi as pm
 import subprocess
 import time
 from pathlib import Path
@@ -146,3 +147,27 @@ def write_compare_to_file(
                 open_in_meld(first_value, str(value))
             else:
                 raise ValueError(f"Unknown if_different value: {if_different}")
+
+
+def performance_streams_to_midi(streams: dict[str, torch.Tensor]) -> pm.PrettyMIDI:
+    """
+    Converts back performance streams into a MIDI file.
+
+    :param streams: Dictionary of performance streams.
+    """
+    notes = []
+    for pitch, onset, duration, velocity in zip(
+        streams["pitch"], streams["onset"], streams["duration"], streams["velocity"]
+    ):
+        notes.append(
+            pm.Note(
+                pitch=int(pitch),
+                start=float(onset),
+                end=float(onset + duration),
+                velocity=int(velocity),
+            )
+        )
+    midi = pm.PrettyMIDI()
+    midi.instruments.append(pm.Instrument(program=0))
+    midi.instruments[0].notes = notes
+    return midi
