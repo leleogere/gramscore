@@ -711,7 +711,7 @@ class PerformanceVectorizerUnbucketized(AbstractProcessor):
             "pitch": torch.LongTensor([n.pitch for n in midi_list]),
             "velocity": torch.LongTensor([n.velocity for n in midi_list]),
         }
-        performance_onset_times = torch.FloatTensor([n.start for n in midi_list])
+        performance_onset_times = midi_streams["onset"].clone()
         return {
             "performance_streams": midi_streams,
             "performance_onset_times": performance_onset_times,
