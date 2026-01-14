@@ -29,7 +29,7 @@ ground_truth_scores = [
     t_score.with_name(f"{t_score.parent.stem}_clipped.musicxml") for t_score in transcribed_scores
 ]
 
-NUM_PRED = 50
+NUM_PRED = None
 if NUM_PRED:
     transcribed_scores = transcribed_scores[:NUM_PRED]
     ground_truth_scores = ground_truth_scores[:NUM_PRED]
