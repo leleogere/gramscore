@@ -719,10 +719,11 @@ class PerformanceVectorizerUnbucketized(AbstractProcessor):
 
 
 class VectorizedPerformanceStreamsBucketizer(AbstractProcessor):
+    def process(self, streams: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return MultistreamTokenizer.bucket_midi(streams)
+
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "performance_streams": MultistreamTokenizer.bucket_midi(sample["performance_streams"]),
-        }
+        return {"performance_streams": self.process(sample["performance_streams"])}
 
 
 class Cache(AbstractProcessor):
