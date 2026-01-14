@@ -660,7 +660,10 @@ class VectorizedPerformanceInterOnsetJitterer(AbstractProcessor):
 
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         augmented_streams = self.process(sample["performance_streams"])
-        return {"performance_streams": augmented_streams}
+        return {
+            "performance_streams": augmented_streams,
+            "performance_onset_times": augmented_streams["onset"].clone(),
+        }
 
 
 class VectorizedPerformanceDurationJitterer(AbstractProcessor):
