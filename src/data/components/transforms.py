@@ -639,6 +639,129 @@ class PerformanceSpeedAugmenter(AbstractProcessor):
         return {"performance": augmented_performance}
 
 
+class VectorizedPerformanceVariableSpeedAugmenter(AbstractProcessor):
+    def __init__(
+        self,
+        min_global_factor: float = 0.8,
+        max_global_factor: float = 1.2,
+        min_relative_local_factor: float = -0.1,
+        max_relative_local_factor: float = 0.1,
+        min_time_factor_change: float = 40.0,
+        max_time_factor_change: float = 60.0,
+    ):
+        """
+        Augment a vectorized performance with a variable speed change. This combines a global tempo
+        scaling (uniform in min/max_global_factor) with an eventual local tempo scaling (if
+        min/max_relative_local_factor are not zero). The local scaling basically chooses in speed
+        between sampled_global_tempo +/- sampled_local_tempo every random amount of time in
+        min/max_time_factor_change seconds. In between each tempo change, the factor is linearly
+        interpolated.
+
+        :param min_global_factor: Minimum global factor to speed up or slow down the performance
+        :param max_global_factor: Maximum global factor to speed up or slow down the performance
+        :param min_relative_local_factor: Minimum local factor to speed up or slow down the
+            performance, relative to the global tempo
+        :param max_relative_local_factor: Maximum local factor to speed up or slow down the
+            performance, relative to the global tempo
+        :param min_time_factor_change: Minimum seconds between two consecutive tempo changes
+        :param max_time_factor_change: Maximum seconds between two consecutive tempo changes
+        """
+        if not (0 < min_global_factor <= max_global_factor):
+            raise ValueError(
+                f"{min_global_factor=} must be positive and less than {max_global_factor=}"
+            )
+        if min_relative_local_factor > max_relative_local_factor:
+            raise ValueError(
+                f"{min_relative_local_factor=} must be less than {max_relative_local_factor=}"
+            )
+        if not (0 < min_time_factor_change <= max_time_factor_change):
+            raise ValueError(
+                f"{min_time_factor_change=} must be positive and less than {max_time_factor_change=}"
+            )
+
+        self.min_global_factor = min_global_factor
+        self.max_global_factor = max_global_factor
+        self.min_relative_local_factor = min_relative_local_factor
+        self.max_relative_local_factor = max_relative_local_factor
+        self.min_time_factor_change = min_time_factor_change
+        self.max_time_factor_change = max_time_factor_change
+
+    def process(self, streams: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        onsets = streams["onset"]
+        offsets = onsets + streams["duration"]
+
+        # Scale with the global factor
+        global_factor = random.uniform(self.min_global_factor, self.max_global_factor)
+        onsets *= global_factor
+        offsets *= global_factor
+
+        # Scale with the local factor if needed
+        if self.min_relative_local_factor != 0 or self.max_relative_local_factor != 0:
+            # Concatenate all times to scale
+            times = torch.cat([onsets, offsets], dim=0)
+
+            # Compute upper bound for number of segments
+            t_end = times.max()
+            max_segments = int(torch.ceil(t_end / self.min_time_factor_change).item()) + 2
+
+            # Sample the delta times
+            dt = torch.empty(max_segments, device=onsets.device).uniform_(
+                self.min_time_factor_change, self.max_time_factor_change
+            )
+
+            # Get the min and max absolute scaling values
+            # QUESTION: Should I also multiply those by global_factor?
+            min_scaling = global_factor + self.min_relative_local_factor
+            max_scaling = global_factor + self.max_relative_local_factor
+
+            # Sample the scaling at each change (1 more knot than segments)
+            knots_s = torch.empty(max_segments + 1, device=onsets.device).uniform_(
+                min_scaling, max_scaling
+            )
+            knots_t = torch.zeros(max_segments + 1, device=onsets.device)
+            knots_t[1:] = torch.cumsum(dt, dim=0)
+
+            # Only keep the knots that are within the bounds
+            valid = knots_t <= t_end
+            last = valid.sum().item()
+            knots_t = knots_t[: last + 1]
+            knots_s = knots_s[: last + 1]
+
+            # Compute linear ramp parameters
+            seg_dt = knots_t[1:] - knots_t[:-1]  # segment durations
+            seg_ds = knots_s[1:] - knots_s[:-1]  # scaling differences
+            slopes = seg_ds / seg_dt  # slope of the scaling ramp for each segment
+
+            # Prefix integral at know times
+            # ∫(si + m*x)dx = si * dt + 0.5 * m * dt**2
+            F = torch.zeros_like(knots_t)
+            F[1:] = torch.cumsum(knots_s[:-1] * seg_dt + 0.5 * slopes * seg_dt**2, dim=0)
+
+            # Find the segment each time belongs to
+            idx = torch.searchsorted(knots_t, times, right=True) - 1
+            idx = idx.clamp(0, len(knots_t) - 2)
+
+            # Local offset in the segment
+            x = times - knots_t[idx]
+
+            # Compute time scaling
+            warped_times = F[idx] + knots_s[idx] * x + 0.5 * slopes[idx] * x**2
+
+            # Retreive onsets and offsets
+            onsets, offsets = warped_times[: len(onsets)], warped_times[len(onsets) :]
+
+        streams["onset"] = onsets
+        streams["duration"] = offsets - onsets
+        return streams
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        augmented_streams = self.process(sample["performance_streams"])
+        return {
+            "performance_streams": augmented_streams,
+            "performance_onset_times": augmented_streams["onset"],
+        }
+
+
 class VectorizedPerformanceInterOnsetJitterer(AbstractProcessor):
     """
     Jitter the inter-onset interval of notes, following a centered normal distribution.
