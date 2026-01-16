@@ -515,18 +515,19 @@ class TokensTranscriberModule(L.LightningModule):
     }
 
     def on_validation_end(self) -> None:
-        # Log confusion matrix
-        cm = wandb.plot.confusion_matrix(
-            y_true=torch.concat(self.all_flattened_true_token_types).cpu().numpy(),
-            preds=torch.concat(self.all_flattened_pred_token_types).cpu().numpy(),
-            class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
-        )
-        self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
-        self.all_flattened_true_token_types = []
-        self.all_flattened_pred_token_types = []
-
-        # Log logits when needed
+        # Log large metrics periodically
         if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
+            # Log confusion matrix
+            cm = wandb.plot.confusion_matrix(
+                y_true=torch.concat(self.all_flattened_true_token_types).cpu().numpy(),
+                preds=torch.concat(self.all_flattened_pred_token_types).cpu().numpy(),
+                class_names=[c.__name__ for c in TokenTensor.TOKEN_INDEXER.keys()],
+            )
+            self.logger.experiment.log({f"[V] Confusion matrix/Confusion matrix": cm})
+            self.all_flattened_true_token_types = []
+            self.all_flattened_pred_token_types = []
+
+            # Log logits
             for score_folder, logits in self.validation_logits.items():
                 self.logger.log_table(
                     # key=f"[V] Logits visualization/Logits",
