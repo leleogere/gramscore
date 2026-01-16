@@ -179,7 +179,9 @@ def clip_midi(
         start_downbeat = new_start_downbeat
 
     total_notes = len(midi.instruments[0].notes)
-    assert chunks["last_note_of_group"].max() == total_notes - 1
+    assert (
+        chunks["last_note_of_group"].max() == total_notes - 1
+    ), f"{chunks['last_note_of_group'].max()} != {total_notes - 1}"
 
     # If num_notes, find the end measure based on the required number of notes
     end_downbeat = next(
