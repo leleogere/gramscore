@@ -23,4 +23,6 @@ persistent_workers: true
 pin_memory: true
 artificial_dataset_repetitions: 100
 
+test_validation_mode: "all_wo_overlap"
+
 use_cache: True

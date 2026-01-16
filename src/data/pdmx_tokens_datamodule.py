@@ -1,26 +1,18 @@
 from pathlib import Path
-from typing import Any
-from typing import Dict
 from typing import Optional
 
-import partitura as pt
-import partitura.score
 import torch
-from lightning import LightningDataModule
 from loguru import logger
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
 
+from data.base_tokens_datamodule import BaseTokensDataModule
 from data.components import transforms as t
 from data.components.score_performance_dataset import PdmxPianoDataset
 from models.automata.vectorization_torch import TokenTensor
-from utils.constants import PADDING_VALUE
 
 torch.serialization.add_safe_globals([TokenTensor])
 
 
-class PdmxTokensDataModule(LightningDataModule):
+class PdmxTokensDataModule(BaseTokensDataModule):
     """
     LightningDataModule for the PDMX dataset, formatted as tokens.
     """
@@ -28,159 +20,26 @@ class PdmxTokensDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: Path,
-        batch_size: int = 64,
-        num_workers: int = 4,
-        prefetch_factor: int = None,
-        persistent_workers: bool = False,
-        pin_memory: bool = False,
         asap_path: Optional[Path] = None,
+        **kwargs,
     ) -> None:
-        """Initialize a `AsapTokensDataModule`
+        """Initialize a `PdmxTokensDataModule`
 
         :param data_dir: The data directory.
-        :param batch_size: The batch size.
-        :param num_workers: The number of workers to use for data loading.
-        :param prefetch_factor: The number of samples to prefetch per worker.
-        :param persistent_workers: Whether to use persistent workers.
-        :param pin_memory: Whether to pin memory.
-        :param asap_path: Optional path to the ASAP dataset (to exclude PDMX pieces that are also in ASAP val and test sets).
+        :param asap_path: Optional path to the ASAP dataset (to exclude PDMX pieces that are also
+             in ASAP validation and test sets).
         """
-        super().__init__()
-
-        # this line allows to access init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
-        self.save_hyperparameters()
-
-        self.data_train: Optional[Dataset] = None
-        self.data_val: Optional[Dataset] = None
-        self.data_test: Optional[Dataset] = None
-
-        self.batch_size_per_device = batch_size
-
+        super().__init__(**kwargs)
         self.splits = ["train", "validation"]
 
-    @staticmethod
-    def collate_fn(
-        batch: list[dict[str, Any]],
-        keep_all: bool = False,
-    ) -> dict[str, Any]:
-        """
-        Collate function for the `DataLoader`.
-
-        :param batch: The batch to collate.
-        :return: The collated batch.
-        """
-        fields = [key for key in batch[0]]
-        results = {}
-
-        for field in fields:
-
-            # Pad and collate score tensors
-            if field == "score_tensor":
-                scores = [x["score_tensor"] for x in batch]  # each N_TOKENS * TOTAL_DIMENSIONS
-                scores_collated: TokenTensor = pad_sequence(
-                    scores,
-                    batch_first=True,
-                    padding_value=PADDING_VALUE,
-                )  # B * N_TOKENS_MAX * TOTAL_DIMENSIONS
-                score_padding_mask = scores_collated[:, :, 0] == PADDING_VALUE  # B * N_TOKENS_MAX
-                score_lengths = torch.LongTensor([s.size(0) for s in scores])
-                # Store results
-                results["score_tensor"] = scores_collated
-                results["score_padding_mask"] = score_padding_mask
-                results["score_length"] = score_lengths
-
-            # Pad and collate performance tensor streams
-            elif field == "performance_streams":
-                performances = [
-                    x["performance_streams"] for x in batch
-                ]  # each N_NOTES * N_FEATURES_VALUE
-                streams = ["onset", "duration", "pitch", "velocity"]
-                # Make sure all stream have same batch and num_notes
-                assert all(
-                    performance[streams[0]].shape[0] == performance[stream].shape[0]
-                    for performance in performances
-                    for stream in streams[1:]
-                ), "All streams of a performance should have the same number of notes"
-                performances_collated = {
-                    stream: pad_sequence(
-                        [x[stream] for x in performances],
-                        batch_first=True,
-                        padding_value=PADDING_VALUE,
-                    )
-                    for stream in streams
-                }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
-                performance_padding_mask = (
-                    performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
-                )  # B * N_NOTES_MAX
-                performance_lengths = torch.LongTensor(
-                    [p[streams[0]].size(0) for p in performances]
-                )
-                # Security check to catch bug
-                assert all(
-                    performances_collated[streams[0]].shape[0:2]
-                    == performances_collated[stream].shape[0:2]
-                    for stream in streams[1:]
-                ), "All streams should have the same batch size and number of notes after padding"
-                # Also collate the onset times
-                # Store results
-                results["performance_streams"] = performances_collated
-                results["performance_padding_mask"] = performance_padding_mask
-                results["performance_length"] = performance_lengths
-
-            elif field == "performance_onset_times":
-                performance_onset_times = pad_sequence(
-                    [x["performance_onset_times"] for x in batch],
-                    batch_first=True,
-                    padding_value=PADDING_VALUE,
-                )
-                results["performance_onset_times"] = performance_onset_times
-
-            # Simply collate as list other fields
-            else:
-                if field in ["entry"] or keep_all:
-                    results[field] = [item[field] for item in batch]
-
-        return results
-
-    def prepare_data(self) -> None:
-        # """
-        # Download and split the dataset
-        # """
-        # # Download the dataset
-        # if self._prepared:
-        #     return
-        # success_file = self.hparams.data_dir / SUCCESS_FILENAME
-        # if not success_file.exists():
-        #     # NOT Clone the MIDI2ScoreTransformer modified ASAP dataset (commit 8cba199e15931975542010a7ea2ff94a6fc9cbee)
-        #     # Clone the (n)-ASAP dataset
-        #     logger.info("Cloning the ASAP dataset")
-        #     if not self.hparams.data_dir.exists():
-        #         git.Repo.clone_from(
-        #             url="https://github.com/leleogere/asap-dataset.git",
-        #             to_path=self.hparams.data_dir,
-        #             branch="develop_with_bwv874_bwv846_beeth17-2_merged",
-        #         )
-        #     # Create the success file
-        #     success_file.touch()
-        # else:
-        #     logger.info("ASAP dataset already downloaded")
-        #
-        # self._prepared = True
-        pass
-
     def setup(self, stage: Optional[str] = None) -> None:
-        """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
-
-        This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
-        `trainer.predict()`, so be careful not to execute things like random split twice! Also, it is called after
-        `self.prepare_data()` and there is a barrier in between which ensures that all the processes proceed to
-        `self.setup()` once the data is prepared and available for use.
+        """
+        Can be called multiple times, avoid doing random things here
 
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
-        if self.trainer is not None:
+        if getattr(self, "trainer", None) is not None:
             if self.hparams.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
                     f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})"
@@ -196,48 +55,8 @@ class PdmxTokensDataModule(LightningDataModule):
                 t.VoiceRestFiller(),
                 t.VoiceReorderer(),
                 t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
-                # t.Cache(
-                #     transforms=[
-                #         t.ScoreReader(),
-                #         t.VoiceRestFiller(),
-                #         t.VoiceReorderer(),
-                #         # t.AllowedTranspositionComputer(
-                #         #     intervals=[
-                #         #         pt.score.Interval(
-                #         #             number=int(inter[0]), quality=inter[1:], direction=direction
-                #         #         )
-                #         #         for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-                #         #         for direction in ["up", "down"]
-                #         #     ]
-                #         #     + [pt.score.Interval(1, "P", "up")]
-                #         # ),
-                #     ],
-                #     cache_key=lambda sample: sample["entry"].xml_score,
-                #     cache=self._scores_cache,
-                # ),
-                # t.Cache(
-                #     transforms=[
-                #         t.AllowedTranspositionComputer(
-                #             intervals=[
-                #                 pt.score.Interval(
-                #                     number=int(inter[0]), quality=inter[1:], direction=direction
-                #                 )
-                #                 for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-                #                 for direction in ["up", "down"]
-                #             ]
-                #             + [pt.score.Interval(1, "P", "up")]
-                #         ),
-                #     ],
-                #     cache_key=lambda sample: sample["entry"].xml_score,
-                #     keys_to_cache=["allowed_transpositions"],
-                #     cache=allowed_transpositions_cache,  # shared across workers
-                # ),
                 t.PerformanceReader(),
-                # # Debugger(lambda s: print("DEBUG", s["entry"])),
-                t.QuantizedMusicChunker(
-                    num_performed_notes=500,
-                    mode="random",
-                ),
+                t.QuantizedMusicChunker(num_performed_notes=500, mode="random"),
                 t.RandomTransposer(),
                 t.ScoreVectorizer(),
                 t.PerformanceVectorizerUnbucketized(),
@@ -258,24 +77,14 @@ class PdmxTokensDataModule(LightningDataModule):
                 t.ScoreReader(),
                 t.VoiceRestFiller(),
                 t.VoiceReorderer(),
-                # t.Cache(
-                #     transforms=[
-                #         t.ScoreReader(),
-                #         t.VoiceRestFiller(),
-                #         t.VoiceReorderer(),
-                #     ],
-                #     cache_key=lambda sample: sample["entry"].xml_score,
-                #     cache=self._scores_cache,
-                # ),
                 t.PerformanceReader(),
-                # t.MusicChunker(
-                #     num_performed_notes=500,
-                #     annotations=self.hparams.data_dir / "asap_annotations.json",
-                #     mode="all_wo_overlap",
-                # ),
                 t.QuantizedMusicChunker(
                     num_performed_notes=500,
-                    mode=0,
+                    mode=(
+                        0
+                        if self.test_validation_mode == "first_chunk"
+                        else self.test_validation_mode
+                    ),
                 ),
                 t.ScoreVectorizer(),
                 t.PerformanceVectorizerUnbucketized(),
@@ -287,13 +96,11 @@ class PdmxTokensDataModule(LightningDataModule):
             splits = self.splits
         elif stage == "validate":
             splits = ["validation"]
-        elif stage == "test":
-            splits = ["test"]
         else:
             raise ValueError(f"Unknown stage: {stage}")
 
         # Load the splits
-        if not self.data_train and not self.data_val:  # TODO: fix this IF
+        if not self.data_train or not self.data_val:  # TODO: fix this IF
             sets = {
                 split: PdmxPianoDataset(
                     directory=self.hparams.data_dir,
@@ -330,53 +137,6 @@ class PdmxTokensDataModule(LightningDataModule):
 
             # self.data_train.entries = self.data_train.entries[:1] + self.data_train.entries[50:51]
             # self.data_val.entries = self.data_val.entries[:1]
-
-    def train_dataloader(self) -> DataLoader[Any]:
-        """Create and return the train dataloader.
-
-        :return: The train dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_train,
-            batch_size=self.batch_size_per_device,
-            shuffle=True,
-            collate_fn=self.collate_fn,
-            num_workers=self.hparams.num_workers,
-            prefetch_factor=self.hparams.prefetch_factor,
-            persistent_workers=self.hparams.persistent_workers,
-            pin_memory=self.hparams.pin_memory,
-        )
-
-    def val_dataloader(self) -> DataLoader[Any]:
-        """Create and return the validation dataloader.
-
-        :return: The validation dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_val,
-            batch_size=self.batch_size_per_device,
-            shuffle=False,
-            collate_fn=self.collate_fn,
-            num_workers=min(len(self.data_val.entries), self.hparams.num_workers),
-            prefetch_factor=self.hparams.prefetch_factor,
-            persistent_workers=self.hparams.persistent_workers,
-            pin_memory=self.hparams.pin_memory,
-        )
-
-    def state_dict(self) -> Dict[Any, Any]:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
-
-        :return: A dictionary containing the datamodule state that you want to save.
-        """
-        return {}
-
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
-        `state_dict()`.
-
-        :param state_dict: The datamodule state returned by `self.state_dict()`.
-        """
-        pass
 
 
 if __name__ == "__main__":

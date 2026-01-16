@@ -3,7 +3,7 @@ import multiprocessing as mp
 from collections.abc import Callable
 from multiprocessing.managers import SyncManager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from typing import Dict
 from typing import Optional
 
@@ -16,6 +16,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+from data.base_tokens_datamodule import BaseTokensDataModule
 from data.components import transforms as t
 from data.components.score_performance_dataset import AsapDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
@@ -26,7 +27,7 @@ from utils.constants import SUCCESS_FILENAME
 torch.serialization.add_safe_globals([TokenTensor])
 
 
-class AsapTokensDataModule(LightningDataModule):
+class AsapTokensDataModule(BaseTokensDataModule):
     """
     LightningDataModule for the ASAP dataset, formatted as tokens.
     """
@@ -34,16 +35,15 @@ class AsapTokensDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: Path,
-        batch_size: int = 64,
         include_midi_scores: bool = False,
         filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
-        num_workers: int = 4,
-        prefetch_factor: int = None,
-        persistent_workers: bool = False,
-        pin_memory: bool = False,
         artificial_dataset_repetitions: int = 1,
         multiprocessing_manager: SyncManager | None = None,
+        test_validation_mode: Literal[
+            "first_chunk", "all_w_overlap", "all_wo_overlap"
+        ] = "all_wo_overlap",
+        **kwargs,
     ) -> None:
         """Initialize a `AsapTokensDataModule`
 
@@ -54,12 +54,19 @@ class AsapTokensDataModule(LightningDataModule):
         :param valid_tsv_file: An eventual TSV file with a column "folder" and a column "valid"
             being "True" for included folders (and eventually False for excluded but not needed)
         :param num_workers: The number of workers to use for data loading.
+        :param prefetch_factor: The number of samples to prefetch per worker.
+        :param persistent_workers: Whether to use persistent workers.
+        :param pin_memory: Whether to pin memory.
+        :param artificial_dataset_repetitions: The number of times to repeat the dataset to
+            simulate a larger dataset (useful to make prefetch work on small datasets).
+        :param multiprocessing_manager: The multiprocessing manager to use (to store cached
+            data between processes)
         """
-        super().__init__()
-
-        # this line allows to access init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(ignore="multiprocessing_manager")
+        super().__init__(
+            test_validation_mode=test_validation_mode,
+            _exclude_from_hparams_saving=["multiprocessing_manager"],
+            **kwargs,
+        )
 
         # Hydra does not support lambda functions, so it is loaded as string
         # Make sure to only pass trusted code in here as it will be executed as is
@@ -67,19 +74,11 @@ class AsapTokensDataModule(LightningDataModule):
             if not filter_fn.startswith("lambda"):
                 raise ValueError("filter_fn must start with 'lambda'")
             self.filter_fn = eval(filter_fn)
-            print(self.filter_fn)
+            # print(self.filter_fn)
         else:
             self.filter_fn = filter_fn
 
-        self.data_train: Optional[Dataset] = None
-        self.data_val: Optional[Dataset] = None
-        self.data_test: Optional[Dataset] = None
-
-        self.batch_size_per_device = batch_size
-
         self.artificial_dataset_repetitions = artificial_dataset_repetitions
-
-        self.splits = ["train", "validation", "test"]
 
         self._prepared = False
 
@@ -87,69 +86,6 @@ class AsapTokensDataModule(LightningDataModule):
             multiprocessing_manager if multiprocessing_manager is not None else mp.Manager()
         )
         self._scores_cache = self.multiprocessing_manager.dict()
-
-    @staticmethod
-    def collate_fn(
-        batch: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """
-        Collate function for the `DataLoader`.
-
-        :param batch: The batch to collate.
-        :return: The collated batch.
-        """
-        # Pad and collate score tensors
-        scores = [x["score_tensor"] for x in batch]  # each N_TOKENS * TOTAL_DIMENSIONS
-        scores_collated: TokenTensor = pad_sequence(
-            scores,
-            batch_first=True,
-            padding_value=PADDING_VALUE,
-        )  # B * N_TOKENS_MAX * TOTAL_DIMENSIONS
-        score_padding_mask = scores_collated[:, :, 0] == PADDING_VALUE  # B * N_TOKENS_MAX
-        score_lengths = torch.LongTensor([s.size(0) for s in scores])
-
-        # Pad and collate performance tensor streams
-        performances = [x["performance_streams"] for x in batch]  # each N_NOTES * N_FEATURES_VALUE
-        streams = ["onset", "duration", "pitch", "velocity"]
-        # Make sure all stream have same batch and num_notes
-        assert all(
-            performance[streams[0]].shape[0] == performance[stream].shape[0]
-            for performance in performances
-            for stream in streams[1:]
-        ), "All streams of a performance should have the same number of notes"
-        performances_collated = {
-            stream: pad_sequence(
-                [x[stream] for x in performances],
-                batch_first=True,
-                padding_value=PADDING_VALUE,
-            )
-            for stream in streams
-        }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
-        performance_padding_mask = (
-            performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
-        )  # B * N_NOTES_MAX
-        performance_lengths = torch.LongTensor([p[streams[0]].size(0) for p in performances])
-        # Security check to catch bug
-        assert all(
-            performances_collated[streams[0]].shape[0:2] == performances_collated[stream].shape[0:2]
-            for stream in streams[1:]
-        ), "All streams should have the same batch size and number of notes after padding"
-
-        # Also collate the onset times
-        performance_onset_times = [x["performance_onset_times"] for x in batch]
-
-        return {
-            "entries": [x["entry"] for x in batch],
-            "chunk_starts": [x["chunk_start"] for x in batch],
-            "chunk_ends": [x["chunk_end"] for x in batch],
-            "score_tensor": scores_collated,
-            "score_padding_mask": score_padding_mask,
-            "score_length": score_lengths,
-            "performance_streams": performances_collated,
-            "performance_onset_times": performance_onset_times,
-            "performance_padding_mask": performance_padding_mask,
-            "performance_length": performance_lengths,
-        }
 
     def prepare_data(self) -> None:
         """
@@ -220,34 +156,27 @@ class AsapTokensDataModule(LightningDataModule):
                     cache_key=lambda sample: sample["entry"].xml_score,
                     cache=self._scores_cache,
                 ),
-                # t.Cache(
-                #     transforms=[
-                #         t.AllowedTranspositionComputer(
-                #             intervals=[
-                #                 pt.score.Interval(
-                #                     number=int(inter[0]), quality=inter[1:], direction=direction
-                #                 )
-                #                 for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
-                #                 for direction in ["up", "down"]
-                #             ]
-                #             + [pt.score.Interval(1, "P", "up")]
-                #         ),
-                #     ],
-                #     cache_key=lambda sample: sample["entry"].xml_score,
-                #     keys_to_cache=["allowed_transpositions"],
-                #     cache=allowed_transpositions_cache,  # shared across workers
-                # ),
                 t.PerformanceReader(),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
-                t.MusicChunker(
+                t.AsapMusicChunker(
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                     mode="random",
                 ),
                 t.RandomTransposer(),
-                t.PerformanceSpeedAugmenter(min_factor=0.8, max_factor=1.2),
+                t.PerformanceVectorizerUnbucketized(),
+                t.VectorizedPerformanceVariableSpeedAugmenter(
+                    min_global_factor=0.8,
+                    max_global_factor=1.2,
+                    min_relative_local_factor=-0.1,
+                    max_relative_local_factor=0.1,
+                    min_time_factor_change=40.0,
+                    max_time_factor_change=60.0,
+                ),
+                t.VectorizedPerformanceInterOnsetJitterer(std=0.05),
+                t.VectorizedPerformanceDurationJitterer(min_factor=0.95, max_factor=1.05),
+                t.VectorizedPerformanceStreamsBucketizer(),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizer(),
             ],
             "validation": [
                 t.ToDict(),
@@ -261,27 +190,37 @@ class AsapTokensDataModule(LightningDataModule):
                     cache=self._scores_cache,
                 ),
                 t.PerformanceReader(),
-                t.MusicChunker(
+                t.AsapMusicChunker(
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
-                    mode="all_wo_overlap",
+                    mode=(
+                        0
+                        if self.test_validation_mode == "first_chunk"
+                        else self.test_validation_mode
+                    ),
                 ),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizer(),
+                t.PerformanceVectorizerUnbucketized(),
+                t.VectorizedPerformanceStreamsBucketizer(),
             ],
             "test": [
                 t.ToDict(),
                 t.ScoreReader(),
                 t.PerformanceReader(),
-                t.VoiceReorderer(),
                 t.VoiceRestFiller(),
-                t.MusicChunker(
+                t.VoiceReorderer(),
+                t.AsapMusicChunker(
                     num_performed_notes=500,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
-                    mode="all_wo_overlap",
+                    mode=(
+                        0
+                        if self.test_validation_mode == "first_chunk"
+                        else self.test_validation_mode
+                    ),
                 ),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizer(),
+                t.PerformanceVectorizerUnbucketized(),
+                t.VectorizedPerformanceStreamsBucketizer(),
             ],
         }
 
@@ -289,7 +228,7 @@ class AsapTokensDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             sets = {
                 split: AsapDataset(
-                    data_dir=self.hparams.data_dir,
+                    directory=self.hparams.data_dir,
                     split=split,
                     include_midi_scores=self.hparams.include_midi_scores,
                     transforms=transforms[split],
@@ -312,70 +251,55 @@ class AsapTokensDataModule(LightningDataModule):
                 )
             )
 
-    def train_dataloader(self) -> DataLoader[Any]:
-        """Create and return the train dataloader.
-
-        :return: The train dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_train,
-            batch_size=self.batch_size_per_device,
-            shuffle=True,
-            collate_fn=self.collate_fn,
-            num_workers=self.hparams.num_workers,
-            prefetch_factor=self.hparams.prefetch_factor,
-            persistent_workers=self.hparams.persistent_workers,
-            pin_memory=self.hparams.pin_memory,
-        )
-
-    def val_dataloader(self) -> DataLoader[Any]:
-        """Create and return the validation dataloader.
-
-        :return: The validation dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_val,
-            batch_size=1,  # 1 batch = all chunks of 1 piece (splitting dealt with by MusicChunker)
-            shuffle=False,
-            # the ZeroDivisionError below should not happen, it's here only to catch an eventual bug
-            collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,
-            num_workers=min(len(self.data_val.entries), self.hparams.num_workers),
-            prefetch_factor=self.hparams.prefetch_factor,
-            persistent_workers=self.hparams.persistent_workers,
-            pin_memory=self.hparams.pin_memory,
-        )
-
-    def test_dataloader(self) -> DataLoader[Any]:
-        """Create and return the test dataloader.
-
-        :return: The test dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_test,
-            batch_size=1,
-            shuffle=False,
-            # ZeroDivisionError: same as validation above
-            collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,
-            num_workers=min(len(self.data_test.entries), self.hparams.num_workers),
-            prefetch_factor=self.hparams.prefetch_factor,
-            persistent_workers=self.hparams.persistent_workers,
-            pin_memory=self.hparams.pin_memory,
-        )
-
-    def state_dict(self) -> Dict[Any, Any]:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
-
-        :return: A dictionary containing the datamodule state that you want to save.
-        """
-        return {}
-
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
-        `state_dict()`.
-
-        :param state_dict: The datamodule state returned by `self.state_dict()`.
-        """
-        pass
+    # def train_dataloader(self) -> DataLoader[Any]:
+    #     """Create and return the train dataloader.
+    #
+    #     :return: The train dataloader.
+    #     """
+    #     return DataLoader(
+    #         dataset=self.data_train,
+    #         batch_size=self.batch_size_per_device,
+    #         shuffle=True,
+    #         collate_fn=self.collate_fn,
+    #         num_workers=self.hparams.num_workers,
+    #         prefetch_factor=self.hparams.prefetch_factor,
+    #         persistent_workers=self.hparams.persistent_workers,
+    #         pin_memory=self.hparams.pin_memory,
+    #     )
+    #
+    # def val_dataloader(self) -> DataLoader[Any]:
+    #     """Create and return the validation dataloader.
+    #
+    #     :return: The validation dataloader.
+    #     """
+    #     return DataLoader(
+    #         dataset=self.data_val,
+    #         batch_size=1,  # 1 batch = all chunks of 1 piece (splitting dealt with by MusicChunker)
+    #         shuffle=False,
+    #         # the ZeroDivisionError below should not happen, it's here only to catch an eventual bug
+    #         collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,
+    #         num_workers=min(len(self.data_val.entries), self.hparams.num_workers),
+    #         prefetch_factor=self.hparams.prefetch_factor,
+    #         persistent_workers=self.hparams.persistent_workers,
+    #         pin_memory=self.hparams.pin_memory,
+    #     )
+    #
+    # def test_dataloader(self) -> DataLoader[Any]:
+    #     """Create and return the test dataloader.
+    #
+    #     :return: The test dataloader.
+    #     """
+    #     return DataLoader(
+    #         dataset=self.data_test,
+    #         batch_size=1,
+    #         shuffle=False,
+    #         # ZeroDivisionError: same as validation above
+    #         collate_fn=lambda b: self.collate_fn(b[0]) if len(b) == 1 else 1 / 0,
+    #         num_workers=min(len(self.data_test.entries), self.hparams.num_workers),
+    #         prefetch_factor=self.hparams.prefetch_factor,
+    #         persistent_workers=self.hparams.persistent_workers,
+    #         pin_memory=self.hparams.pin_memory,
+    #     )
 
 
 if __name__ == "__main__":

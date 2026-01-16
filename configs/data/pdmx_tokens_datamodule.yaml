@@ -19,4 +19,6 @@ prefetch_factor: 2
 persistent_workers: true
 pin_memory: true
 
+test_validation_mode: first_chunk
+
 use_cache: False

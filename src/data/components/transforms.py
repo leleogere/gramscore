@@ -327,10 +327,13 @@ class QuantizedMusicChunker(AbstractProcessor):
         num_score_measures = len(score.measures) if score is not None else None
 
         if num_score_measures == 1:
-            return {
+            output = {
                 "chunk_start": 0,
                 "chunk_end": 0,
             }
+            if self.mode == "all_w_overlap" or self.mode == "all_wo_overlap":
+                output = [output]
+            return output
 
         def clip_performance_and_score(
             start_measure: int,
@@ -444,7 +447,7 @@ class QuantizedMusicChunker(AbstractProcessor):
         return results
 
 
-class MusicChunker(AbstractProcessor):
+class AsapMusicChunker(AbstractProcessor):
     def __init__(
         self,
         num_performed_notes: int,
@@ -470,17 +473,26 @@ class MusicChunker(AbstractProcessor):
             self.annotations = pd.read_json(annotations, orient="index")
         self.mode = mode
 
-    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
-        # Get the score and performance
-        entry: ScorePerformanceEntry = sample["entry"]
-        score: pt.score.Part = sample["score"]
-        performance: symusic.core.ScoreSecond = sample["performance"]
+    def process(
+        self,
+        score: pt.score.Part,
+        performance: pm.PrettyMIDI,
+        chunks_file: Path,
+    ) -> (
+        tuple[pm.PrettyMIDI, pt.score.Part, int, int]
+        | list[tuple[pm.PrettyMIDI, pt.score.Part, int, int]]
+    ):
+        """
+        Chunk an ASAP pair (performance, score) using pre-computed chunk data.
 
+        :param score: Score to chunk
+        :param performance: Performance to chunk
+        :param chunks_file: Path to the JSON chunks file (pre-computed)
+        """
         num_measures = len(score.measures)
 
         # Get the first num_performed_notes notes in the MIDI file starting from this measure
         # (and add notes until the end of the measure if not filled)
-        chunks_file = entry.xml_score.parent / f"{entry.midi_performance.stem}_chunks.json"
         if not chunks_file.exists():
             logger.error(f"{chunks_file} does not exist, skipping the sample")
             raise FileNotFoundError(f"{chunks_file} does not exist, skipping the sample")
@@ -489,7 +501,7 @@ class MusicChunker(AbstractProcessor):
         def clip_performance_and_score(
             start_measure: int,
             num_notes: int,
-        ) -> tuple[symusic.core.ScoreSecond, pt.score.Part, int, int]:
+        ) -> tuple[pm.PrettyMIDI, pt.score.Part, int, int]:
             clipped_performance, (start, end) = clip_midi(
                 midi=performance,
                 chunks=chunks,
@@ -503,7 +515,7 @@ class MusicChunker(AbstractProcessor):
                 start_measure=start,
                 end_measure=end,
             )
-            return clipped_performance, clipped_score, start, end
+            return clipped_performance, clipped_score, int(start), int(end)
 
         if self.mode == "random" or isinstance(self.mode, int):
             start_measure = (
@@ -511,18 +523,10 @@ class MusicChunker(AbstractProcessor):
                 if self.mode == "random"
                 else self.mode
             )
-            clipped_perf, clipped_sco, start, end = clip_performance_and_score(
-                start_measure, self.num_performed_notes
-            )
-            results = {
-                "score": clipped_sco,
-                "performance": clipped_perf,
-                "chunk_start": start,
-                "chunk_end": end,
-            }
+            outputs = clip_performance_and_score(start_measure, self.num_performed_notes)
 
         else:
-            results = []
+            outputs = []
             # In case of overlap, clip until the end of the score
             if self.mode == "all_w_overlap":
                 for start_meas in chunks["first_measure_of_group"]:
@@ -530,14 +534,7 @@ class MusicChunker(AbstractProcessor):
                         start_meas, self.num_performed_notes
                     )
                     assert start_meas == start, "Start measure should be the same, probable bug"
-                    results.append(
-                        {
-                            "score": clipped_sco,
-                            "performance": clipped_perf,
-                            "chunk_start": start,
-                            "chunk_end": end,
-                        }
-                    )
+                    outputs.append((clipped_perf, clipped_sco, start, end))
                     if end == num_measures - 1:
                         break
             elif self.mode == "all_wo_overlap":
@@ -549,34 +546,47 @@ class MusicChunker(AbstractProcessor):
                         start_meas, self.num_performed_notes
                     )
                     assert start_meas == start, "Start measure should be the same, probable bug"
-                    new_result = {
-                        "score": clipped_sco,
-                        "performance": clipped_perf,
-                        "chunk_start": start,
-                        "chunk_end": end,
-                    }
                     # If less than 5 measures left, recompute the last segment with the remaining
                     if 0 < end - num_measures + 1 < 10:
                         logger.trace(
                             f"Last segment with {num_measures - end} measures, adding it to the last chunk"
                         )
-                        new_result["chunk_end"] = num_measures - 1
                         clipped_perf, clipped_sco, start, end = clip_performance_and_score(
                             start_meas,
                             self.num_performed_notes + 100000,  # Large number to get all remaining
                         )
-                        new_result = {
-                            "score": clipped_sco,
-                            "performance": clipped_perf,
-                            "chunk_start": start,
-                            "chunk_end": end,
-                        }
-                    results.append(new_result)
+                    outputs.append((clipped_perf, clipped_sco, start, end))
                     start_meas = end + 1
             else:
                 raise ValueError(f"Unknown mode {self.mode}")
 
-        return results
+        return outputs
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        entry = sample["entry"]
+        outputs = self.process(
+            sample["score"],
+            sample["performance"],
+            entry.xml_score.parent / f"{entry.midi_performance.stem}_chunks.json",
+        )
+        if isinstance(outputs, list):
+            return [
+                {
+                    "performance": clipped_perf,
+                    "score": clipped_sco,
+                    "chunk_start": start,
+                    "chunk_end": end,
+                }
+                for clipped_perf, clipped_sco, start, end in outputs
+            ]
+        else:
+            clipped_perf, clipped_sco, start, end = outputs
+            return {
+                "performance": clipped_perf,
+                "score": clipped_sco,
+                "chunk_start": start,
+                "chunk_end": end,
+            }
 
 
 class PerformanceSpeedAugmenter(AbstractProcessor):

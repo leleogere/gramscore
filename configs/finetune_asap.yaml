@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+    - _self_
+    - train_base
+    - data: asap_tokens_datamodule
+
+trainer:
+    max_steps: 15
+
+model:
+    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt

@@ -178,8 +178,8 @@ class AsapDataset(ScorePerformanceDataset):
 
     def __init__(
         self,
-        data_dir: Path,
-        split: str,
+        directory: Path,
+        split: Literal["train", "validation", "test", "all"],
         include_midi_scores: bool = False,
         filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
@@ -187,18 +187,19 @@ class AsapDataset(ScorePerformanceDataset):
     ) -> None:
         """Initialize an `AsapDataset` (using the MIDI2ScoreTransformer method).
 
-        :param data_dir: The directory where the ASAP dataset is stored.
+        :param directory: The directory where the ASAP dataset is stored.
         :param split: The split to use (either "all", "train", "validation", or "test").
         :param include_midi_scores: Whether to include the quantified MIDI score as performances in
             the dataset.
         :param filter_fn: A function to filter the entries.
+        :param valid_tsv_file: A TSV file containing the list of valid folders.
         :param transforms: A transform to apply to the entries.
         """
-        self.data_dir = data_dir
+        self.directory = directory
         self.split = split
         assert split in ["all", "train", "validation", "test"], f"Invalid split: {split}"
         # entries = self.read_metadata_like_m2st(data_dir, split)
-        entries = self.read_metadata(data_dir, split, include_midi_scores=include_midi_scores)
+        entries = self.read_metadata(directory, split, include_midi_scores=include_midi_scores)
         if filter_fn is not None:
             entries = list(filter(filter_fn, entries))
         if valid_tsv_file is not None:
@@ -213,7 +214,7 @@ class AsapDataset(ScorePerformanceDataset):
     @classmethod
     def read_metadata(
         cls,
-        data_dir: Path,
+        directory: Path,
         split: str,
         include_midi_scores: bool = False,
     ) -> list[ScorePerformanceEntry]:
@@ -225,19 +226,19 @@ class AsapDataset(ScorePerformanceDataset):
         :return: The metadata of the dataset.
         """
         # Read entries from metadata
-        with open(data_dir / "metadata.csv", "r") as f:
+        with open(directory / "metadata.csv", "r") as f:
             reader = list(csv.DictReader(f))
         entries = [
             ScorePerformanceEntry(
                 # fmt: off
                 composer=entry["composer"],
                 title=entry["title"],
-                xml_score=data_dir / entry["xml_score"],
-                midi_score=data_dir / entry["midi_score"] if "midi_score" in entry else None,
-                midi_performance=data_dir / entry["midi_performance"],
-                midi_score_annotations=data_dir / entry["midi_score_annotations"] if "midi_score_annotations" in entry else None,
-                folder=data_dir / entry["folder"],
-                base_path=data_dir,
+                xml_score=directory / entry["xml_score"],
+                midi_score=directory / entry["midi_score"] if "midi_score" in entry else None,
+                midi_performance=directory / entry["midi_performance"],
+                midi_score_annotations=directory / entry["midi_score_annotations"] if "midi_score_annotations" in entry else None,
+                folder=directory / entry["folder"],
+                base_path=directory,
                 # fmt: on
             )
             for entry in reader
@@ -266,7 +267,7 @@ class AsapDataset(ScorePerformanceDataset):
                         / "midi_score_annotations.mid",
                         midi_score=dummy_performance.folder / "midi_score.mid",
                         folder=dummy_performance.folder,
-                        base_path=data_dir,
+                        base_path=directory,
                     )
                 )
 

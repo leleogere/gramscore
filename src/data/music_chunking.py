@@ -91,13 +91,13 @@ def read_chunk_file(path: Path) -> pd.DataFrame:
 
 
 def clip_midi(
-    midi: symusic.core.ScoreSecond | symusic.core.ScoreTick | symusic.core.ScoreQuarter,
+    midi: pm.PrettyMIDI,
     chunks: pd.DataFrame,
     start_measure: int,
     num_notes: int | None = None,
     inplace: bool = True,
     check_num_measures: int | None = None,
-) -> tuple[symusic.core.ScoreSecond, tuple[int, int]]:
+) -> tuple[pm.PrettyMIDI, tuple[int, int]]:
     """
     Clip a MIDI performance to an approximate number of notes, starting from a given measure.
     This function can return more than the required number of notes as it will accumulate notes
@@ -123,11 +123,11 @@ def clip_midi(
 
     # TODO: update the docstring
     """
-    if len(midi.tracks) > 1:
+    if len(midi.instruments) > 1:
         raise ValueError("MIDI performance must have only one track.")
 
     if not inplace:
-        midi = midi.copy(deep=True)
+        midi = copy.deepcopy(midi)
 
     # Make sure all numbers are consecutive in "midi" when they are flattened
     # TODO: remove when everything is working
@@ -178,7 +178,7 @@ def clip_midi(
         )
         start_downbeat = new_start_downbeat
 
-    total_notes = len(midi.tracks[0].notes)
+    total_notes = len(midi.instruments[0].notes)
     assert chunks["last_note_of_group"].max() == total_notes - 1
 
     # If num_notes, find the end measure based on the required number of notes
@@ -197,21 +197,20 @@ def clip_midi(
     end_measure = chunks.iloc[end_downbeat]["last_measure_of_group"]
 
     # Keep only the performed notes in the queried measures
-    clipped_notes = midi.tracks[0].notes[
+    clipped_notes = midi.instruments[0].notes[
         chunks.iloc[start_downbeat]["first_note_of_group"] : chunks.iloc[end_downbeat][
             "last_note_of_group"
         ]
         + 1
     ]
-    midi.tracks[0].notes = clipped_notes
+    midi.instruments[0].notes = clipped_notes
 
     # Clip the performance to the timing of the first and last notes
-    start_time = clipped_notes[0].time
-    end_time = max(note.time + note.duration for note in clipped_notes)
-    midi.clip(start_time, end_time, inplace=True)
-
-    # Adjust the timings so the performances starts at 0
-    midi.shift_time(-start_time, inplace=True)
+    start_time = clipped_notes[0].start
+    end_time = max(note.end for note in clipped_notes)
+    crop_pretty_midi(
+        midi, start=start_time, end=end_time, start_mode="drop", end_mode="clip", inplace=True
+    )
 
     return midi, (start_measure, end_measure)
 
