@@ -1,19 +1,12 @@
 import warnings
+from pathlib import Path
 
 import joblib
+from muster.muster import muster
 from tabulate import tabulate
-
-import data.components.transforms as t
-import json
-from collections import defaultdict
-from pathlib import Path
-from pprint import pprint
-
 from tqdm import tqdm
 
 from metrics.score_similarity import score_similarity_normalized
-from muster.muster import muster
-
 from utils.debug import as_pycharm_link
 
 base_path = Path("~/Documents/datasets/pdmx").expanduser()
@@ -56,7 +49,7 @@ def eval(prediction: Path, ground_truth: Path):
         try:
             muster_sim = muster(score_est=prediction, score_gt=ground_truth, clean_scores=False)
         except Exception as e:
-            print(f"Error on M2ST on {prediction.relative_to(transcriptions_path)}: {e}")
+            print(f"Error on MUSTER on {prediction.relative_to(transcriptions_path)}: {e}")
             muster_sim = None
         return {"score_similarity": score_sim, "muster": muster_sim}
 
@@ -72,11 +65,6 @@ sims_list = [
     )
 ]
 
-# sims = defaultdict(lambda: defaultdict(list))
-# for sim in tqdm(sims_generator, total=len(transcribed_scores)):
-#     for metric, submetrics in sim.items():
-#         for submetric, value in submetrics.items():
-#             sims[metric][submetric].append(value)
 sims = {k: [d[k] for d in sims_list if d[k]] for k in sims_list[0]}
 
 print("-----------------")
@@ -131,7 +119,36 @@ t3_headers = (
     ]
 )
 
-t3_row_m2st = ["M2ST", 3.11, 7.56, 6.44, 15.55, 23.84, 11.30, 12.69, 9.06, 51.86, 6.62, 25.03, 8.69]
+t3_row_m2st = [
+    "M2ST (paper)",
+    3.11,
+    7.56,
+    6.44,
+    15.55,
+    23.84,
+    11.30,
+    12.69,
+    9.06,
+    51.86,
+    6.62,
+    25.03,
+    8.69,
+]
+t3_row_m2st2 = [
+    "M2ST (perso)",
+    2.26,
+    25.00,
+    36.04,
+    29.12,
+    13.08,
+    21.10,
+    28.33,
+    66.90,
+    41.66,
+    12.23,
+    24.76,
+    0.15,
+]
 t3_row_ours = (
     ["Ours"]
     + [
@@ -151,7 +168,7 @@ t3_row_ours = (
     ]
 )
 print("Table 3")
-print(tabulate([t3_row_m2st, t3_row_ours], headers=t3_headers, floatfmt=".2f"))
+print(tabulate([t3_row_m2st, t3_row_m2st2, t3_row_ours], headers=t3_headers, floatfmt=".2f"))
 
 # ----- Table 4 -----
 t4_headers = [
@@ -165,7 +182,8 @@ t4_headers = [
 ]
 
 t4_row_sota = ["SOTA", 6.86, 26.74, 9.69, "-", "-", "-"]
-t4_row_m2st = ["M2ST", 6.62, 25.03, 8.69, 27.80, 18.19, 54.64]
+t4_row_m2st = ["M2ST (paper)", 6.62, 25.03, 8.69, 27.80, 18.19, 54.64]
+t4_row_m2st2 = ["M2ST (perso)", 12.23, 24.76, 0.15, 34.67, 0.0, 100.0]
 t4_row_ours = ["Ours"] + [
     round(100 * sims_aggregate["score_similarity"][k], 2)
     for k in [
@@ -179,7 +197,11 @@ t4_row_ours = ["Ours"] + [
 ]
 
 print("\nTable 4:")
-print(tabulate([t4_row_sota, t4_row_ours], headers=t4_headers, floatfmt=".2f"))
+print(
+    tabulate(
+        [t4_row_sota, t4_row_m2st, t4_row_m2st2, t4_row_ours], headers=t4_headers, floatfmt=".2f"
+    )
+)
 
 #     json_output_path = transcribed_score.with_suffix(".json")
 #     sim = {

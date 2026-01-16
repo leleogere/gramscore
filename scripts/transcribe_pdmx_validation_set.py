@@ -48,7 +48,9 @@ model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-1
 
 pdmx_path = Path("~/Documents/datasets/pdmx").expanduser()
 validation_list_path = model_path.parent.parent / "validation.txt"
-transcription_directory = pdmx_path.parent / "transcriptions" / model_path.parent.parent.name
+transcription_directory = (
+    pdmx_path.parent / "transcriptions" / "PDMX" / model_path.parent.parent.name
+)
 
 MAX_PERFORMED_NOTES = 500
 MAX_GENERATED_TOKENS = 1000
