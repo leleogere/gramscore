@@ -84,12 +84,12 @@ class ScorePerformanceEntry:
     def debug_path(self) -> Path:
         if self.base_path is not None:
             return (
-                self.xml_score_relative
-                if self.xml_score is not None
-                else self.midi_performance_relative
+                self.midi_performance_relative
+                if self.midi_performance is not None
+                else self.xml_score_relative
             )
         else:
-            return self.xml_score if self.xml_score is not None else self.midi_performance
+            return self.midi_performance if self.midi_performance is not None else self.xml_score
 
 
 class ScorePerformanceDataset(Dataset):

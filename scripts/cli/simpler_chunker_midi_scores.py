@@ -4,6 +4,8 @@ Create a chunk file that contains a mapping from XML score measures to MIDI play
 Only works with quantified midi_score.mid files for now.
 """
 
+import pretty_midi as pm
+
 import itertools
 import json
 import math
@@ -13,17 +15,16 @@ from collections import UserList
 from collections import defaultdict
 from itertools import zip_longest
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Any
 from typing import Self
 
 import pandas as pd
 import partitura as pt
 import partitura.score
-import symusic
 from loguru import logger
 from tqdm import tqdm
 
-from utils.midi import merge_into_single_track
+from utils.midi import read_pretty_midi
 from utils.midi import midi_pitch_to_note_name
 
 
@@ -96,7 +97,7 @@ def create_chunk_file_for_midi_score(
 ):
     # Get all performances for this piece
     performances_metadata = metadata.loc[metadata["folder"] == piece]
-    performances_annotations = [
+    performances_annotations: list[dict[str, Any]] = [
         annotations.loc[p["midi_performance"]] for _, p in performances_metadata.iterrows()
     ]
 
@@ -111,8 +112,10 @@ def create_chunk_file_for_midi_score(
     performance_annotations = performances_annotations[0]
 
     # Get the downbeat lists
-    midi_score_downbeats = performance_annotations["midi_score_downbeats"]
-    performances_downbeats = [p["performance_downbeats"] for p in performances_annotations]
+    midi_score_downbeats: list[float] = performance_annotations["midi_score_downbeats"]
+    performances_downbeats: list[float] = [
+        p["performance_downbeats"] for p in performances_annotations
+    ]
     if any(len(p) != len(midi_score_downbeats) for p in performances_downbeats):
         raise ValueError(
             f"{piece}: Number of downbeats in performances ({len(performances_downbeats)}) "
@@ -195,7 +198,7 @@ def create_chunk_file_for_midi_score(
 
     # Create chunks for the MIDI score
     midi_score_path = asap_path / performance_metadata["midi_score"]
-    midi_score = merge_into_single_track(midi=symusic.Score(midi_score_path, ttype="second"))
+    midi_score = read_pretty_midi(midi_score_path)
     midi_score_mapping = assign_midi_score_notes_to_chunks(
         midi_score=midi_score,
         midi_score_downbeats=midi_score_downbeats,
@@ -217,7 +220,7 @@ def create_chunk_file_for_midi_score(
         performances_metadata.iterrows(), performances_downbeats
     ):
         p_path = asap_path / p_metadata["midi_performance"]
-        p = merge_into_single_track(midi=symusic.Score(p_path, ttype="second"))
+        p = read_pretty_midi(p_path)
         performance_mapping = assign_performance_notes_to_chunks(
             performance=p,
             midi_score=midi_score,
@@ -236,21 +239,22 @@ def create_chunk_file_for_midi_score(
             measures: [i for i, _ in group] for measures, group in performance_mapping.items()
         }
         chunk_file_path = p_path.with_name(f"{p_path.stem}_chunks.json")
+        print(chunk_file_path)
         with open(chunk_file_path, "w") as f:
             json.dump(performance_mapping_indices, f, indent=2)
 
 
 def assign_midi_score_notes_to_chunks(
-    midi_score: symusic.core.ScoreSecond,
+    midi_score: pm.PrettyMIDI,
     midi_score_downbeats: list[float],
     downbeats_score_map: DownbeatScoreMap,
     rounding_error_tolerance: float = 0.01,
-) -> dict[str, list[tuple[int, symusic.core.NoteSecond]]]:
+) -> dict[str, list[tuple[int, pm.PrettyMIDI]]]:
     """
     Returns a mapping from XML measure to index of MIDI notes with the symusic Note object.
     """
-    assert len(midi_score.tracks) == 1
-    track = midi_score.tracks[0]
+    assert len(midi_score.instruments) == 1
+    track = midi_score.instruments[0]
     # Assign notes to their group
     mapping = defaultdict(list)
     indices_and_notes = enumerate(track.notes)
@@ -271,17 +275,17 @@ def assign_midi_score_notes_to_chunks(
 
 
 def assign_performance_notes_to_chunks(
-    performance: symusic.core.ScoreSecond,
-    midi_score: symusic.core.ScoreSecond,
+    performance: pm.PrettyMIDI,
+    midi_score: pm.PrettyMIDI,
     performance_downbeats: list[float],
     midi_score_downbeats: list[float],
     downbeats_score_map: DownbeatScoreMap,
-    midi_score_mapping: dict[str, list[tuple[int, symusic.core.NoteSecond]]],
+    midi_score_mapping: dict[str, list[tuple[int, pm.Note]]],
     swapping_tolerance: float = 0.05,  # As in Beyer's
-) -> dict[str, list[tuple[int, symusic.core.NoteSecond]]]:
-    assert len(performance.tracks) == 1
-    assert len(midi_score.tracks) == 1
-    performance_track = performance.tracks[0]
+) -> dict[str, list[tuple[int, pm.Note]]]:
+    assert len(performance.instruments) == 1
+    assert len(midi_score.instruments) == 1
+    performance_track = performance.instruments[0]
     # Start by simply assigning performance notes to measure naively like midi_score
     indices_and_notes = enumerate(performance_track.notes)
     i, note = next(indices_and_notes, (None, None))
@@ -322,7 +326,7 @@ def assign_performance_notes_to_chunks(
             notes_to_swap_remaining = False  # will be flipped back to True later if needed
             # Figure out which MIDI pitches can be moved forward/backward by one beat
             # because that would yield better alignment. Only considers notes within
-            # 0.5s of the beat boundary.
+            # 0.05s of the beat boundary.
             counter_performance = Counter([n.pitch for _, n in mapping[group]])
             counter_midi_score = Counter([n.pitch for _, n in midi_score_mapping[group]])
 
@@ -419,18 +423,12 @@ if __name__ == '__main__':
     logger.remove()
     logger.add(lambda msg: tqdm.write(msg, end=""), level=args.log_level.upper())
 
-    metadata = pd.read_csv(args.asap_path / "metadata.csv")
-    # metadata = metadata[metadata["composer"] == "Bach"]
-    # metadata = metadata[metadata["folder"] == "Scriabin/Sonatas/5"]
-    # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/17-1"]
-    # metadata = metadata[metadata["folder"] == "Schumann/Kreisleriana/7"]
-    # metadata = metadata[metadata["folder"] == "Bach/Fugue/bwv_865"]
-    # metadata = metadata[metadata["folder"] == "Chopin/Scherzos/31"]
-    # metadata = metadata[metadata["folder"] == "Beethoven/Piano_Sonatas/32-1"]
-    annotations = pd.read_json(args.asap_path / "asap_annotations.json", orient="index")
+    asap_path = args.asap_path.expanduser()
+    metadata = pd.read_csv((asap_path / "metadata.csv").expanduser())
+    annotations = pd.read_json(asap_path / "asap_annotations.json", orient="index")
     create_chunk_file_for_all_midi_scores(
         metadata=metadata,
         annotations=annotations,
-        asap_path=args.asap_path,
+        asap_path=asap_path,
         folder=args.folder,
     )

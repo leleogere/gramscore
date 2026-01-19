@@ -1,8 +1,9 @@
 import copy
 import math
+import warnings
+from pathlib import Path
 from typing import Literal
 
-import numpy as np
 import pretty_midi as pm
 import symusic
 from partitura.utils.music import midi_pitch_to_pitch_spelling
@@ -39,6 +40,29 @@ def merge_pretty_midi_into_single_track(midi: pm.PrettyMIDI, inplace: bool = Tru
             # Sort values
             setattr(track, attr_name, sorted(attr_values, key=sort_fn))
         midi.instruments = midi.instruments[:1]
+    else:
+        # Make sure that output is sorted
+        midi.instruments[0].notes.sort(key=lambda n: (n.start, n.pitch, n.duration))
+    return midi
+
+
+def read_pretty_midi(
+    path: Path,
+    sort_events: bool = True,
+    merge_into_single_track: bool = True,
+    ignore_warnings: bool = True,
+) -> pm.PrettyMIDI:
+    with warnings.catch_warnings():
+        if ignore_warnings:
+            warnings.simplefilter("ignore")
+        midi = pm.PrettyMIDI(path)
+    if merge_into_single_track:
+        merge_pretty_midi_into_single_track(midi, inplace=True)
+    elif sort_events:  # No need if merge as already sorted
+        for track in midi.instruments:
+            track.notes.sort(key=lambda n: (n.start, n.pitch, n.duration))
+            track.control_changes.sort(key=lambda cc: cc.time)
+            track.pitch_bends.sort(key=lambda pb: pb.time)
     return midi
 
 

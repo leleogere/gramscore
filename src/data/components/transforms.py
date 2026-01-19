@@ -1,11 +1,11 @@
 import random
+import sys
 import warnings
 from collections.abc import Callable
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Literal
-import sys
 from typing import assert_never
 
 import pandas as pd
@@ -13,7 +13,6 @@ import partitura as pt
 import partitura.score
 import partitura.utils
 import pretty_midi as pm
-import symusic
 import torch
 import torch.utils.data
 from loguru import logger
@@ -28,7 +27,7 @@ from models.automata.io import partitura_to_token_sequence
 from models.automata.tokens import fill_rests
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
-from utils.midi import merge_pretty_midi_into_single_track, compute_midi_end_without_tempo_changes
+from utils.midi import compute_midi_end_without_tempo_changes, read_pretty_midi
 
 MAX_PITCH = 108
 MIN_PITCH = 21
@@ -81,26 +80,15 @@ class ScoreReader(AbstractProcessor):
 
 
 class PerformanceReader(AbstractProcessor):
-    # def _process(self, sample: dict[str, Any]) -> dict[str, Any]:
-    #     performance = symusic.Score.from_file(sample["entry"].midi_performance, ttype="second")
-    #     # Merge all tracks into first one if multiple ones
-    #     if len(performance.tracks) > 1:
-    #         track = performance.tracks[0]  # Only reference so OK modifying it
-    #         for other in performance.tracks[1:]:
-    #             for attr in ["notes", "controls", "pitch_bends", "pedals", "lyrics"]:
-    #                 getattr(track, attr).extend(getattr(other, attr))
-    #         track.sort(inplace=True)
-    #         performance.tracks = performance.tracks[:1]
-    #     assert len(performance.tracks) == 1
-    #     return {"performance": performance}
-    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def process(self, path: Path) -> pm.PrettyMIDI:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            performance = pm.PrettyMIDI(sample["entry"].midi_performance.as_posix())
-        # Merge all tracks into first one if multiple ones
-        performance = merge_pretty_midi_into_single_track(performance, inplace=True)
+            performance = read_pretty_midi(path, merge_into_single_track=True)
         assert len(performance.instruments) == 1
-        return {"performance": performance}
+        return performance
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        return {"performance": self.process(sample["entry"].midi_performance)}
 
 
 class PreComputedAllowedTranspositionsReader(AbstractProcessor):
