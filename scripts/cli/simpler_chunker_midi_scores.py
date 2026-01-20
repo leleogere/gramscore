@@ -100,6 +100,10 @@ def create_chunk_file_for_midi_score(
     performances_annotations: list[dict[str, Any]] = [
         annotations.loc[p["midi_performance"]] for _, p in performances_metadata.iterrows()
     ]
+    # Only keep the aligned ones
+    performances_annotations = [
+        ann for ann in performances_annotations if ann["score_and_performance_aligned"]
+    ]
 
     # Try to find a performance with a score downbeats map
     # As there are multiple performances for one piece, take the first one (all performances of a
