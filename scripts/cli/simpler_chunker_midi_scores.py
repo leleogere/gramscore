@@ -239,7 +239,6 @@ def create_chunk_file_for_midi_score(
             measures: [i for i, _ in group] for measures, group in performance_mapping.items()
         }
         chunk_file_path = p_path.with_name(f"{p_path.stem}_chunks.json")
-        print(chunk_file_path)
         with open(chunk_file_path, "w") as f:
             json.dump(performance_mapping_indices, f, indent=2)
 
