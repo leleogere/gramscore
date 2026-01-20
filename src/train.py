@@ -51,9 +51,10 @@ def train(cfg: DictConfig) -> None:
 
     # Redirect loguru logs to hydra output directory
     hydra_path = Path(cfg.paths.output_dir)
+    log_level = cfg.get("log_level", "INFO").upper()
     logger.remove()
-    logger.add(sys.stderr, level=cfg.get("log_level", "INFO").upper())
-    logger.add(hydra_path / "train.log")
+    logger.add(sys.stderr, level=log_level)
+    logger.add(hydra_path / "train.log", level=log_level)
 
     load_dotenv()
 
