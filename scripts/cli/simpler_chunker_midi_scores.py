@@ -97,29 +97,28 @@ def create_chunk_file_for_midi_score(
 ):
     # Get all performances for this piece
     performances_metadata = metadata.loc[metadata["folder"] == piece]
-    performances_annotations: list[dict[str, Any]] = [
-        annotations.loc[p["midi_performance"]] for _, p in performances_metadata.iterrows()
-    ]
+    performances_metadata = performances_metadata.join(annotations, on="midi_performance")
+
     # Only keep the aligned ones
-    performances_annotations = [
-        ann for ann in performances_annotations if ann["score_and_performance_aligned"]
+    # performances_metadata = [
+    #     ann for ann in performances_annotations if ann["score_and_performance_aligned"]
+    # ]
+    performances_metadata = performances_metadata.loc[
+        performances_metadata["score_and_performance_aligned"]
     ]
 
     # Try to find a performance with a score downbeats map
     # As there are multiple performances for one piece, take the first one (all performances of a
     # piece share the same downbeats score map, only need to check the first)
     assert all(
-        p["downbeats_score_map"] == performances_annotations[0]["downbeats_score_map"]
-        for p in performances_annotations
+        dbsm == performances_metadata["downbeats_score_map"].iloc[0]
+        for dbsm in performances_metadata["downbeats_score_map"]
     ), f"{piece}: Downbeats score map is not the same for all performances."
     performance_metadata = performances_metadata.iloc[0]
-    performance_annotations = performances_annotations[0]
 
     # Get the downbeat lists
-    midi_score_downbeats: list[float] = performance_annotations["midi_score_downbeats"]
-    performances_downbeats: list[float] = [
-        p["performance_downbeats"] for p in performances_annotations
-    ]
+    midi_score_downbeats: list[float] = performance_metadata["midi_score_downbeats"]
+    performances_downbeats: list[float] = list(performances_metadata["performance_downbeats"])
     if any(len(p) != len(midi_score_downbeats) for p in performances_downbeats):
         raise ValueError(
             f"{piece}: Number of downbeats in performances ({len(performances_downbeats)}) "
@@ -127,8 +126,8 @@ def create_chunk_file_for_midi_score(
         )
 
     # Get the downbeats score map
-    if performance_annotations["downbeats_score_map"] is not None:
-        downbeats_score_map = DownbeatScoreMap(performance_annotations["downbeats_score_map"])
+    if performance_metadata["downbeats_score_map"] is not None:
+        downbeats_score_map = DownbeatScoreMap(performance_metadata["downbeats_score_map"])
     else:
         logger.warning(
             f"{piece}: No downbeats_score_map found for {piece}, will use a default one."
