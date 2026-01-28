@@ -321,7 +321,6 @@ def assign_performance_notes_to_chunks(
                 f"Downbeats {i} ({downbeat}) and {i+1} ({next_downbeat}) are closer than the "
                 f"swapping tolerance ({swapping_tolerance}s), this probably indicate an alignment "
                 f"error."
-                ""
             )
         notes_to_swap_remaining = True
         while notes_to_swap_remaining:
