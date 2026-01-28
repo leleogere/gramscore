@@ -17,7 +17,7 @@ import models.automata.tokens as tk
 from models.automata.io import partitura_to_token_sequence
 from models.automata.io import token_sequence_to_partitura
 from models.automata.tokens import HasStaffMixin
-from utils.midi import crop_pretty_midi
+from utils.midi import crop_pretty_midi, compute_midi_end_without_tempo_changes
 from utils.musicxml import voice_absolute_into_voice_relative_to_staff
 
 
@@ -184,32 +184,36 @@ def clip_midi(
     ), f"{chunks['last_note_of_group'].max()} != {total_notes - 1}"
 
     # If num_notes, find the end measure based on the required number of notes
-    end_downbeat = next(
-        (
-            i
-            for i, row in chunks.iterrows()
-            if not row["is_empty"]
-            and row["first_note_of_group"]
-            <= chunks.iloc[start_downbeat]["first_note_of_group"] + num_notes
-            <= row["last_note_of_group"]
-        ),
-        # In case of not enough notes, take the first not empty measure from the end
-        next(i for i, row in chunks.iloc[::-1].iterrows() if not row["is_empty"]),
+    end_downbeat = (
+        next(
+            (
+                i
+                for i, row in chunks.iterrows()
+                if not row["is_empty"]
+                and row["first_note_of_group"]
+                <= chunks.iloc[start_downbeat]["first_note_of_group"] + num_notes
+                <= row["last_note_of_group"]
+            ),
+            # In case of not enough notes, take the first not empty measure from the end
+            next(i for i, row in chunks.iloc[::-1].iterrows() if not row["is_empty"]),
+        )
+        if num_notes is not None
+        else chunks.index[-1]
     )
     end_measure = chunks.iloc[end_downbeat]["last_measure_of_group"]
 
     # Keep only the performed notes in the queried measures
+    last_note = chunks.iloc[end_downbeat]["last_note_of_group"]
     clipped_notes = midi.instruments[0].notes[
-        chunks.iloc[start_downbeat]["first_note_of_group"] : chunks.iloc[end_downbeat][
-            "last_note_of_group"
-        ]
-        + 1
+        chunks.iloc[start_downbeat]["first_note_of_group"] : (
+            last_note + 1 if not pd.isna(last_note) else total_notes
+        )
     ]
     midi.instruments[0].notes = clipped_notes
 
     # Clip the performance to the timing of the first and last notes
     start_time = clipped_notes[0].start
-    end_time = max(note.end for note in clipped_notes)
+    end_time = max(note.end for note in clipped_notes) if not pd.isna(last_note) else compute_midi_end_without_tempo_changes(midi)
     crop_pretty_midi(
         midi, start=start_time, end=end_time, start_mode="drop", end_mode="clip", inplace=True
     )

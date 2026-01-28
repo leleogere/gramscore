@@ -118,10 +118,12 @@ def create_chunk_file_for_midi_score(
 
     # Get the downbeat lists
     midi_score_downbeats: list[float] = performance_metadata["midi_score_downbeats"]
-    performances_downbeats: list[float] = list(performances_metadata["performance_downbeats"])
-    if any(len(p) != len(midi_score_downbeats) for p in performances_downbeats):
+    if any(
+        len(p) != len(midi_score_downbeats) for p in performances_metadata["performance_downbeats"]
+    ):
         raise ValueError(
-            f"{piece}: Number of downbeats in performances ({len(performances_downbeats)}) "
+            f"{piece}: Number of downbeats in performances "
+            f"({len(performances_metadata['performance_downbeats'])}) "
             f"does not match number of downbeats in MIDI score ({len(midi_score_downbeats)})."
         )
 
@@ -137,7 +139,7 @@ def create_chunk_file_for_midi_score(
     # In case of anacrusis, add downbeats at the start to take into account the missing first bar
     if not math.isclose(midi_score_downbeats[0], 0.0):
         midi_score_downbeats.insert(0, 0.0)
-        for p in performances_downbeats:
+        for p in performances_metadata["performance_downbeats"]:
             p.insert(0, 0.0)
         if downbeats_score_map.is_default:
             # For default, simply append at a new downbeat at the end as already starting at 0
@@ -219,15 +221,13 @@ def create_chunk_file_for_midi_score(
         json.dump(midi_score_mapping_indices, f, indent=2)
 
     # Create chunks for the performances
-    for (_, p_metadata), p_downbeats in zip(
-        performances_metadata.iterrows(), performances_downbeats
-    ):
+    for _, p_metadata in performances_metadata.iterrows():
         p_path = asap_path / p_metadata["midi_performance"]
         p = read_pretty_midi(p_path)
         performance_mapping = assign_performance_notes_to_chunks(
             performance=p,
             midi_score=midi_score,
-            performance_downbeats=p_downbeats,
+            performance_downbeats=p_metadata["performance_downbeats"],
             midi_score_downbeats=midi_score_downbeats,
             downbeats_score_map=downbeats_score_map,
             midi_score_mapping=midi_score_mapping,
@@ -317,7 +317,7 @@ def assign_performance_notes_to_chunks(
         itertools.pairwise(zip(midi_score_mapping.keys(), performance_downbeats))
     ):
         if next_downbeat - downbeat < swapping_tolerance:
-            raise ValueError(
+            logger.warning(
                 f"Downbeats {i} ({downbeat}) and {i+1} ({next_downbeat}) are closer than the "
                 f"swapping tolerance ({swapping_tolerance}s), this probably indicate an alignment "
                 f"error."
