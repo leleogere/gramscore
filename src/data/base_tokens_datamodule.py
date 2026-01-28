@@ -1,15 +1,14 @@
-from pathlib import Path
 from typing import Any, Literal
 from typing import Dict
 from typing import Optional
 
 import torch
 from lightning import LightningDataModule
-from loguru import logger
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+import data.components.transforms as t
 from models.automata.vectorization_torch import TokenTensor
 from utils.constants import PADDING_VALUE
 
@@ -50,7 +49,8 @@ class BaseTokensDataModule(LightningDataModule):
     def collate_fn(
         batch: list[dict[str, Any] | None],
         keep_fields: tuple[str, ...] | Literal["all"] = ("entry",),
-        skip_none: bool = True,
+        skip_none: bool = False,
+        skip_error_key: bool = True,
     ) -> dict[str, Any]:
         """
         Collate function for the `DataLoader`.
@@ -58,6 +58,7 @@ class BaseTokensDataModule(LightningDataModule):
         :param batch: The batch to collate.
         :param drop_fields: Fields to drop from the batch.
         :param skip_none: Whether to skip None values in the batch, or raise an error.
+        :param skip_error_key: Whether to skip samples with the error key set, or raise an error.
         :return: The collated batch.
         """
         if skip_none:
@@ -65,6 +66,13 @@ class BaseTokensDataModule(LightningDataModule):
         elif None in batch:
             raise ValueError(
                 "None value found in batch. Fix it or pass skip_none=True to the collate_fn."
+            )
+
+        if skip_error_key:
+            batch = [x for x in batch if not t.ERROR_KEY in x]
+        elif t.ERROR_KEY in batch:
+            raise ValueError(
+                "Error key found in batch. Fix it or pass skip_error_key=True to the collate_fn."
             )
 
         fields = [key for key in batch[0]]

@@ -100,15 +100,21 @@ class ScorePerformanceDataset(Dataset):
         self,
         entries: list[ScorePerformanceEntry],
         transforms: Callable | list[Callable] = None,
+        exception_on_transform_error: bool = False,
     ) -> None:
         """Initialize a dataset of pairs of MusicXML scores and MIDI performances.
 
         :param entries: A list of ScorePerformanceEntry objects.
+        :param transforms: A transform or list of transforms to apply to the entries.
+        :param exception_on_transform_error: Whether to raise an exception if an error occurs
+            during a transform. If false, will early return the sample with the t.ERROR_KEY key
+            set to the error message.
         """
         self.entries = entries
         self.transforms = transforms
         if self.transforms is not None and not isinstance(transforms, list):
             self.transforms = [self.transforms]
+        self.exception_on_transform_error = exception_on_transform_error
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -133,28 +139,28 @@ class ScorePerformanceDataset(Dataset):
             entry = self.apply_transforms(entry, self.transforms)
         return entry
 
-    @classmethod
-    def apply_transforms(cls, sample: Any, transforms: list[Callable]) -> Any:
+    def apply_transforms(self, sample: Any, transforms: list[Callable]) -> Any:
         for i, transform in enumerate(transforms):
             if isinstance(sample, dict) and t.ERROR_KEY in sample:
                 # We should probably test i>0 for completude but it should not happen
+                # as the ToDict transform must not cause any error
                 last_transform_name = transforms[i - 1].__class__.__name__
-                logger.warning(
-                    f"Error encountered after applying transform {last_transform_name} on "
-                    f"{sample['entry'].debug_path}, skipping the sample: {sample[t.ERROR_KEY]}"
+                msg = (
+                    f"{sample['entry'].debug_path}: error encountered after applying transform "
+                    f"{last_transform_name}: {sample[t.ERROR_KEY]}"
                 )
-                return None
+                if self.exception_on_transform_error:
+                    raise ValueError(msg)
+                else:
+                    logger.error(msg)
+                    return sample
             try:
                 sample = transform(sample)
             except Exception as e:
-                logger.error(
-                    f"Failed to apply transform {transform.__class__.__name__} on "
-                    f"{sample['entry'].debug_path}: {e}"
-                )
-                raise e
+                sample[t.ERROR_KEY] = str(e)
             if isinstance(sample, list):
                 # If the transform returns a list, apply the transforms to each element
-                sample = [cls.apply_transforms(s, transforms[i + 1 :]) for s in sample]
+                sample = [self.apply_transforms(s, transforms[i + 1 :]) for s in sample]
                 break
         return sample
 

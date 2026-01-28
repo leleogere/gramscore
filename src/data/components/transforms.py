@@ -76,7 +76,8 @@ class ScoreReader(AbstractProcessor):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             score = pt.load_musicxml(sample["entry"].xml_score, force_note_ids=True)
-            assert len(score.parts) == 1
+            if len(score) > 1:
+                raise ValueError(f"More than one part in {sample['entry'].xml_score}")
             score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
         return {"score": score}
 
