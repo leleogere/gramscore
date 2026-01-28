@@ -152,7 +152,8 @@ class ScorePerformanceDataset(Dataset):
                 if self.exception_on_transform_error:
                     raise ValueError(msg)
                 else:
-                    logger.error(msg)
+                    if not isinstance(transform, t.Cache):  # avoid relogging errors
+                        logger.error(msg)
                     return sample
             try:
                 sample = transform(sample)

@@ -559,9 +559,7 @@ class AsapMusicChunker(AbstractProcessor):
         entry = sample["entry"]
         chunk_file = entry.xml_score.parent / f"{entry.midi_performance.stem}_chunks.json"
         if not chunk_file.exists():
-            msg = f"{chunk_file} does not exist, skipping the sample"
-            logger.warning(msg)
-            return {ERROR_KEY: msg}
+            return {ERROR_KEY: f"{chunk_file} does not exist, skipping the sample"}
         outputs = self.process(
             score=sample["score"],
             performance=sample["performance"],
