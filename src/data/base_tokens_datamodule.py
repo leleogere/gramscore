@@ -48,16 +48,25 @@ class BaseTokensDataModule(LightningDataModule):
 
     @staticmethod
     def collate_fn(
-        batch: list[dict[str, Any]],
+        batch: list[dict[str, Any] | None],
         keep_fields: tuple[str, ...] | Literal["all"] = ("entry",),
+        skip_none: bool = True,
     ) -> dict[str, Any]:
         """
         Collate function for the `DataLoader`.
 
         :param batch: The batch to collate.
         :param drop_fields: Fields to drop from the batch.
+        :param skip_none: Whether to skip None values in the batch, or raise an error.
         :return: The collated batch.
         """
+        if skip_none:
+            batch = [x for x in batch if x is not None]
+        elif None in batch:
+            raise ValueError(
+                "None value found in batch. Fix it or pass skip_none=True to the collate_fn."
+            )
+
         fields = [key for key in batch[0]]
         results = {}
 

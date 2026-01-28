@@ -183,7 +183,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.Cache(
                     transforms=[
                         t.ScoreReader(),
-                        t.VoiceRestFiller(),
+                        t.VoiceRestFiller(tolerant=True),
                         t.VoiceReorderer(),
                     ],
                     cache_key=lambda sample: sample["entry"].xml_score,
@@ -207,7 +207,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.ToDict(),
                 t.ScoreReader(),
                 t.PerformanceReader(),
-                t.VoiceRestFiller(),
+                t.VoiceRestFiller(tolerant=True),
                 t.VoiceReorderer(),
                 t.AsapMusicChunker(
                     num_performed_notes=500,

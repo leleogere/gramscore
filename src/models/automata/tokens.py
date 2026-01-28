@@ -994,12 +994,13 @@ TOKEN_STR_TO_TYPE = dict(zip(TOKEN_TYPES_STR, TOKEN_TYPES))
 AnyToken = TypeVar("AnyToken", bound=Token)
 
 
-def fill_rests(part: pt.score.Part) -> None:
+def fill_rests(part: pt.score.Part, tolerant: bool = False) -> None:
     """
     Fill rests in incomplete voices of a part.
     TODO: refactor and move it somewhere more logical
 
     :param part: Part to fill rests in
+    :param tolerant: If False, will raise an exception on unfillable voice
     """
     divisions = int(part.quarter_duration_map(0))
     logger.trace(f"{divisions = }")
@@ -1061,6 +1062,7 @@ def fill_rests(part: pt.score.Part) -> None:
             voices[idx].append(note_or_tuplet)
         for voice_idx, voice_notes_and_tups in voices.items():
             time = start_time
+            error_flag = False
             for note_or_tup in voice_notes_and_tups:
                 if isinstance(note_or_tup, pt.score.Tuplet):
                     pass
@@ -1072,7 +1074,16 @@ def fill_rests(part: pt.score.Part) -> None:
                         #     f"(measure {measure.number}, from {Fraction(time - start_time, divisions)} "
                         #     f"to {Fraction(note.start.t - start_time, divisions)})"
                         # )
-                        rests = create_rests(Fraction(note.start.t - time, divisions))
+                        try:
+                            rests = create_rests(Fraction(note.start.t - time, divisions))
+                        except ValueError as e:
+                            msg = f"Error filling rests in voice {voice_idx} of measure {measure.number}: {e.args[0]}"
+                            if tolerant:
+                                logger.warning(msg)
+                                error_flag = True
+                                break
+                            else:
+                                raise ValueError(msg) from e
                         # print(rests)
                         for rest, dur in rests:
                             start = time
@@ -1084,13 +1095,21 @@ def fill_rests(part: pt.score.Part) -> None:
                         # print(end, note.start.t)
                         assert end == note.start.t
                 time = note_or_tup.end.t
-            if time < end_time:
+            if not error_flag and time < end_time:
                 # print(
                 #     f"Voice {voice_idx} has a space from {time} to {end_time} "
                 #     f"(measure {measure.number}, from {Fraction(time - start_time, divisions)} "
                 #     f"to {Fraction(end_time - start_time, divisions)})"
                 # )
-                rests = create_rests(Fraction(end_time - time, divisions), largest_last=True)
+                try:
+                    rests = create_rests(Fraction(end_time - time, divisions), largest_last=True)
+                except ValueError as e:
+                    msg = f"Error filling rests in voice {voice_idx} of measure {measure.number}: {e.args[0]}"
+                    if tolerant:
+                        logger.warning(msg)
+                        continue
+                    else:
+                        raise ValueError(msg) from e
                 for rest, dur in rests:
                     start = time
                     end = time + int(dur.quarter_length * divisions)

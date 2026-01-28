@@ -23,6 +23,7 @@ from lxml import etree
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+import data.components.transforms as t
 from data.components.check_tokenizable import check_full
 from models.automata.vectorization_torch import TokenTensor
 from utils.constants import SKIP
@@ -135,11 +136,19 @@ class ScorePerformanceDataset(Dataset):
     @classmethod
     def apply_transforms(cls, sample: Any, transforms: list[Callable]) -> Any:
         for i, transform in enumerate(transforms):
+            if isinstance(sample, dict) and t.ERROR_KEY in sample:
+                # We should probably test i>0 for completude but it should not happen
+                last_transform_name = transforms[i - 1].__class__.__name__
+                logger.warning(
+                    f"Error encountered after applying transform {last_transform_name} on "
+                    f"{sample['entry'].debug_path}, skipping the sample: {sample[t.ERROR_KEY]}"
+                )
+                return None
             try:
                 sample = transform(sample)
             except Exception as e:
                 logger.error(
-                    f"Failed to apply transform {transform} on "
+                    f"Failed to apply transform {transform.__class__.__name__} on "
                     f"{sample['entry'].debug_path}: {e}"
                 )
                 raise e
@@ -228,6 +237,8 @@ class AsapDataset(ScorePerformanceDataset):
         # Read entries from metadata
         with open(directory / "metadata.csv", "r") as f:
             reader = list(csv.DictReader(f))
+        with open(directory / "asap_annotations.json", "r") as f:
+            annotations = json.load(f)
         entries = [
             ScorePerformanceEntry(
                 # fmt: off
@@ -243,6 +254,13 @@ class AsapDataset(ScorePerformanceDataset):
             )
             for entry in reader
         ]
+
+        def is_aligned(entry: ScorePerformanceEntry) -> bool:
+            return annotations[entry.midi_performance_relative.as_posix()][
+                "score_and_performance_aligned"
+            ]
+
+        entries = list(filter(is_aligned, entries))
 
         # all_folders = sorted(
         #     set(

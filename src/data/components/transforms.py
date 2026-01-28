@@ -24,13 +24,15 @@ from data.music_chunking import clip_score
 from data.music_chunking import read_chunk_file
 from midi2scoretransformer.tokenizer import MultistreamTokenizer
 from models.automata.io import partitura_to_token_sequence
-from models.automata.tokens import fill_rests
+from models.automata.tokens import fill_rests, AnyToken
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
 from utils.midi import compute_midi_end_without_tempo_changes, read_pretty_midi
 
 MAX_PITCH = 108
 MIN_PITCH = 21
+
+ERROR_KEY = "__error__"
 
 sys.setrecursionlimit(2**31 - 1)  # For transpose copies
 
@@ -282,8 +284,11 @@ class VoiceReorderer(AbstractProcessor):
 
 
 class VoiceRestFiller(AbstractProcessor):
+    def __init__(self, tolerant: bool = False):
+        self.tolerant = tolerant
+
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        fill_rests(sample["score"])
+        fill_rests(sample["score"], tolerant=self.tolerant)
         return {"score": sample["score"]}
 
 
@@ -488,7 +493,7 @@ class AsapMusicChunker(AbstractProcessor):
 
         def clip_performance_and_score(
             start_measure: int,
-            num_notes: int,
+            num_notes: int | None,  # all notes if None
         ) -> tuple[pm.PrettyMIDI, pt.score.Part, int, int]:
             clipped_performance, (start, end) = clip_midi(
                 midi=performance,
@@ -534,14 +539,13 @@ class AsapMusicChunker(AbstractProcessor):
                         start_meas, self.num_performed_notes
                     )
                     assert start_meas == start, "Start measure should be the same, probable bug"
-                    # If less than 5 measures left, recompute the last segment with the remaining
-                    if 0 < end - num_measures + 1 < 10:
+                    # If less than 3 measures left, recompute the last segment with the remaining
+                    if 0 < num_measures - end - 1 <= 3:
                         logger.trace(
                             f"Last segment with {num_measures - end} measures, adding it to the last chunk"
                         )
                         clipped_perf, clipped_sco, start, end = clip_performance_and_score(
-                            start_meas,
-                            self.num_performed_notes + 100000,  # Large number to get all remaining
+                            start_meas, None  # get all remaining notes
                         )
                     outputs.append((clipped_perf, clipped_sco, start, end))
                     start_meas = end + 1
@@ -550,12 +554,17 @@ class AsapMusicChunker(AbstractProcessor):
 
         return outputs
 
-    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]] | None:
         entry = sample["entry"]
+        chunk_file = entry.xml_score.parent / f"{entry.midi_performance.stem}_chunks.json"
+        if not chunk_file.exists():
+            msg = f"{chunk_file} does not exist, skipping the sample"
+            logger.warning(msg)
+            return {ERROR_KEY: msg}
         outputs = self.process(
-            sample["score"],
-            sample["performance"],
-            entry.xml_score.parent / f"{entry.midi_performance.stem}_chunks.json",
+            score=sample["score"],
+            performance=sample["performance"],
+            chunks_file=chunk_file,
         )
         if isinstance(outputs, list):
             return [
@@ -811,10 +820,13 @@ class VectorizedPerformanceDurationJitterer(AbstractProcessor):
 
 
 class ScoreVectorizer(AbstractProcessor):
-    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        # Vectorize score
-        score_tokens = partitura_to_token_sequence(sample["score"])
+    def process(self, part: pt.score.Part) -> tuple[list[AnyToken], torch.Tensor]:
+        score_tokens = partitura_to_token_sequence(part)
         score_tensor = TokenTensor.from_tokens(score_tokens)
+        return score_tokens, score_tensor
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        score_tokens, score_tensor = self.process(sample["score"])
         return {"score_tokens": score_tokens, "score_tensor": score_tensor}
 
 
