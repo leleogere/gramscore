@@ -140,7 +140,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.Cache(
                     transforms=[
                         t.ScoreReader(),
-                        t.VoiceRestFiller(),
+                        t.VoiceRestFiller(tolerant=True),
                         t.VoiceReorderer(),
                         t.AllowedTranspositionComputer(
                             intervals=[
