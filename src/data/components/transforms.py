@@ -889,7 +889,11 @@ class Cache(AbstractProcessor):
                     f"Cache miss for {sample['entry'].xml_score.as_posix()}!"
                 )
             for transform in self.transforms:
-                sample = transform(sample)
+                try:
+                    sample = transform(sample)
+                except Exception as e:
+                    sample[ERROR_KEY] = transform.__class__.__name__ + ": " + str(e)
+                    break
             self.cache[key] = {
                 k: v
                 for k, v in sample.items()
