@@ -91,6 +91,7 @@ def token_sequence_to_partitura(
         {
             "time": 0,
             "tuplet": None,  # {"pt_obj": pt.score.Tuplet(), "notes": []}
+            "grace_notes": [],
         }
         for _ in range(states[0].num_voices)
     ]
@@ -241,9 +242,18 @@ def token_sequence_to_partitura(
                         **note.symbolic_duration,
                     }
                     # print(f"  > {duration = }")
-            else:  # Grace notes
+            if token.grace:
                 note.symbolic_duration = {"type": "eighth"}
                 duration = 0
+                if voice_info["grace_notes"]:
+                    last_grace = voice_info["grace_notes"][-1]
+                    last_grace.grace_next = note
+                    note.grace_prev = last_grace
+                voice_info["grace_notes"].append(note)
+            # When first non-grace note, set the main note and clear the list
+            elif voice_info["grace_notes"]:
+                voice_info["grace_notes"][-1].grace_next = note
+                voice_info["grace_notes"] = []
 
             duration = to_partitura_duration(duration)
 
@@ -343,6 +353,11 @@ class VoiceInfo:
     time: int = 0  # divisions
     tuplet: TupletInfo | None = None
     chord: ChordInfo | None = None
+    grace_notes: list[pt.score.GraceNote] | None = None
+
+    def __post_init__(self):
+        if self.grace_notes is None:
+            self.grace_notes = []
 
 
 def token_sequence_to_partitura_permissive(tokens: list[Token]) -> pt.score.Part:
@@ -521,9 +536,19 @@ def token_sequence_to_partitura_permissive(tokens: list[Token]) -> pt.score.Part
                         **note.symbolic_duration,
                     }
                     # print(f"  > {duration = }")
-            else:  # Grace notes
+
+            if token.grace:
                 note.symbolic_duration = {"type": "eighth"}
                 duration = 0
+                if voice_info.grace_notes:
+                    last_grace = voice_info.grace_notes[-1]
+                    last_grace.grace_next = note
+                    note.grace_prev = last_grace
+                voice_info.grace_notes.append(note)
+            # When first non-grace note, set the main note and clear the list
+            elif voice_info.grace_notes:
+                voice_info.grace_notes[-1].grace_next = note
+                voice_info.grace_notes = []
 
             duration = to_partitura_duration(duration)
 
@@ -744,12 +769,18 @@ def partitura_to_token_sequence(
             pending_tuplets.append(tuplet)
 
         # Look for notes and grace note
+        # We sort grace notes first, without further sorting as it would break
+        # the correct order (partitura does not store attributes about grace
+        # notes order), then we sort normal notes, with a deterministic order
+        # voice id > ascending pitch > step (to distinguish enharmonic spellings)
         notes = sorted(
             itertools.chain(
-                point.starting_objects[pt.score.GraceNote].keys(),  # Grace notes before notes
+                point.starting_objects[pt.score.GraceNote].keys(),
                 point.starting_objects[pt.score.Note].keys(),
             ),
-            key=lambda n: (isinstance(n, pt.score.GraceNote), n.voice, n.midi_pitch, n.step),
+            key=lambda n: (
+                (0,) if isinstance(n, pt.score.GraceNote) else (1, n.voice, n.midi_pitch, n.step)
+            ),
         )
         # Get notes per voice
         notes_per_voice = defaultdict(lambda: {"grace": [], "note": []})

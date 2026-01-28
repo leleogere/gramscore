@@ -8,10 +8,14 @@ class ConstrainedAutomata:
     def __init__(
         self,
         num_voices: int = 1,
-        initial_measure_number: int = 0,
+        initial_measure_number: int = 1,
         allowed_pitches: set[int] = None,
     ):
-        self.state = TranscriptionState(num_voices=num_voices, allowed_pitches=allowed_pitches)
+        self.state = TranscriptionState(
+            num_voices=num_voices,
+            allowed_pitches=allowed_pitches,
+            initial_measure_number=initial_measure_number,
+        )
 
     def can_transition(self, token: Token) -> bool:
         return token.is_token_allowed(self.state)
