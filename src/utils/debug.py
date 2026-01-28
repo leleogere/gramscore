@@ -171,3 +171,72 @@ def performance_streams_to_midi(streams: dict[str, torch.Tensor]) -> pm.PrettyMI
     midi.instruments.append(pm.Instrument(program=0))
     midi.instruments[0].notes = notes
     return midi
+
+
+def plot_pianoroll(
+    midi: pm.PrettyMIDI,
+    downbeats: list[float] | None = None,
+    downbeats_labels: list["str"] | None = None,
+    start: float = 0.0,
+    end: float | None = None,
+    fs: int = 100,
+    pedal_threshold: int | None = None,
+    ax: plt.Axes | None = None,
+    show: bool = True,
+):
+    if end is None:
+        end = midi.get_end_time()
+    pianoroll = midi.get_piano_roll(
+        fs=fs, times=np.arange(start, end, 1.0 / fs), pedal_threshold=pedal_threshold
+    )
+
+    # Find the pitch range with actual notes
+    pitch_sum = pianoroll.sum(axis=1)
+    active_pitches = np.where(pitch_sum > 0)[0]
+    if len(active_pitches) == 0:
+        min_pitch, max_pitch = 0, 127
+    else:
+        min_pitch = max(0, active_pitches.min() - 2)
+        max_pitch = min(127, active_pitches.max() + 2)
+
+    # Slice the piano roll to the active pitch range
+    pianoroll_slice = pianoroll[min_pitch : max_pitch + 1, :]
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(end - start, (max_pitch - min_pitch) / 10))
+
+    # Plot piano roll
+    ax.imshow(
+        pianoroll_slice,
+        aspect="auto",
+        origin="lower",
+        cmap="viridis",
+        interpolation="nearest",
+        extent=[start, end, min_pitch, max_pitch + 1],
+    )
+
+    # Set up axes
+    ax.set_xlabel("Time (seconds)")
+    ax.set_ylabel("MIDI Pitch")
+
+    # Add downbeat markers
+    if downbeats is not None:
+        if downbeats_labels is None:
+            downbeats_labels = map(str, range(len(downbeats)))
+        for downbeat, label in zip(downbeats, downbeats_labels):
+            if start <= downbeat <= end:
+                ax.axvline(x=downbeat, color='red', linestyle='--', alpha=0.7, linewidth=1)
+                ax.text(
+                    downbeat,
+                    max_pitch,
+                    label,
+                    rotation=0,
+                    verticalalignment='bottom',
+                    horizontalalignment='center',
+                    color='red',
+                )
+
+    # plt.colorbar(im, ax=ax, label="Velocity")
+    if show:
+        plt.tight_layout()
+        plt.show()
