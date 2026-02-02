@@ -629,7 +629,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
 
         # Remove pieces with unallowed time signatures
         df = df[
-            (len(df["time_signatures"]) > 0)  # At least one time signature (empty set = error)
+            (df["time_signatures"].apply(len) > 0)  # At least one time signature (empty = error)
             & (  # TS allowed to be vectorized
                 df["time_signatures"].map(
                     lambda tss: all(ts in TokenTensor.TS_INDEXER for ts in tss)
