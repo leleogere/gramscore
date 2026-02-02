@@ -746,8 +746,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             return -1  # Path not available
         path = self.directory / path
         try:
-            score = symusic.Score(path)
-            return sum(len(track.notes) for track in score.tracks)
+            score = pm.PrettyMIDI(path)
+            return sum(len(inst.notes) for inst in score.instruments)
         except Exception as e:
             print(f"Error reading {path}: {e}")
             return -1  # Indicate an error
