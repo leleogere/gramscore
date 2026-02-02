@@ -12,6 +12,7 @@ from typing import Any
 from typing import Literal
 
 import joblib
+import lxml
 import pandas as pd
 import partitura as pt
 import partitura.score
@@ -446,6 +447,13 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             # pdmx = pdmx.head(100)
             pdmx["usable"] = True
 
+        # Extract the number of parts and staves in each piece
+        if ("n_parts" not in pdmx.columns) or ("n_staves" not in pdmx.columns):
+            logger.info(f"Extracting staves and parts information")
+            staves_and_parts = pdmx["mxl"].progress_apply(self._count_staves_and_parts)
+            pdmx["n_staves"] = staves_and_parts.apply(lambda x: x[0] if x is not None else -1)
+            pdmx["n_parts"] = staves_and_parts.apply(lambda x: x[1] if x is not None else -1)
+
         # Extract the instruments of each score
         if "instruments" not in pdmx.columns:
             logger.info(f"Extracting instruments information")
@@ -584,22 +592,26 @@ class PdmxPianoDataset(ScorePerformanceDataset):
     def read_metadata(self) -> list[ScorePerformanceEntry]:
         # Read PDMX metadata
         metadata_path = self.additional_metadata_file
-        df = pd.read_csv(metadata_path)
-
-        # Parse allowed transpositions from string to list
-        df["allowed_transpositions"] = df["allowed_transpositions"].apply(
-            lambda x: (
-                [i for i in x.strip("[]").replace("'", "").split(", ") if i != '']
-                if isinstance(x, str)
-                else []
-            )
-        )  # TODO: avoid using the list repr for export/import
-
-        # Parse time signatures from string to set
-        df["time_signatures"] = df["time_signatures"].apply(
-            lambda set_str: (
-                ast.literal_eval(set_str) if isinstance(set_str, str) and set_str != "{}" else set()
-            )
+        df = pd.read_csv(
+            metadata_path,
+            # TODO: avoid using the list repr for export/import (unsafe with literal_eval)
+            converters={
+                "allowed_transpositions": lambda transp_list: (
+                    ast.literal_eval(transp_list)
+                    if isinstance(transp_list, str) and transp_list != ""
+                    else []
+                ),
+                "time_signatures": lambda set_str: (
+                    ast.literal_eval(set_str)
+                    if isinstance(set_str, str) and set_str != "{}" and set_str != ""
+                    else set()
+                ),
+                "n_staves": lambda list_staves: (
+                    tuple(ast.literal_eval(list_staves))
+                    if isinstance(list_staves, str) and list_staves != ""
+                    else ()
+                ),
+            },
         )
 
         # Only keep usable scores
@@ -608,6 +620,9 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # Remove pieces too short
         # df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
         df = df[df["n_notes_midi"] >= 3]
+
+        # Keep only single-part, one/two-staves pieces
+        df = df[df["n_staves"].isin([(1,), (2,)])]
 
         # Remove pieces with mismatching number of measures between score and midi
         df = df[(df["n_measures_score"] == df["n_measures_midi"]) & (df["n_measures_score"] != -1)]
@@ -709,6 +724,22 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         except KeyError as e:
             print(f"Error reading {file_path}: {e}")
             return None
+
+    def _count_staves_and_parts(self, path: Path | str) -> tuple[list[int] | None, int | None]:
+        if isinstance(path, float) and math.isnan(path):
+            return None, None
+        path = self.directory / path
+        xml = read_musicxml(path)
+        try:
+            root = etree.fromstring(xml.encode("utf-8"))
+        except lxml.etree.XMLSyntaxError as e:
+            logger.error(f"Error reading {path}: {e}")
+            return None, None
+        n_staves = []
+        for part in root.findall(".//part"):
+            n_staves.append(len(set(int(s.text) for s in part.findall(".//staff"))) or 1)
+        n_parts = len(n_staves)
+        return n_staves, n_parts
 
     def _count_midi_notes(self, path: Path) -> int:
         if isinstance(path, float) and math.isnan(path):

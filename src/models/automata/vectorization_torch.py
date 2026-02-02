@@ -62,8 +62,8 @@ class TokenTensor(torch.Tensor):
         "bar_is_nominal": (2, ProblemType.CLASSIFICATION),  # Boolean
         "key_signature": (15, ProblemType.CLASSIFICATION),  # -7 to 7
         "clef_type": (2, ProblemType.CLASSIFICATION),  # G or F
-        "staff_idx": (4, ProblemType.CLASSIFICATION),  # Max 4 staves
-        "voice_idx": (16, ProblemType.CLASSIFICATION),  # Max 4 voices per staff
+        "staff_idx": (2, ProblemType.CLASSIFICATION),  # Max 2 staves
+        "voice_idx": (8, ProblemType.CLASSIFICATION),  # Max 4 voices per staff
         "duration_type": (len(DURATION_INDEXER), ProblemType.CLASSIFICATION),
         "duration_dots": (4, ProblemType.CLASSIFICATION),  # Max 3 dots
         "measure_rest": (2, ProblemType.CLASSIFICATION),
