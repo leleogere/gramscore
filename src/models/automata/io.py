@@ -242,7 +242,7 @@ def token_sequence_to_partitura(
                         **note.symbolic_duration,
                     }
                     # print(f"  > {duration = }")
-            if token.grace:
+            if isinstance(token, Note) and token.grace:
                 note.symbolic_duration = {"type": "eighth"}
                 duration = 0
                 if voice_info["grace_notes"]:
@@ -537,7 +537,7 @@ def token_sequence_to_partitura_permissive(tokens: list[Token]) -> pt.score.Part
                     }
                     # print(f"  > {duration = }")
 
-            if token.grace:
+            if isinstance(token, Note) and token.grace:
                 note.symbolic_duration = {"type": "eighth"}
                 duration = 0
                 if voice_info.grace_notes:
