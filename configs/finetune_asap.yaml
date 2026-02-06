@@ -4,8 +4,10 @@ defaults:
     - train_base
     - data: asap_tokens_datamodule
 
+model:
+    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt
+
+resume_training: false
 trainer:
     max_steps: 15
 
-model:
-    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt

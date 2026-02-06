@@ -11,6 +11,8 @@ defaults:
   - logger: wandb
   - paths: default
 
+resume_training: false
+
 log_level: DEBUG
 
 tags: ["dev"]

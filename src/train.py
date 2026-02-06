@@ -102,7 +102,7 @@ def train(cfg: DictConfig) -> None:
     if load_from_checkpoint != "":
         logger.info(f"Loading checkpoint from {load_from_checkpoint}")
         model_cls = hydra.utils.get_class(cfg.model._target_)
-        model = model_cls.load_from_checkpoint(load_from_checkpoint)
+        model = model_cls.load_from_checkpoint(load_from_checkpoint, weights_only=False)
     else:
         model: TokensTranscriberModule = hydra.utils.instantiate(cfg.model)
     logger.info(f"Model {model} loaded!")
@@ -120,7 +120,12 @@ def train(cfg: DictConfig) -> None:
     logger.info(f"Trainer {trainer} ready!")
 
     # Fit model
-    trainer.fit(model, datamodule, ckpt_path=load_from_checkpoint if load_from_checkpoint else None)
+    trainer.fit(
+        model,
+        datamodule,
+        ckpt_path=load_from_checkpoint if cfg.resume_training else None,
+        weights_only=False,
+    )
 
     # logger.info("Testing model")
     # trainer.test(model, datamodule)

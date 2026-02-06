@@ -4,5 +4,6 @@ defaults:
     - train_base
     - data: pdmx_tokens_datamodule
 
+resume_training: false
 trainer:
     max_steps: 10
