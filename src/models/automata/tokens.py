@@ -334,8 +334,6 @@ class TranscriptionState:
 
 @dataclass(kw_only=True)
 class Token:
-    position_in_bar: Fraction | None = None
-
     @classmethod
     @abstractmethod
     def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
