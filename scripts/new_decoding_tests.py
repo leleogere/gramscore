@@ -46,7 +46,8 @@ from utils.debug import as_pycharm_link
 # model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-28_22-23-03_clean-salad-312/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-11-28_20-21-02_scarlet-pyramid-311/checkpoints/last.ckpt").expanduser()
 # model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-12-02_15-26-21_clean-salad-313/checkpoints/last.ckpt").expanduser()
-model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt").expanduser()
+# model_path = Path("~/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt").expanduser()
+model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-01-15_18-44-16_glorious-wildflower-321/checkpoints/last.ckpt").expanduser()
 
 # base_path = Path("~/Documents/datasets/asap-dataset").expanduser()
 # performance_path = base_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
@@ -104,14 +105,21 @@ dataset = ScorePerformanceDataset(
         t.VoiceReorderer(),
         t.PerformanceReader(),
         t.QuantizedMusicChunker(num_performed_notes=MAX_PERFORMED_NOTES, mode=0),
-        t.PerformanceVectorizer(),
+        t.PerformanceVectorizerUnbucketized(),
+        t.VectorizedPerformanceStreamsBucketizer(),
         t.ScoreVectorizer(),
     ],
 )
 
 
 # Transcribe performance
-performances = PdmxTokensDataModule.collate_fn(list(iter(dataset)))
+performances = PdmxTokensDataModule.collate_fn(list(iter(dataset)), keep_fields="all")
+
+# # pt.save_musicxml(performances["score"][0], Path("/tmp/reference.musicxml"))
+# reconstructed_score = token_sequence_to_partitura_permissive(performances["score_tokens"][0])
+# pt.save_musicxml(reconstructed_score, Path("/tmp/reconstructed.musicxml"))
+# exit(0)
+
 use_cache = True
 constrained = False
 max_constraint_iterations = 10
