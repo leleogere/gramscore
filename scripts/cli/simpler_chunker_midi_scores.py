@@ -103,6 +103,7 @@ def create_chunk_file_for_midi_score(
     # performances_metadata = [
     #     ann for ann in performances_annotations if ann["score_and_performance_aligned"]
     # ]
+    sample_metadata = performances_metadata.iloc[0]
     performances_metadata = performances_metadata.loc[
         performances_metadata["score_and_performance_aligned"]
     ]
@@ -114,22 +115,21 @@ def create_chunk_file_for_midi_score(
         dbsm == performances_metadata["downbeats_score_map"].iloc[0]
         for dbsm in performances_metadata["downbeats_score_map"]
     ), f"{piece}: Downbeats score map is not the same for all performances."
-    performance_metadata = performances_metadata.iloc[0]
 
     # Get the downbeat lists
-    midi_score_downbeats: list[float] = performance_metadata["midi_score_downbeats"]
+    midi_score_downbeats: list[float] = sample_metadata["midi_score_downbeats"]
     if any(
         len(p) != len(midi_score_downbeats) for p in performances_metadata["performance_downbeats"]
     ):
         raise ValueError(
             f"{piece}: Number of downbeats in performances "
-            f"({len(performances_metadata['performance_downbeats'])}) "
+            f"({len(sample_metadata['performance_downbeats'])}) "
             f"does not match number of downbeats in MIDI score ({len(midi_score_downbeats)})."
         )
 
     # Get the downbeats score map
-    if performance_metadata["downbeats_score_map"] is not None:
-        downbeats_score_map = DownbeatScoreMap(performance_metadata["downbeats_score_map"])
+    if sample_metadata["downbeats_score_map"] is not None:
+        downbeats_score_map = DownbeatScoreMap(sample_metadata["downbeats_score_map"])
     else:
         logger.warning(
             f"{piece}: No downbeats_score_map found for {piece}, will use a default one."
@@ -153,7 +153,7 @@ def create_chunk_file_for_midi_score(
             downbeats_score_map.insert(0, list(range(downbeats_score_map[0][0])))
 
     # Load the XML score
-    xml_score_path = asap_path / performance_metadata["xml_score"]
+    xml_score_path = asap_path / sample_metadata["xml_score"]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         xml_score: pt.score.Score = pt.load_musicxml(xml_score_path, force_note_ids=True)
@@ -163,13 +163,13 @@ def create_chunk_file_for_midi_score(
     num_xml_measures = len(xml_score.measures)
 
     # Debug some information
-    logger.debug(f"{piece}: Num XML measures: {num_xml_measures}")
-    logger.debug(f"{piece}: Num MIDI downbeats: {len(midi_score_downbeats)}")
-    logger.debug(
+    logger.trace(f"{piece}: Num XML measures: {num_xml_measures}")
+    logger.trace(f"{piece}: Num MIDI downbeats: {len(midi_score_downbeats)}")
+    logger.trace(
         f"{piece}: Num groups in map: "
         f"{downbeats_score_map.num_groups if not downbeats_score_map.is_default else 'DEFAULT'}"
     )
-    logger.debug(
+    logger.trace(
         f"{piece}: Num measures in map: "
         f"{downbeats_score_map.num_measures if not downbeats_score_map.is_default else 'DEFAULT'}"
     )
@@ -202,7 +202,7 @@ def create_chunk_file_for_midi_score(
             )
 
     # Create chunks for the MIDI score
-    midi_score_path = asap_path / performance_metadata["midi_score"]
+    midi_score_path = asap_path / sample_metadata["midi_score"]
     midi_score = read_pretty_midi(midi_score_path)
     midi_score_mapping = assign_midi_score_notes_to_chunks(
         midi_score=midi_score,
