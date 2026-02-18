@@ -376,10 +376,7 @@ def token_sequence_to_partitura_permissive(tokens: list[Token]) -> pt.score.Part
             d = d.quarter_length
         duration_in_div = d * global_division
         if duration_in_div.denominator != 1:
-            breakpoint()
-        assert (
-            duration_in_div.denominator == 1
-        ), f"Partitura duration is supposed to be an int, got {duration_in_div}."
+            raise ValueError(f"Partitura duration is supposed to be an int, got {duration_in_div}.")
         return duration_in_div.numerator
 
     score = pt.score.Part("P1", quarter_duration=global_division)
