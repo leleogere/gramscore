@@ -911,6 +911,16 @@ class Cache(AbstractProcessor):
         return self.cache[key]
 
 
+class TransformChainer(AbstractProcessor):
+    def __init__(self, transforms: list[Callable[[Any], Any]]):
+        self.transforms = transforms
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        for transform in self.transforms:
+            sample = transform(sample)
+        return sample
+
+
 class Debugger(AbstractProcessor):
     def __init__(
         self,
