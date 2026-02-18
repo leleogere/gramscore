@@ -162,6 +162,9 @@ class TokensTranscriberModule(L.LightningModule):
             score_num_tokens: torch.Tensor = batch["score_length"]  # B
         except KeyError as e:
             logger.error(f"Batch keys: {batch.keys()}")
+            print(f"Batch keys: {batch.keys()}")
+            import time
+            time.sleep(1)
             raise e
 
         if (
