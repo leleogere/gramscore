@@ -150,15 +150,19 @@ class TokensTranscriberModule(L.LightningModule):
             }
         :param train: Whether the step is for training or validation (affects dropout)
         """
-        performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]  # B * N * F_str
-        performance_padded_mask: torch.Tensor = batch["performance_padding_mask"]  # B * N
-        performance_not_padded_mask = torch.logical_not(performance_padded_mask)
-        performance_onset_times = batch["performance_onset_times"]
-        performance_num_notes: torch.Tensor = batch["performance_length"]  # B
-        score_tensor: TokenTensor = batch["score_tensor"]  # B * T * K
-        score_padded_mask: torch.Tensor = batch["score_padding_mask"]  # B * T
-        score_not_padded_mask = torch.logical_not(score_padded_mask)
-        score_num_tokens: torch.Tensor = batch["score_length"]  # B
+        try:
+            performance_streams: dict[str, torch.Tensor] = batch["performance_streams"]  # B * N * F_str
+            performance_padded_mask: torch.Tensor = batch["performance_padding_mask"]  # B * N
+            performance_not_padded_mask = torch.logical_not(performance_padded_mask)
+            performance_onset_times = batch["performance_onset_times"]
+            performance_num_notes: torch.Tensor = batch["performance_length"]  # B
+            score_tensor: TokenTensor = batch["score_tensor"]  # B * T * K
+            score_padded_mask: torch.Tensor = batch["score_padding_mask"]  # B * T
+            score_not_padded_mask = torch.logical_not(score_padded_mask)
+            score_num_tokens: torch.Tensor = batch["score_length"]  # B
+        except KeyError as e:
+            logger.error(f"Batch keys: {batch.keys()}")
+            raise e
 
         if (
             score_tensor.size(1)
