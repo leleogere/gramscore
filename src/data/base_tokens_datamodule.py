@@ -100,6 +100,7 @@ class BaseTokensDataModule(LightningDataModule):
                 performances = [
                     x["performance_streams"] for x in batch
                 ]  # each N_NOTES * N_FEATURES_VALUE
+                performances_raw = [x["performance_streams_raw"] for x in batch]
                 streams = ["onset", "duration", "pitch", "velocity"]
                 # Make sure all stream have same batch and num_notes
                 assert all(
@@ -115,6 +116,14 @@ class BaseTokensDataModule(LightningDataModule):
                     )
                     for stream in streams
                 }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
+                performances_raw_collated = {
+                    stream: pad_sequence(
+                        [x[stream] for x in performances_raw],
+                        batch_first=True,
+                        padding_value=PADDING_VALUE,
+                    )
+                    for stream in streams
+                }  # key: B * N_NOTES_MAX
                 performance_padding_mask = (
                     performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
                 )  # B * N_NOTES_MAX
@@ -129,6 +138,7 @@ class BaseTokensDataModule(LightningDataModule):
                 ), "All streams should have the same batch size and number of notes after padding"
                 # Also collate the onset times
                 # Store results
+                results["performance_streams_raw"] = performances_raw_collated
                 results["performance_streams"] = performances_collated
                 results["performance_padding_mask"] = performance_padding_mask
                 results["performance_length"] = performance_lengths

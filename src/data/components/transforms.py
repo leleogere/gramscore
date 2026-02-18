@@ -761,9 +761,9 @@ class VectorizedPerformanceVariableSpeedAugmenter(AbstractProcessor):
         return streams
 
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
-        augmented_streams = self.process(sample["performance_streams"])
+        augmented_streams = self.process(sample["performance_streams_raw"])
         return {
-            "performance_streams": augmented_streams,
+            "performance_streams_raw": augmented_streams,
             "performance_onset_times": augmented_streams["onset"],
         }
 
@@ -788,9 +788,9 @@ class VectorizedPerformanceInterOnsetJitterer(AbstractProcessor):
         return streams
 
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        augmented_streams = self.process(sample["performance_streams"])
+        augmented_streams = self.process(sample["performance_streams_raw"])
         return {
-            "performance_streams": augmented_streams,
+            "performance_streams_raw": augmented_streams,
             "performance_onset_times": augmented_streams["onset"].clone(),
         }
 
@@ -814,8 +814,8 @@ class VectorizedPerformanceDurationJitterer(AbstractProcessor):
         return streams
 
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        augmented_streams = self.process(sample["performance_streams"])
-        return {"performance_streams": augmented_streams}
+        augmented_streams = self.process(sample["performance_streams_raw"])
+        return {"performance_streams_raw": augmented_streams}
 
 
 class ScoreVectorizer(AbstractProcessor):
@@ -829,27 +829,32 @@ class ScoreVectorizer(AbstractProcessor):
         return {"score_tokens": score_tokens, "score_tensor": score_tensor}
 
 
-class PerformanceVectorizerUnbucketized(AbstractProcessor):
+class PerformanceToPerformedNoteList(AbstractProcessor):
+    def process(self, performance: pm.PrettyMIDI) -> list[pm.Note]:
+        assert len(performance.instruments) == 1, "Only works with single-instrument performances"
+        return list(performance.instruments[0].notes)
+
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        # Vectorize performance
-        # sample["performance_tensor"] = torch.FloatTensor(
-        #     sample["performance"].pianoroll(modes=["frame"], pitch_range=(MIN_PITCH, MAX_PITCH))
-        # )
-        assert len(sample["performance"].instruments) == 1, "Only one track supported"
-        # midi_list: list[symusic.core.NoteSecond] = sample["performance"].tracks[0].notes
-        midi_list: list[pm.Note] = sample["performance"].instruments[0].notes
-        midi_list = sorted(midi_list, key=lambda n: (n.start, n.pitch, n.duration))
+        return {"performance_notes": self.process(sample["performance"])}
+
+
+class PerformedNoteListVectorizer(AbstractProcessor):
+    def process(self, notes: list[pm.Note]) -> dict[str, torch.Tensor]:
+        notes = sorted(notes, key=lambda n: (n.start, n.pitch, n.duration))
         # This is directly from Beyer's MIDI2ScoreTransformer code
-        midi_streams = {
-            "onset": torch.FloatTensor([n.start for n in midi_list]),
-            "duration": torch.FloatTensor([n.duration for n in midi_list]),
-            "pitch": torch.LongTensor([n.pitch for n in midi_list]),
-            "velocity": torch.LongTensor([n.velocity for n in midi_list]),
+        streams = {
+            "onset": torch.FloatTensor([n.start for n in notes]),
+            "duration": torch.FloatTensor([n.duration for n in notes]),
+            "pitch": torch.LongTensor([n.pitch for n in notes]),
+            "velocity": torch.LongTensor([n.velocity for n in notes]),
         }
-        performance_onset_times = midi_streams["onset"].clone()
+        return streams
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        streams = self.process(sample["performance_notes"])
         return {
-            "performance_streams": midi_streams,
-            "performance_onset_times": performance_onset_times,
+            "performance_streams_raw": streams,
+            "performance_onset_times": streams["onset"].clone(),
         }
 
 
@@ -858,7 +863,7 @@ class VectorizedPerformanceStreamsBucketizer(AbstractProcessor):
         return MultistreamTokenizer.bucket_midi(streams)
 
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        return {"performance_streams": self.process(sample["performance_streams"])}
+        return {"performance_streams": self.process(sample["performance_streams_raw"])}
 
 
 class Cache(AbstractProcessor):

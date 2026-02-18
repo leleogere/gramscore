@@ -164,7 +164,8 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     mode="random",
                 ),
                 t.RandomTransposer(),
-                t.PerformanceVectorizerUnbucketized(),
+                t.PerformanceToPerformedNoteList(),
+                t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceVariableSpeedAugmenter(
                     min_global_factor=0.8,
                     max_global_factor=1.2,
@@ -200,7 +201,8 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     ),
                 ),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizerUnbucketized(),
+                t.PerformanceToPerformedNoteList(),
+                t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceStreamsBucketizer(),
             ],
             "test": [
@@ -219,7 +221,8 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     ),
                 ),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizerUnbucketized(),
+                t.PerformanceToPerformedNoteList(),
+                t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceStreamsBucketizer(),
             ],
         }
