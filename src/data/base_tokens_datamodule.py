@@ -62,7 +62,6 @@ class BaseTokensDataModule(LightningDataModule):
         :param skip_error_key: Whether to skip samples with the error key set, or raise an error.
         :return: The collated batch.
         """
-        fields = [key for key in batch[0]]
 
         if skip_none:
             batch = [x for x in batch if x is not None]
@@ -77,8 +76,9 @@ class BaseTokensDataModule(LightningDataModule):
             raise ValueError(
                 "Error key found in batch. Fix it or pass skip_error_key=True to the collate_fn."
             )
-        results = {}
 
+        results = {}
+        fields = [key for key in batch[0]]
         for field in fields:
 
             # Pad and collate score tensors
