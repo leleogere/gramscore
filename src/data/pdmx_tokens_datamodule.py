@@ -59,7 +59,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 t.QuantizedMusicChunker(num_performed_notes=500, mode="random"),
                 t.RandomTransposer(),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizerUnbucketized(),
+                t.PerformanceToPerformedNoteList(),
+                t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceVariableSpeedAugmenter(
                     min_global_factor=0.8,
                     max_global_factor=1.2,
@@ -87,7 +88,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                     ),
                 ),
                 t.ScoreVectorizer(),
-                t.PerformanceVectorizerUnbucketized(),
+                t.PerformanceToPerformedNoteList(),
+                t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceStreamsBucketizer(),
             ],
         }
