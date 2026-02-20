@@ -52,7 +52,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
             "train": [
                 t.ToDict(),
                 t.ScoreReader(),
-                t.VoiceRestFiller(),
+                t.VoiceRestFiller(tolerant=True),
                 t.VoiceReorderer(),
                 t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
                 t.PerformanceReader(),
@@ -76,7 +76,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
             "validation": [
                 t.ToDict(),
                 t.ScoreReader(),
-                t.VoiceRestFiller(),
+                t.VoiceRestFiller(tolerant=True),
                 t.VoiceReorderer(),
                 t.PerformanceReader(),
                 t.QuantizedMusicChunker(
