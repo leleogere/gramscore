@@ -5,4 +5,4 @@ root_dir: .
 data_dir: ${oc.env:DATA_DIR}
 
 # Path to experiment output directory
-output_dir: ${paths.root_dir}/outputs/${now:%Y-%m}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+output_dir: ${paths.root_dir}/outputs/${now:%Y-%m}/${now:%Y-%m-%d_%H-%M-%S.%f}_id=${hydra:job.id}
