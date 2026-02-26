@@ -11,12 +11,12 @@ intermediate_size: 1536
 hidden_dropout_prob: 0.1
 layer_norm_eps: 1e-12
 max_position_embeddings: 8192
-use_time_based_rope_encoder: false
-expert_loss_weight: 1.0
+use_time_based_rope_encoder: true
+expert_loss_weight: 0.01
 performance_dropout: 0.05
 score_dropout: 0.75
 log_logits_each_n_val_steps: 10
 val_max_logits_logged: 5
-scale_expert_losses_with_token_frequency: true
+scale_expert_losses_with_token_frequency: false
 
 load_from_checkpoint: ""

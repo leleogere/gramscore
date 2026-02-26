@@ -37,14 +37,14 @@ class TokensTranscriberModule(L.LightningModule):
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
         max_position_embeddings=8192,
-        use_time_based_rope_encoder: bool = False,
+        use_time_based_rope_encoder: bool = True,
         experts_inner_dims: list[int] = None,
-        expert_loss_weight: float = 1.0,
+        expert_loss_weight: float = 0.01,
         performance_dropout: float = 0.05,
         score_dropout: float = 0.75,
         log_logits_each_n_val_steps: int = 1,
         val_max_logits_logged: int = 5,
-        scale_expert_losses_with_token_frequency: bool = True,
+        scale_expert_losses_with_token_frequency: bool = False,
     ):
         super().__init__()
         if experts_inner_dims is None:
