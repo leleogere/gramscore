@@ -2,7 +2,7 @@
 root_dir: .
 
 # Path to data directory
-data_dir: ${oc.env:DATA_DIR}
+data_dir: /home/gerel/Documents/datasets
 
 # Path to experiment output directory
 output_dir: ${paths.root_dir}/outputs/${now:%Y-%m}/${now:%Y-%m-%d_%H-%M-%S.%f}
