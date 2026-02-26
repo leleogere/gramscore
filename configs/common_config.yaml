@@ -11,5 +11,5 @@ defaults:
       - rich_progress_bar
 
 resume_training: false
-log_level: DEBUG
+log_level: INFO
 tags: ["dev"]

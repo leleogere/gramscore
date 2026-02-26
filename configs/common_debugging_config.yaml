@@ -13,3 +13,5 @@ callbacks:
         every_n_train_steps: 1
 
 tags: ["debugging"]
+
+log_level: DEBUG
