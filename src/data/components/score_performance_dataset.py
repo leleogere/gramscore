@@ -422,11 +422,18 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         self.metadata_file = self.directory / "PDMX.csv"
         self.additional_metadata_file = self.directory / "PDMX_extended_metadata.csv"
         logger.info(f"Extracting additional metadata from {self.metadata_file}")
+        old_additional_metadata = (
+            pd.read_csv(self.additional_metadata_file)
+            if self.additional_metadata_file.exists()
+            else None
+        )
         pdmx = self.extract_additional_metadata(
             asap_path=asap_path,
-            prev=None if force_metadata_extraction else pd.read_csv(self.additional_metadata_file),
+            prev=None if force_metadata_extraction else old_additional_metadata,
         )
-        pdmx.to_csv(self.additional_metadata_file, index=False)
+        if pdmx.columns != old_additional_metadata.columns:
+            logger.info(f"Saving additional metadata to {self.additional_metadata_file}")
+            pdmx.to_csv(self.additional_metadata_file, index=False)
 
         # Read entries
         entries = self.read_metadata()
