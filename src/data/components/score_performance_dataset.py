@@ -439,7 +439,9 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             logger.info(f"Saving additional metadata to {self.additional_metadata_file}")
             pdmx.to_csv(self.additional_metadata_file, index=False)
         else:
-            logger.info(f"Additional metadata already extracted and saved to {self.additional_metadata_file}")
+            logger.info(
+                f"Additional metadata already extracted and saved to {self.additional_metadata_file}"
+            )
 
         # Read entries
         entries = self.read_metadata()
