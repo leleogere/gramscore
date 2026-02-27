@@ -1,5 +1,6 @@
 import ast
 import csv
+import itertools
 import json
 import math
 import sys
@@ -431,9 +432,14 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             asap_path=asap_path,
             prev=None if force_metadata_extraction else old_additional_metadata,
         )
-        if pdmx.columns != old_additional_metadata.columns:
+        if any(
+            c1 != c2
+            for c1, c2 in itertools.zip_longest(pdmx.columns, old_additional_metadata.columns)
+        ):
             logger.info(f"Saving additional metadata to {self.additional_metadata_file}")
             pdmx.to_csv(self.additional_metadata_file, index=False)
+        else:
+            logger.info(f"Additional metadata already extracted and saved to {self.additional_metadata_file}")
 
         # Read entries
         entries = self.read_metadata()
