@@ -1,7 +1,7 @@
 _target_: src.models.tokens_transcriber_module.TokensTranscriberModule
 
 defaults:
-    - optimizer: sgd
+    - optimizer: adamw
     - scheduler: warmup_cosine_scheduler
 
 embedding_dim: 512
