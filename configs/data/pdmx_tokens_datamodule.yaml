@@ -8,10 +8,15 @@ data_dir:
     _args_:
         - ${paths.data_dir}/pdmx
 
-asap_path:
+asap_validation_pieces_path:
     _target_: pathlib.Path
     _args_:
-        - ${paths.data_dir}/asap-dataset
+        - ${paths.data_dir}/asap-dataset/validation_pieces.txt
+
+asap_test_pieces_path:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset/test_pieces.txt
 
 rating_oversampler_config: null
 #    _target_: src.data.pdmx_tokens_datamodule.RatingOversamplerConfig

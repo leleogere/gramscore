@@ -29,7 +29,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
     def __init__(
         self,
         data_dir: Path,
-        asap_path: Optional[Path] = None,
+        asap_validation_pieces_path: Path | None = None,
+        asap_test_pieces_path: Path | None = None,
         validation_pieces_filename: str = "validation_pieces.txt",
         rating_oversampler_config: RatingOversamplerConfig = None,
         **kwargs,
@@ -119,7 +120,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                     directory=self.hparams.data_dir,
                     split=split,
                     transforms=transforms[split],
-                    asap_path=self.hparams.asap_path,
+                    asap_validation_pieces_path=self.hparams.asap_validation_pieces_path,
+                    asap_test_pieces_path=self.hparams.asap_test_pieces_path,
                     validation_pieces_filename=self.hparams.validation_pieces_filename,
                 )
                 for split in splits
