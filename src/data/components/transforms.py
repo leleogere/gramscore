@@ -4,7 +4,7 @@ import warnings
 from collections.abc import Callable
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from typing import Literal
 from typing import assert_never
 
@@ -17,7 +17,6 @@ import torch
 import torch.utils.data
 from loguru import logger
 
-from data.components.score_performance_dataset import ScorePerformanceEntry
 from data.music_chunking import clip_midi
 from data.music_chunking import clip_quantized_midi
 from data.music_chunking import clip_score
@@ -28,6 +27,10 @@ from models.automata.tokens import fill_rests, AnyToken
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
 from utils.midi import compute_midi_end_without_tempo_changes, read_pretty_midi
+
+if TYPE_CHECKING:
+    from data.components.score_performance_dataset import ScorePerformanceEntry
+
 
 MAX_PITCH = 108
 MIN_PITCH = 21
@@ -42,7 +45,7 @@ pm.pretty_midi.MAX_TICK = 1e10  # Some bugs with high PPQ MIDI files
 class ToDict:
     """Simply transforms an entry into a dict with a single key "entry" containing it."""
 
-    def __call__(self, entry: ScorePerformanceEntry) -> dict[str, Any]:
+    def __call__(self, entry: "ScorePerformanceEntry") -> dict[str, Any]:
         return {"entry": entry}
 
 

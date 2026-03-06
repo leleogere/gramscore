@@ -167,38 +167,3 @@ class ScorePerformanceDataset(Dataset):
                 sample = [self.apply_transforms(s, transforms[i + 1 :]) for s in sample]
                 break
         return sample
-
-
-# if __name__ == '__main__':
-#     ds = AsapDataset(
-#         Path("~/Documents/datasets/asap-dataset").expanduser(),
-#         split="all",
-#         include_midi_scores=True,
-#         filter_fn=lambda x: x.composer == "Bach" and x.midi_performance.stem != "midi_score",
-#     )  # TODO: fix this to load the MIDI scores
-#     print(f"Number of performances: {len(ds)}")
-#     print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
-#     print(ds[0].midi_performance)
-#     print(ds[0].xml_score)
-
-if __name__ == '__main__':
-    ds = PdmxPianoDataset(
-        Path("~/Documents/datasets/pdmx").expanduser(),
-        split="train",
-        # force_metadata_extraction=True,
-    )
-    print(f"Number of scores: {len(set(entry.xml_score for entry in ds.entries))}")
-    print(ds[0].midi_performance)
-    print(ds[0].xml_score)
-
-    # # Print all scores with the associated performances
-    # from collections import defaultdict
-    #
-    # score_to_performances = defaultdict(list)
-    # for entry in ds.entries:
-    #     score_to_performances[entry.xml_score].append(entry.midi_performance)
-    # score_to_performances = dict(sorted(score_to_performances.items(), key=lambda x: x[0].stem))
-    # for score, performances in score_to_performances.items():
-    #     print(f"{score}")
-    #     for performance in performances:
-    #         print(f"  * {performance}")

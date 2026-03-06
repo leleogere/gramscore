@@ -18,7 +18,6 @@ from loguru import logger
 from lxml import etree
 from tqdm import tqdm
 
-from data.components.asap_dataset import AsapDataset
 from data.components.check_tokenizable import check_full
 from data.components.score_performance_dataset import ScorePerformanceDataset, ScorePerformanceEntry
 from models.automata.vectorization_torch import TokenTensor
@@ -39,7 +38,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         split: Literal["train", "validation", "all"],
         transforms: Callable | list[Callable] = None,
         force_metadata_extraction: bool = False,
-        asap_path: Path | None = None,  # Used to filter PDMX for overlap
+        asap_validation_pieces_path: Path | None = None,  # Used to filter PDMX for overlap
+        asap_test_pieces_path: Path | None = None,  # Used to filter PDMX for overlap
         validation_pieces_filename: str = "validation_pieces.txt",
     ):
         self.directory = directory
@@ -56,7 +56,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             else None
         )
         pdmx = self.extract_additional_metadata(
-            asap_path=asap_path,
+            asap_validation_pieces_path=asap_validation_pieces_path,
+            asap_test_pieces_path=asap_test_pieces_path,
             prev=None if force_metadata_extraction else old_additional_metadata,
         )
         if any(
@@ -82,7 +83,10 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         super().__init__(entries, transforms)
 
     def extract_additional_metadata(
-        self, asap_path: Path | None = None, prev: pd.DataFrame = None
+        self,
+        asap_validation_pieces_path: Path | None,
+        asap_test_pieces_path: Path | None,
+        prev: pd.DataFrame = None,
     ) -> pd.DataFrame:
         """Extract additional metadata from the entries and return it as a DataFrame."""
         metadata_path: Path = self.directory / "PDMX.csv"
@@ -132,9 +136,19 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             ]
 
         # Filter for overlap with ASAP validation and test sets
-        if asap_path is not None and "similar_to_asap" not in pdmx.columns:
+        if (
+            asap_validation_pieces_path is not None
+            and asap_test_pieces_path is not None
+            and "similar_to_asap" not in pdmx.columns
+        ):
             similarity_threshold = 0.8
-            pdmx["asap_similarity"] = self._compute_asap_similarity(asap_path=asap_path)
+            logger.info(
+                f"Finding PDMX pieces too similar to ASAP pieces (sim >= {similarity_threshold})"
+            )
+            pdmx["asap_similarity"] = self._compute_asap_similarity(
+                asap_validation_pieces_path=asap_validation_pieces_path,
+                asap_test_pieces_path=asap_test_pieces_path,
+            )
             pdmx["similar_to_asap"] = pdmx["asap_similarity"] >= similarity_threshold
             logger.info(
                 f"Number of PDMX pieces similar to ASAP pieces: {pdmx['similar_to_asap'].sum()}"
@@ -466,7 +480,9 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 return set()
         return time_signatures
 
-    def _compute_asap_similarity(self, asap_path: Path) -> "torch.Tensor":
+    def _compute_asap_similarity(
+        self, asap_validation_pieces_path: Path, asap_test_pieces_path: Path
+    ) -> "torch.Tensor":
         from sentence_transformers import SentenceTransformer
         import re
         import numpy as np
@@ -496,11 +512,14 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             return descriptor
 
         # First load ASAP entries
-        logger.info(f"Loading ASAP entries from {asap_path}")
-        asap_val = AsapDataset(asap_path, split="validation")
-        asap_test = AsapDataset(asap_path, split="test")
-        asap_entries = asap_val.entries + asap_test.entries
-        asap_entries = {(e.composer, e.title) for e in asap_entries}
+        logger.info(
+            f"Loading ASAP entries from {asap_validation_pieces_path.as_posix()} "
+            f"and {asap_test_pieces_path.as_posix()}"
+        )
+        asap_val_lines = asap_validation_pieces_path.read_text().splitlines()
+        asap_test_lines = asap_test_pieces_path.read_text().splitlines()
+        asap_lines = asap_val_lines + asap_test_lines
+        asap_entries = {tuple(line.split("|")) for line in asap_lines}
         asap_descriptions = [
             create_descriptor(title=title, composer=composer) for composer, title in asap_entries
         ]
@@ -518,12 +537,36 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         asap_magnitudes = torch.norm(asap_embeddings, dim=1)
 
         # Find pieces in PDMX that are too close to ASAP pieces
-        similarity_threshold = 0.8
-        logger.info(
-            f"Finding PDMX pieces too similar to ASAP pieces (sim >= {similarity_threshold})"
-        )
         for query_embedding, query_magnitude in zip(tqdm(asap_embeddings), asap_magnitudes):
             similarities = torch.matmul(input=pdmx_embeddings, other=query_embedding)
             similarities = similarities / (pdmx_magnitudes * query_magnitude)
             similarities = (similarities + 1) / 2
         return similarities.cpu()
+
+
+if __name__ == '__main__':
+    for split in ["train", "validation"]:
+        ds = PdmxPianoDataset(
+            Path("~/Documents/datasets/pdmx").expanduser(),
+            split=split,
+            # force_metadata_extraction=True,
+            asap_validation_pieces_path=Path(
+                "~/Documents/datasets/asap-dataset/validation_pieces.txt"
+            ).expanduser(),
+            asap_test_pieces_path=Path(
+                "~/Documents/datasets/asap-dataset/test_pieces.txt"
+            ).expanduser(),
+        )
+        print(f"Number of entries in {split} set: {len(ds.entries)}")
+
+    # # Print all scores with the associated performances
+    # from collections import defaultdict
+    #
+    # score_to_performances = defaultdict(list)
+    # for entry in ds.entries:
+    #     score_to_performances[entry.xml_score].append(entry.midi_performance)
+    # score_to_performances = dict(sorted(score_to_performances.items(), key=lambda x: x[0].stem))
+    # for score, performances in score_to_performances.items():
+    #     print(f"{score}")
+    #     for performance in performances:
+    #         print(f"  * {performance}")

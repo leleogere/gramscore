@@ -19,23 +19,6 @@ class AsapDataset(ScorePerformanceDataset):
     This dataset is used to load only the MIDI and MusicXML files from the dataset.
     """
 
-    TEST_PIECES = [
-        ("Bach", "Fugue_bwv_846"),
-        ("Beethoven", "Piano_Sonatas_10-1"),
-        ("Brahms", "Six_Pieces_op_118_2"),
-        ("Chopin", "Ballades_1"),
-        ("Debussy", "Images_Book_1_1_Reflets_dans_lEau"),
-        ("Haydn", "Keyboard_Sonatas_31-1"),
-        ("Liszt", "Annees_de_pelerinage_2_1_Gondoliera"),
-        ("Mozart", "Piano_Sonatas_12-1"),  # Why this one rather than Mozart/Fantasie_475?
-        ("Prokofiev", "Toccata"),
-        ("Rachmaninoff", "Preludes_op_23_4"),
-        ("Ravel", "Gaspard_de_la_Nuit_1_Ondine"),
-        ("Schubert", "Impromptu_op.90_D.899_1"),
-        ("Schumann", "Arabeske"),
-        ("Scriabin", "Etudes_op_8_11"),
-    ]
-
     def __init__(
         self,
         directory: Path,
@@ -44,6 +27,8 @@ class AsapDataset(ScorePerformanceDataset):
         filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
         transforms: Callable | list[Callable] = None,
+        test_pieces_filename: str | Path = "test_pieces.txt",
+        validation_pieces_filename: str | Path = "validation_pieces.txt",
     ) -> None:
         """Initialize an `AsapDataset` (using the MIDI2ScoreTransformer method).
 
@@ -54,12 +39,38 @@ class AsapDataset(ScorePerformanceDataset):
         :param filter_fn: A function to filter the entries.
         :param valid_tsv_file: A TSV file containing the list of valid folders.
         :param transforms: A transform to apply to the entries.
+        :param test_pieces_filename: The path to a list of test pieces (relative to self.directory
+            if a simple string), with a piece by line in the form `composer|title`. Each piece
+            can contain several performances.
+        :param validation_pieces_filename: Same as test_pieces_filename, but for validation pieces.
         """
         self.directory = directory
         self.split = split
         assert split in ["all", "train", "validation", "test"], f"Invalid split: {split}"
+
+        # Read validation and test files
+        validation_pieces_path = (
+            validation_pieces_filename
+            if isinstance(validation_pieces_filename, Path)
+            else Path(self.directory, validation_pieces_filename)
+        )
+        test_pieces_path = (
+            test_pieces_filename
+            if isinstance(test_pieces_filename, Path)
+            else Path(self.directory, test_pieces_filename)
+        )
+        self.validation_pieces = set(
+            tuple(line.split("|")) for line in validation_pieces_path.read_text().splitlines()
+        )
+        self.test_pieces = set(
+            tuple(line.split("|")) for line in test_pieces_path.read_text().splitlines()
+        )
+
+        # Read entries
         # entries = self.read_metadata_like_m2st(data_dir, split)
         entries = self.read_metadata(directory, split, include_midi_scores=include_midi_scores)
+
+        # Filter entries
         if filter_fn is not None:
             entries = list(filter(filter_fn, entries))
         if valid_tsv_file is not None:
@@ -71,9 +82,8 @@ class AsapDataset(ScorePerformanceDataset):
                 )
         super().__init__(entries, transforms)
 
-    @classmethod
     def read_metadata(
-        cls,
+        self,
         directory: Path,
         split: str,
         include_midi_scores: bool = False,
@@ -140,11 +150,6 @@ class AsapDataset(ScorePerformanceDataset):
                     )
                 )
 
-        # Assign an index to each piece that will be used to split the dataset into train and
-        # validation sets without piece overlap between them
-        all_non_test_pieces = filter(lambda id_: id_ not in cls.TEST_PIECES, unique_pieces.keys())
-        all_non_test_pieces_indexer = {id_: i for i, id_ in enumerate(all_non_test_pieces)}
-
         if split == "all":
             pass
 
@@ -152,20 +157,18 @@ class AsapDataset(ScorePerformanceDataset):
             entries = [
                 entry
                 for entry in entries
-                if entry.id not in cls.TEST_PIECES
-                and all_non_test_pieces_indexer[entry.id] % 10 != 0
+                if entry.id not in self.test_pieces and entry.id not in self.validation_pieces
             ]
 
         elif split == "validation":
             entries = [
                 entry
                 for entry in entries
-                if entry.id not in cls.TEST_PIECES
-                and all_non_test_pieces_indexer[entry.id] % 10 == 0
+                if entry.id not in self.test_pieces and entry.id in self.validation_pieces
             ]
 
         elif split == "test":
-            entries = [entry for entry in entries if entry.id in cls.TEST_PIECES]
+            entries = [entry for entry in entries if entry.id in self.test_pieces]
 
         else:
             raise ValueError(f"Invalid split: {split}")
@@ -245,3 +248,13 @@ class AsapDataset(ScorePerformanceDataset):
             )
 
         return entries
+
+
+if __name__ == '__main__':
+    for split in ["train", "validation", "test"]:
+        ds = AsapDataset(
+            directory=Path("~/Documents/datasets/asap-dataset").expanduser(),
+            split=split,
+            include_midi_scores=True,
+        )
+        print(f"Number of entries in {split} set: {len(ds)}")
