@@ -262,6 +262,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                     self._interval_str_to_interval(interval)
                     for interval in row["allowed_transpositions"]
                 ],
+                extra={"rating": row["rating"], "n_ratings": row["n_ratings"]},
             )
             for _, row in df.iterrows()
         ]

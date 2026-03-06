@@ -1,8 +1,10 @@
+import dataclasses
 from pathlib import Path
 from typing import Optional
 
 import torch
 from loguru import logger
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from data.base_tokens_datamodule import BaseTokensDataModule
 from data.components import transforms as t
@@ -10,6 +12,13 @@ from data.components.pdmx_dataset import PdmxPianoDataset
 from models.automata.vectorization_torch import TokenTensor
 
 torch.serialization.add_safe_globals([TokenTensor])
+
+
+@dataclasses.dataclass
+class RatingOversamplerConfig:
+    min_rating_to_consider_good: float
+    min_n_ratings_to_consider_good: int
+    objective_percentage: float
 
 
 class PdmxTokensDataModule(BaseTokensDataModule):
@@ -22,6 +31,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
         data_dir: Path,
         asap_path: Optional[Path] = None,
         validation_pieces_filename: str = "validation_pieces.txt",
+        rating_oversampler_config: RatingOversamplerConfig = None,
         **kwargs,
     ) -> None:
         """Initialize a `PdmxTokensDataModule`
@@ -141,6 +151,47 @@ class PdmxTokensDataModule(BaseTokensDataModule):
 
             # self.data_train.entries = self.data_train.entries[:1] + self.data_train.entries[50:51]
             # self.data_val.entries = self.data_val.entries[:1]
+
+    def train_dataloader(self) -> DataLoader:
+        if (ovs := self.hparams.rating_oversampler_config) is not None:
+            logger.info(f"Oversampling with high quality scores with {ovs}")
+            ovs: RatingOversamplerConfig
+            good_entries_mask = torch.tensor(
+                [
+                    e.extra["rating"] >= ovs.min_rating_to_consider_good
+                    and e.extra["n_ratings"] >= ovs.min_n_ratings_to_consider_good
+                    for e in self.data_train.entries
+                ]
+            )
+            num_good_entries = good_entries_mask.count_nonzero()
+            num_bad_entries = len(good_entries_mask) - num_good_entries
+            weight_good = ovs.objective_percentage / num_good_entries
+            weight_bad = (1 - ovs.objective_percentage) / num_bad_entries
+            logger.info(
+                f"Good/bad entries: {num_good_entries}/{num_bad_entries} "
+                f"-> weights: {weight_good:.4f}/{weight_bad:.4f}"
+            )
+            sample_weights = torch.where(good_entries_mask, weight_good, weight_bad)
+            sampler = WeightedRandomSampler(
+                weights=sample_weights,
+                num_samples=len(sample_weights),
+                replacement=True,
+            )
+            shuffle = False
+        else:
+            sampler = None
+            shuffle = True
+        return DataLoader(
+            dataset=self.data_train,
+            batch_size=self.batch_size_per_device,
+            shuffle=shuffle,
+            sampler=sampler,
+            collate_fn=self.collate_fn,
+            num_workers=self.hparams.num_workers,
+            prefetch_factor=self.hparams.prefetch_factor,
+            persistent_workers=self.hparams.persistent_workers,
+            pin_memory=self.hparams.pin_memory,
+        )
 
 
 if __name__ == "__main__":

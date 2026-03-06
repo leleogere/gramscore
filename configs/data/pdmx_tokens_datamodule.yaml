@@ -13,6 +13,12 @@ asap_path:
     _args_:
         - ${paths.data_dir}/asap-dataset
 
+rating_oversampler_config: null
+#    _target_: src.data.pdmx_tokens_datamodule.RatingOversamplerConfig
+#    min_rating_to_consider_good: 4.0
+#    min_n_ratings_to_consider_good: 3
+#    objective_percentage: 0.5
+
 validation_pieces_filename: validation_pieces.txt
 
 batch_size: 2

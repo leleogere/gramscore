@@ -49,6 +49,7 @@ class ScorePerformanceEntry:
     title: str | None = None
     split: str | None = None
     allowed_transpositions: list[pt.score.Interval] | None = None
+    extra: dict[str, Any] | None = None
 
     def _get_relative_path(self, absolute_path: Path) -> Path:
         if self.base_path is None:
