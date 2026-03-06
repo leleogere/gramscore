@@ -18,7 +18,7 @@ from torch.utils.data import Dataset
 
 from data.base_tokens_datamodule import BaseTokensDataModule
 from data.components import transforms as t
-from data.components.score_performance_dataset import AsapDataset
+from data.components.asap_dataset import AsapDataset
 from data.components.score_performance_dataset import ScorePerformanceEntry
 from models.automata.vectorization_torch import TokenTensor
 from utils.constants import PADDING_VALUE

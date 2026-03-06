@@ -6,7 +6,7 @@ from loguru import logger
 
 from data.base_tokens_datamodule import BaseTokensDataModule
 from data.components import transforms as t
-from data.components.score_performance_dataset import PdmxPianoDataset
+from data.components.pdmx_dataset import PdmxPianoDataset
 from models.automata.vectorization_torch import TokenTensor
 
 torch.serialization.add_safe_globals([TokenTensor])
@@ -21,6 +21,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
         self,
         data_dir: Path,
         asap_path: Optional[Path] = None,
+        validation_pieces_filename: str = "validation_pieces.txt",
         **kwargs,
     ) -> None:
         """Initialize a `PdmxTokensDataModule`
@@ -109,6 +110,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                     split=split,
                     transforms=transforms[split],
                     asap_path=self.hparams.asap_path,
+                    validation_pieces_filename=self.hparams.validation_pieces_filename,
                 )
                 for split in splits
             }
