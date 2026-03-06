@@ -171,7 +171,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
             weight_bad = (1 - ovs.objective_percentage) / num_bad_entries
             logger.info(
                 f"Good/bad entries: {num_good_entries}/{num_bad_entries} "
-                f"-> weights: {weight_good:.4f}/{weight_bad:.4f}"
+                f"-> weights: {weight_good:.2E}/{weight_bad:.2E}"
             )
             sample_weights = torch.where(good_entries_mask, weight_good, weight_bad)
             sampler = WeightedRandomSampler(
