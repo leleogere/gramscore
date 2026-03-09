@@ -41,10 +41,12 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         asap_validation_pieces_path: Path | None = None,  # Used to filter PDMX for overlap
         asap_test_pieces_path: Path | None = None,  # Used to filter PDMX for overlap
         validation_pieces_filename: str = "validation_pieces.txt",
+        test_pieces_filename: str | None = None,
+        allowed_staffs: tuple[int, ...] = (1, 2),  # Only pieces with one or two staves
     ):
         self.directory = directory
         self.split = split
-        assert split in ["all", "train", "validation"], f"Invalid split: {split}"
+        self.allowed_staffs = allowed_staffs
 
         # Extract additional metadata
         self.metadata_file = self.directory / "PDMX.csv"
@@ -71,15 +73,56 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 f"Additional metadata already extracted and saved to {self.additional_metadata_file}"
             )
 
+        # Read and filter metadata
+        df = self.read_metadata(self.additional_metadata_file)
+        df = self.filter_metadata(df)
+
         # Read validations pieces
-        validation_pieces_path = self.directory / validation_pieces_filename
-        if not validation_pieces_path:
-            raise ValueError(f"Validation pieces file not found: {validation_pieces_path}")
-        with validation_pieces_path.open("r") as f:
-            self.validation_pieces = set("./" + l for l in f.read().splitlines())
+        self.validation_pieces_path = (
+            self.directory / validation_pieces_filename if validation_pieces_filename else None
+        )
+        if not self.validation_pieces_path:
+            raise ValueError(f"The validation set can't be None")
+        if not self.validation_pieces_path.exists():
+            val_pieces = 1000
+            logger.warning(
+                f"Validation pieces file not found: {self.validation_pieces_path}. If that's the "
+                f"first time with this data, that's normal and will be generated. If that's not, "
+                f"there is likely something wrong and you should check to get a consistent "
+                f"validation set between runs."
+            )
+            self.validation_pieces = self.generate_set_file(
+                df, self.validation_pieces_path, val_pieces
+            )
+        else:
+            with self.validation_pieces_path.open("r") as f:
+                self.validation_pieces = set("./" + l for l in f.read().splitlines())
+
+        # Read test pieces
+        self.test_pieces_path = (
+            self.directory / test_pieces_filename if test_pieces_filename else None
+        )
+        if self.test_pieces_path:
+            if not self.test_pieces_path.exists():
+                test_pieces = 1000
+                logger.warning(
+                    f"Test pieces file not found: {self.test_pieces_path}. If that's the first "
+                    f"time with this data, that's normal and will be generated. If that's not, "
+                    f"there is likely something wrong and you should check to get a consistent "
+                    f"test sets between runs."
+                )
+                self.test_pieces = self.generate_set_file(
+                    df, self.test_pieces_path, test_pieces, to_avoid=self.validation_pieces
+                )
+            else:
+                with self.test_pieces_path.open("r") as f:
+                    self.test_pieces = set("./" + l for l in f.read().splitlines())
+        else:
+            self.test_pieces = set()
 
         # Read entries
-        entries = self.read_metadata()
+        df = self.get_split(df)
+        entries = self.create_entries(df)
         super().__init__(entries, transforms)
 
     def extract_additional_metadata(
@@ -198,9 +241,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
 
         return pdmx
 
-    def read_metadata(self) -> list[ScorePerformanceEntry]:
-        # Read PDMX metadata
-        metadata_path = self.additional_metadata_file
+    @staticmethod
+    def read_metadata(metadata_path: Path) -> pd.DataFrame:
         df = pd.read_csv(
             metadata_path,
             # TODO: avoid using the list repr for export/import (unsafe with literal_eval)
@@ -222,7 +264,9 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 ),
             },
         )
+        return df
 
+    def filter_metadata(self, df: pd.DataFrame) -> pd.DataFrame:
         # Only keep usable scores
         df = df[df["usable"]]
 
@@ -230,8 +274,8 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         # df = df[(df["n_notes_midi"] >= 10) & (df["n_notes_midi"] <= 500)]
         df = df[df["n_notes_midi"] >= 3]
 
-        # Keep only single-part, one/two-staves pieces
-        df = df[df["n_staves"].isin([(1,), (2,)])]
+        # Keep only pieces with an allowed number of staves
+        df = df[df["n_staves"].isin({(s,) for s in self.allowed_staffs})]
 
         # Remove pieces with mismatching number of measures between score and midi
         df = df[(df["n_measures_score"] == df["n_measures_midi"]) & (df["n_measures_score"] != -1)]
@@ -245,24 +289,28 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 )
             )
         ]
+        return df
 
+    def get_split(self, df: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"Number of entries before split: {len(df)}")
-        logger.info(f"Number of measures: {sum(df['n_measures_score'])}")
-
+        logger.info(f"Number of measures before split: {sum(df['n_measures_score'])}")
         # Create splits
         if self.split == "all":
             pass
+        elif self.split == "test":
+            df = df[df["mxl"].isin(self.test_pieces)]
         elif self.split == "validation":
-            df = df[df["mxl"].isin(self.validation_pieces)]
+            df = df[df["mxl"].isin(self.validation_pieces) & ~df["mxl"].isin(self.test_pieces)]
         elif self.split == "train":
-            df = df[~df["mxl"].isin(self.validation_pieces)]
+            df = df[~df["mxl"].isin(self.validation_pieces.union(self.test_pieces))]
         else:
             raise ValueError(f"Invalid split: {self.split}")
         logger.info(f"Number of entries after split '{self.split}': {len(df)}")
         logger.info(f"Number of measures after split '{self.split}': {sum(df['n_measures_score'])}")
+        return df
 
-        # Create entries
-        entries = [
+    def create_entries(self, df: pd.DataFrame) -> list[ScorePerformanceEntry]:
+        return [
             ScorePerformanceEntry(
                 xml_score=self.directory / row["mxl"],
                 midi_performance=self.directory / row["mid"],
@@ -280,8 +328,6 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             )
             for _, row in df.iterrows()
         ]
-
-        return entries
 
     @staticmethod
     def _interval_str_to_interval(interval_str: str) -> pt.score.Interval:
@@ -543,6 +589,26 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             similarities = (similarities + 1) / 2
         return similarities.cpu()
 
+    @staticmethod
+    def generate_set_file(
+        df: pd.DataFrame,
+        file_path: Path,
+        n_pieces: int,
+        to_avoid: set[str] | None = None,
+    ) -> set[str]:
+        mxl = df["mxl"].str[
+            2:
+        ]  # Removes the "./" prefix (due to legacy behavior)  # TODO check sort
+        # Filter out pieces to avoid
+        if to_avoid is not None:
+            mxl = mxl[~mxl.isin(to_avoid)]
+        # Randomly select n_pieces pieces
+        selected = mxl.sample(n=n_pieces, random_state=42).sort_values().tolist()
+        # Writing the output file
+        with file_path.open("w") as f:
+            f.write("\n".join(selected))
+        return set(selected)
+
 
 if __name__ == '__main__':
     for split in ["train", "validation"]:
@@ -556,17 +622,8 @@ if __name__ == '__main__':
             asap_test_pieces_path=Path(
                 "~/Documents/datasets/asap-dataset/test_pieces.txt"
             ).expanduser(),
+            allowed_staffs=(1,),
+            validation_pieces_filename="validation_pieces_single_staff.txt",
+            test_pieces_filename="test_pieces_single_staff.txt",
         )
         print(f"Number of entries in {split} set: {len(ds.entries)}")
-
-    # # Print all scores with the associated performances
-    # from collections import defaultdict
-    #
-    # score_to_performances = defaultdict(list)
-    # for entry in ds.entries:
-    #     score_to_performances[entry.xml_score].append(entry.midi_performance)
-    # score_to_performances = dict(sorted(score_to_performances.items(), key=lambda x: x[0].stem))
-    # for score, performances in score_to_performances.items():
-    #     print(f"{score}")
-    #     for performance in performances:
-    #         print(f"  * {performance}")

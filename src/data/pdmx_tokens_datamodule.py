@@ -32,7 +32,9 @@ class PdmxTokensDataModule(BaseTokensDataModule):
         asap_validation_pieces_path: Path | None = None,
         asap_test_pieces_path: Path | None = None,
         validation_pieces_filename: str = "validation_pieces.txt",
+        test_pieces_filename: str | None = None,
         rating_oversampler_config: RatingOversamplerConfig = None,
+        allowed_staffs: tuple[int, ...] = (1, 2),
         **kwargs,
     ) -> None:
         """Initialize a `PdmxTokensDataModule`
@@ -123,6 +125,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                     asap_validation_pieces_path=self.hparams.asap_validation_pieces_path,
                     asap_test_pieces_path=self.hparams.asap_test_pieces_path,
                     validation_pieces_filename=self.hparams.validation_pieces_filename,
+                    test_pieces_filename=self.hparams.test_pieces_filename,
+                    allowed_staffs=self.hparams.allowed_staffs,
                 )
                 for split in splits
             }

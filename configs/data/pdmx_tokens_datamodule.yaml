@@ -26,6 +26,8 @@ rating_oversampler_config: null
 
 validation_pieces_filename: validation_pieces.txt
 
+allowed_staffs: [1, 2]
+
 batch_size: 2
 num_workers: 2
 prefetch_factor: 2
