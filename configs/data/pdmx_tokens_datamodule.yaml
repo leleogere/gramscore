@@ -25,6 +25,7 @@ rating_oversampler_config: null
 #    objective_percentage: 0.5
 
 validation_pieces_filename: validation_pieces.txt
+test_pieces_filename: null
 
 allowed_staffs: [1, 2]
 
