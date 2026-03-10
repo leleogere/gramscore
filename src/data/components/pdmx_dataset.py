@@ -96,7 +96,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
             )
         else:
             with self.validation_pieces_path.open("r") as f:
-                self.validation_pieces = set("./" + l for l in f.read().splitlines())
+                self.validation_pieces = set(f.read().splitlines())
 
         # Read test pieces
         self.test_pieces_path = (
@@ -116,7 +116,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 )
             else:
                 with self.test_pieces_path.open("r") as f:
-                    self.test_pieces = set("./" + l for l in f.read().splitlines())
+                    self.test_pieces = set(f.read().splitlines())
         else:
             self.test_pieces = set()
 
@@ -596,9 +596,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         n_pieces: int,
         to_avoid: set[str] | None = None,
     ) -> set[str]:
-        mxl = df["mxl"].str[
-            2:
-        ]  # Removes the "./" prefix (due to legacy behavior)  # TODO check sort
+        mxl = df["mxl"]
         # Filter out pieces to avoid
         if to_avoid is not None:
             mxl = mxl[~mxl.isin(to_avoid)]
