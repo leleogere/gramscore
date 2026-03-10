@@ -13,7 +13,6 @@ model:
 #    score_dropout: 0.00
 
 #    optimizer:
-#        _target_: adamw
 #        lr: 1e-5
 #        weight_decay: 0.01
 #    scheduler:
