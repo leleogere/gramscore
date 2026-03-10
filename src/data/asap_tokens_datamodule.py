@@ -38,6 +38,8 @@ class AsapTokensDataModule(BaseTokensDataModule):
         include_midi_scores: bool = False,
         filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
+        validation_pieces_filename: str = "validation_pieces.txt",
+        test_pieces_filename: str = "test_pieces.txt",
         artificial_dataset_repetitions: int = 1,
         multiprocessing_manager: SyncManager | None = None,
         test_validation_mode: Literal[
@@ -53,6 +55,9 @@ class AsapTokensDataModule(BaseTokensDataModule):
         :param filter_fn: A function to filter the entries.
         :param valid_tsv_file: An eventual TSV file with a column "folder" and a column "valid"
             being "True" for included folders (and eventually False for excluded but not needed)
+        :param validation_pieces_filename: The filename of the validation pieces, one per line, in
+            the form "composer|piece_name" from the metadata CSV file.
+        :param test_pieces_filename: The filename of the test pieces, same format as above.
         :param num_workers: The number of workers to use for data loading.
         :param prefetch_factor: The number of samples to prefetch per worker.
         :param persistent_workers: Whether to use persistent workers.
@@ -237,6 +242,8 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     transforms=transforms[split],
                     filter_fn=self.filter_fn,
                     valid_tsv_file=self.hparams.valid_tsv_file,
+                    test_pieces_filename=self.hparams.test_pieces_filename,
+                    validation_pieces_filename=self.hparams.validation_pieces_filename,
                 )
                 for split in self.splits
             }

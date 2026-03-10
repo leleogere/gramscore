@@ -17,6 +17,8 @@ valid_tsv_file:
     _target_: pathlib.Path
     _args_:
         - ${paths.data_dir}/asap-dataset/valid.tsv
+validation_pieces_filename: validation_pieces.txt
+test_pieces_filename: test_pieces.txt
 num_workers: 2
 prefetch_factor: 2
 persistent_workers: true
