@@ -9,15 +9,15 @@ data:
 model:
     load_from_checkpoint: /home/gerel/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt
 
-    performance_dropout: 0.05
-    score_dropout: 0.75
+#    performance_dropout: 0.00
+#    score_dropout: 0.00
 
-    optimizer:
-        _target_: /adamw
-        lr: 1e-5
-        weight_decay: 0.01
-    scheduler:
-        warmup_steps: 1000
+#    optimizer:
+#        _target_: adamw
+#        lr: 1e-5
+#        weight_decay: 0.01
+#    scheduler:
+#        warmup_steps: 1000
 
 trainer:
     max_steps: 50_000
