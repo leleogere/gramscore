@@ -23,7 +23,7 @@ num_workers: 2
 prefetch_factor: 2
 persistent_workers: true
 pin_memory: false
-artificial_dataset_repetitions: 100
+artificial_dataset_repetitions: 1000
 
 test_validation_mode: "all_wo_overlap"
 
