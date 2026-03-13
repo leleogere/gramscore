@@ -126,8 +126,13 @@ class BaseTokensDataModule(LightningDataModule):
                 results[field] = performances_collated
                 # Add missing additional fields (only added the first time)
                 if not "performance_padding_mask" in results:
+                    slicer = (
+                        (slice(None), slice(None))
+                        if field == "performance_streams_raw"
+                        else (slice(None), slice(None), 0)  # 1st element of features if bucketized
+                    )
                     results["performance_padding_mask"] = (
-                        performances_collated[stream_names[0]][..., 0] == PADDING_VALUE
+                        performances_collated[stream_names[0]][slicer] == PADDING_VALUE
                     )
                 if not "performance_length" in results:
                     results["performance_length"] = torch.LongTensor(
