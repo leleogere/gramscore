@@ -96,53 +96,43 @@ class BaseTokensDataModule(LightningDataModule):
                 results["score_padding_mask"] = score_padding_mask
                 results["score_length"] = score_lengths
 
-            # Pad and collate performance tensor streams
-            elif field == "performance_streams":
-                performances = [
-                    x["performance_streams"] for x in batch
-                ]  # each N_NOTES * N_FEATURES_VALUE
-                performances_raw = [x["performance_streams_raw"] for x in batch]
-                streams = ["onset", "duration", "pitch", "velocity"]
-                # Make sure all stream have same batch and num_notes
+            # Pad and collate performance tensor streams (same behavior for raw and bucketized)
+            elif field in ("performance_streams_raw", "performance_streams"):
+                stream_names = ["onset", "duration", "pitch", "velocity"]
+                batched_streams = [
+                    x[field] for x in batch
+                ]  # each N_NOTES (* N_FEATURES_VALUE for bucketized)
+                # Make sure all streams have same batch size and number of notes
                 assert all(
-                    performance[streams[0]].shape[0] == performance[stream].shape[0]
-                    for performance in performances
-                    for stream in streams[1:]
+                    streams[stream_names[0]].shape[0] == streams[stream_name].shape[0]
+                    for streams in batched_streams
+                    for stream_name in stream_names[1:]
                 ), "All streams of a performance should have the same number of notes"
                 performances_collated = {
-                    stream: pad_sequence(
-                        [x[stream] for x in performances],
+                    stream_name: pad_sequence(
+                        [streams[stream_name] for streams in batched_streams],
                         batch_first=True,
                         padding_value=PADDING_VALUE,
                     )
-                    for stream in streams
-                }  # key: B * N_NOTES_MAX * N_FEATURES_VALUE
-                performances_raw_collated = {
-                    stream: pad_sequence(
-                        [x[stream] for x in performances_raw],
-                        batch_first=True,
-                        padding_value=PADDING_VALUE,
-                    )
-                    for stream in streams
-                }  # key: B * N_NOTES_MAX
-                performance_padding_mask = (
-                    performances_collated[streams[0]][:, :, 0] == PADDING_VALUE
-                )  # B * N_NOTES_MAX
-                performance_lengths = torch.LongTensor(
-                    [p[streams[0]].size(0) for p in performances]
-                )
+                    for stream_name in stream_names
+                }  # key: B * N_NOTES_MAX (* N_FEATURES_VALUE for bucketized)
                 # Security check to catch bug
                 assert all(
-                    performances_collated[streams[0]].shape[0:2]
-                    == performances_collated[stream].shape[0:2]
-                    for stream in streams[1:]
+                    performances_collated[stream_names[0]].shape[0:2]
+                    == performances_collated[stream_name].shape[0:2]
+                    for stream_name in stream_names[1:]
                 ), "All streams should have the same batch size and number of notes after padding"
-                # Also collate the onset times
                 # Store results
-                results["performance_streams_raw"] = performances_raw_collated
-                results["performance_streams"] = performances_collated
-                results["performance_padding_mask"] = performance_padding_mask
-                results["performance_length"] = performance_lengths
+                results[field] = performances_collated
+                # Add missing additional fields (only added the first time)
+                if not "performance_padding_mask" in results:
+                    results["performance_padding_mask"] = (
+                        performances_collated[stream_names[0]][..., 0] == PADDING_VALUE
+                    )
+                if not "performance_length" in results:
+                    results["performance_length"] = torch.LongTensor(
+                        [streams[stream_names[0]].size(0) for streams in batched_streams]
+                    )
 
             elif field == "performance_onset_times":
                 performance_onset_times = pad_sequence(
