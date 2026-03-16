@@ -62,6 +62,8 @@ class BaseTokensDataModule(LightningDataModule):
         :param skip_error_key: Whether to skip samples with the error key set, or raise an error.
         :return: The collated batch.
         """
+        if not isinstance(batch, list) or not all(isinstance(d, dict) for d in batch):
+            raise ValueError("Batch must be a list of dictionaries")
 
         if skip_none:
             batch = [x for x in batch if x is not None]
