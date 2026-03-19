@@ -103,16 +103,19 @@ def train(cfg: DictConfig) -> None:
         logger.info(f"Loading checkpoint from {load_from_checkpoint}")
         model_cls = hydra.utils.get_class(cfg.model._target_)
         # If resuming training, reload the whole state
+        # Note: this does not allow overriding any parameters, the model will be exactly the same,
+        # optimizer and scheduler states included
         if cfg.resume_training:
-            model = model_cls.load_from_checkpoint(load_from_checkpoint, weights_only=False)
-        # Else, set up new optimizers and schedulers (with eventually different parameters)
-        else:
-            optimizer = hydra.utils.instantiate(cfg.model.optimizer)
-            scheduler = (
-                hydra.utils.instantiate(cfg.model.scheduler) if cfg.model.scheduler else None
-            )
             model = model_cls.load_from_checkpoint(
-                load_from_checkpoint, weights_only=False, optimizer=optimizer, scheduler=scheduler
+                checkpoint_path=load_from_checkpoint, weights_only=False
+            )
+        # Else, reload the checkpoint, but override all parameters with the provided config
+        # Note: this will allow to override any parameters, and also reset the optimizer and
+        # scheduler states
+        else:
+            cfg.model._target_ += ".load_from_checkpoint"
+            model: TokensTranscriberModule = hydra.utils.instantiate(
+                cfg.model, checkpoint_path=load_from_checkpoint, weights_only=False
             )
     else:
         model: TokensTranscriberModule = hydra.utils.instantiate(cfg.model)
