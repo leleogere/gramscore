@@ -9,7 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 from tqdm import trange
-from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
+from transformers.modeling_outputs import (
+    BaseModelOutputWithPastAndCrossAttentions,
+    BaseModelOutputWithPast,
+)
 
 from models.automata import tokens as tk
 from models.automata.vectorization_torch import TokenTensor, ProblemType, clip
@@ -17,6 +20,7 @@ from models.components.embedding import MIDIEmbedding
 from models.components.embedding import ScoreTokenEmbedding
 from models.components.expert_head import ExpertHead
 from models.components.roformer import Roformer
+from utils.constants import PADDING_VALUE
 from utils.debug import write_compare_to_file
 from utils.musicxml import ARTICULATIONS_AND_ORNAMENTS
 
@@ -77,8 +81,9 @@ class TokensTranscriberModel(nn.Module):
         input_streams: dict[str, torch.Tensor],
         onset_times: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
+        also_return_pre_norm_encoder_outputs: bool = False,
         output_attentions: bool = False,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | tuple[torch.Tensor, BaseModelOutputWithPast]:
         B, T = input_streams[next(iter(input_streams))].shape[:2]
         if not all(v.shape[:2] == (B, T) for v in input_streams.values()):
             raise ValueError(
@@ -96,8 +101,9 @@ class TokensTranscriberModel(nn.Module):
         # Forward through the encoder
         outputs_encoder = self.roformer.forward_enc(
             midi_embeddings=midi_embeddings,
-            input_positions=onset_times,
+            midi_onset_times=onset_times,
             attention_mask=attention_mask,
+            also_return_pre_norm_encoder_output=also_return_pre_norm_encoder_outputs,
             output_attentions=output_attentions,
         )
         return outputs_encoder
@@ -105,8 +111,10 @@ class TokensTranscriberModel(nn.Module):
     def forward_decoder(
         self,
         input_tokens: TokenTensor,
+        attention_mask: torch.Tensor | None = None,
         encoder_hidden_states: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
+        encoder_positions: torch.Tensor | None = None,
         past_key_values: tuple[torch.Tensor] | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
@@ -114,8 +122,11 @@ class TokensTranscriberModel(nn.Module):
         score_embeddings = self.score_embedding.forward(input_tokens)
         outputs_decoder = self.roformer.forward_dec(
             score_embeddings=score_embeddings,
+            attention_mask=attention_mask,
+            positions=None,  # computed from attention_mask.cumsum
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
+            encoder_input_positions=encoder_positions,
             past_key_values=past_key_values,
             use_cache=use_cache,
             output_attentions=output_attentions,

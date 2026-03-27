@@ -17,8 +17,12 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import RoFormerModel as RoFormerModelBase
-from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
+from loguru import logger
+from transformers import RoFormerModel as RoFormerModelBase, apply_chunking_to_forward
+from transformers.modeling_outputs import (
+    BaseModelOutputWithPastAndCrossAttentions,
+    BaseModelOutputWithPast,
+)
 from transformers.models.roformer.modeling_roformer import (
     RoFormerAttention,
     RoFormerEncoder,
@@ -72,6 +76,7 @@ class CustomRoFormerSelfAttention(nn.Module):
         head_mask=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
+        encoder_sinusoidal_pos=None,
         past_key_value=None,
         output_attentions=False,
     ):
@@ -92,26 +97,29 @@ class CustomRoFormerSelfAttention(nn.Module):
                 k, v = self.key_value(encoder_hidden_states).chunk(2, dim=-1)
                 key_layer = self.transpose_for_scores(k)
                 value_layer = self.transpose_for_scores(v)
+            # If this is instantiated as a cross-attention module, the keys
+            # and values come from an encoder; the attention mask needs to be
+            # such that the encoder's padding tokens are not attended to.
             attention_mask = encoder_attention_mask
 
-        # If this is instantiated as a cross-attention module, the keys
-        # and values come from an encoder; the attention mask needs to be
-        # such that the encoder's padding tokens are not attended to.
-        if sinusoidal_pos is not None:
-            if past_key_value is not None and self.is_cross_attention:
-                # the past_key_values have already been rotated
-                query_layer, _ = self.apply_rotary_position_embeddings(
-                    sinusoidal_pos, query_layer, query_layer
-                )
+        if self.is_cross_attention:
+            src_sinusoidal_pos = encoder_sinusoidal_pos
+            tgt_sinusoidal_pos = sinusoidal_pos
+        else:
+            src_sinusoidal_pos = sinusoidal_pos
+            tgt_sinusoidal_pos = sinusoidal_pos
+
+        if past_key_value is not None and self.is_cross_attention:
+            # the past_key_values have already been rotated
+            query_layer = self.apply_rotary_position_embeddings(tgt_sinusoidal_pos, query_layer)
+        else:
+            if self.rotary_value:
+                query_layer = self.apply_rotary_position_embeddings(tgt_sinusoidal_pos, query_layer)
+                key_layer = self.apply_rotary_position_embeddings(src_sinusoidal_pos, key_layer)
+                value_layer = self.apply_rotary_position_embeddings(src_sinusoidal_pos, value_layer)
             else:
-                if self.rotary_value:
-                    query_layer, key_layer, value_layer = self.apply_rotary_position_embeddings(
-                        sinusoidal_pos, query_layer, key_layer, value_layer
-                    )
-                else:
-                    query_layer, key_layer = self.apply_rotary_position_embeddings(
-                        sinusoidal_pos, query_layer, key_layer
-                    )
+                query_layer = self.apply_rotary_position_embeddings(tgt_sinusoidal_pos, query_layer)
+                key_layer = self.apply_rotary_position_embeddings(src_sinusoidal_pos, key_layer)
         if not self.is_cross_attention and past_key_value is not None:
             key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
             value_layer = torch.cat([past_key_value[1], value_layer], dim=2)
@@ -179,7 +187,9 @@ class CustomRoFormerSelfAttention(nn.Module):
         return outputs
 
     @staticmethod
-    def apply_rotary_position_embeddings(sinusoidal_pos, query_layer, key_layer, value_layer=None):
+    def apply_rotary_position_embeddings_old(
+        sinusoidal_pos, query_layer, key_layer, value_layer=None
+    ):
         # https://kexue.fm/archives/8265
         # sin [batch_size, num_heads, sequence_length, embed_size_per_head//2]
         # cos [batch_size, num_heads, sequence_length, embed_size_per_head//2]
@@ -211,6 +221,23 @@ class CustomRoFormerSelfAttention(nn.Module):
             return query_layer, key_layer, value_layer
         return query_layer, key_layer
 
+    @staticmethod
+    def apply_rotary_position_embeddings(sinusoidal_pos, layer):
+        # https://kexue.fm/archives/8265 -> Adapted to work with a single layer for modularity
+        # sin [batch_size, num_heads, sequence_length, embed_size_per_head//2]
+        # cos [batch_size, num_heads, sequence_length, embed_size_per_head//2]
+        sin, cos = sinusoidal_pos.chunk(2, dim=-1)
+        # sin [θ0,θ1,θ2......θd/2-1] -> sin_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
+        sin_pos = torch.stack([sin, sin], dim=-1).reshape_as(sinusoidal_pos)
+        # cos [θ0,θ1,θ2......θd/2-1] -> cos_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
+        cos_pos = torch.stack([cos, cos], dim=-1).reshape_as(sinusoidal_pos)
+        # rotate_half_layer [-l1,l0,-l3,l2......,-ld-1,ld-2]
+        rotate_half_layer = torch.stack([-layer[..., 1::2], layer[..., ::2]], dim=-1).reshape_as(
+            layer
+        )
+        layer = layer * cos_pos + rotate_half_layer * sin_pos
+        return layer
+
 
 class CustomRoFormerSelfOutput(nn.Module):
     def __init__(self, config):
@@ -231,6 +258,33 @@ class CustomRoFormerAttention(RoFormerAttention):
         super().__init__(config)
         self.self = CustomRoFormerSelfAttention(config, is_cross_attention=is_cross_attention)
         self.output = CustomRoFormerSelfOutput(config)
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        sinusoidal_pos=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        encoder_sinusoidal_pos=None,
+        past_key_value=None,
+        output_attentions=False,
+    ):
+        self_outputs = self.self.forward(
+            hidden_states,
+            attention_mask,
+            sinusoidal_pos,
+            head_mask,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            encoder_sinusoidal_pos,
+            past_key_value,
+            output_attentions,
+        )
+        attention_output = self.output(self_outputs[0], hidden_states)
+        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        return outputs
 
 
 class SwiGLU(nn.Module):
@@ -276,47 +330,126 @@ class CustomRoFormerLayer(RoFormerLayer):
         self.intermediate = CustomRoFormerIntermediate(config)
         self.output = CustomRoFormerOutput(config)
 
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        sinusoidal_pos=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        encoder_sinusoidal_pos=None,
+        past_key_value=None,
+        output_attentions=False,
+    ):
+        # decoder uni-directional self-attention cached key/values tuple is at positions 1,2
+        self_attn_past_key_value = past_key_value[:2] if past_key_value is not None else None
+        self_attention_outputs = self.attention.forward(
+            hidden_states,
+            attention_mask,
+            sinusoidal_pos,
+            head_mask,
+            output_attentions=output_attentions,
+            past_key_value=self_attn_past_key_value,
+        )
+        attention_output = self_attention_outputs[0]
+
+        # if decoder, the last output is tuple of self-attn cache
+        if self.is_decoder:
+            outputs = self_attention_outputs[1:-1]
+            present_key_value = self_attention_outputs[-1]
+        else:
+            outputs = self_attention_outputs[
+                1:
+            ]  # add self attentions if we output attention weights
+
+        cross_attn_present_key_value = None
+        if self.is_decoder and encoder_hidden_states is not None:
+            if not hasattr(self, "crossattention"):
+                raise ValueError(
+                    f"If `encoder_hidden_states` are passed, {self} has to be instantiated with cross-attention "
+                    "layers by setting `config.add_cross_attention=True`"
+                )
+
+            # cross_attn cached key/values tuple is at positions 3,4 of past_key_value tuple
+            cross_attn_past_key_value = past_key_value[-2:] if past_key_value is not None else None
+            cross_attention_outputs = self.crossattention.forward(
+                attention_output,
+                attention_mask,
+                sinusoidal_pos,
+                head_mask,
+                encoder_hidden_states,
+                encoder_attention_mask,
+                encoder_sinusoidal_pos,
+                cross_attn_past_key_value,
+                output_attentions,
+            )
+            attention_output = cross_attention_outputs[0]
+            outputs = (
+                outputs + cross_attention_outputs[1:-1]
+            )  # add cross attentions if we output attention weights
+
+            # add cross-attn cache to positions 3,4 of present_key_value tuple
+            cross_attn_present_key_value = cross_attention_outputs[-1]
+            present_key_value = present_key_value + cross_attn_present_key_value
+
+        layer_output = apply_chunking_to_forward(
+            self.feed_forward_chunk,
+            self.chunk_size_feed_forward,
+            self.seq_len_dim,
+            attention_output,
+        )
+        outputs = (layer_output,) + outputs
+
+        # if decoder, return the attn key/values as the last output
+        if self.is_decoder:
+            outputs = outputs + (present_key_value,)
+
+        return outputs
+
 
 class CustomRoFormerEncoder(RoFormerEncoder):
-    def __init__(self, config, continuous_positional_encoding: bool = False):
+    def __init__(self, config, positional_encoder: ContinuousPositionalEncoding1D):
         super().__init__(config)
         self.layer = nn.ModuleList(
             [CustomRoFormerLayer(config) for _ in range(config.num_hidden_layers)]
         )
         self.embed_positions._init_weight()
         # Patch embed positions to support continuous positions
-        self.continuous_positional_encoding = continuous_positional_encoding
         self._old_embed_positions = self.embed_positions  # TODO: remove when tests done
-        if continuous_positional_encoding:
-            self.embed_positions = ContinuousPositionalEncoding1D(
-                d_model=config.hidden_size // config.num_attention_heads,
-                shortest_period=0.01,
-                longest_period=3000.0,
-            )
-        else:
-            d_model = config.hidden_size // config.num_attention_heads
-            self.embed_positions = ContinuousPositionalEncoding1D(
-                d_model=d_model,
-                shortest_period=2 * math.pi,
-                longest_period=10000 ** ((d_model - 2) / d_model) * 2 * math.pi,
-            )  # Should be equivalent to original RoFormer implementation
-            # TODO: remove tests once sure it works
-            random_test = torch.arange(0, 20, requires_grad=False).unsqueeze(0)
-            # print("Testing old vs new positional embeddings (should be equal):")
-            assert torch.allclose(
-                self._old_embed_positions(random_test.shape),
-                self.embed_positions(random_test).squeeze(0),
-                atol=1e-5,
-            )
+        # del self.embed_positions
+        # if continuous_positional_encoding:
+        #     self.embed_positions = ContinuousPositionalEncoding1D(
+        #         d_model=config.hidden_size // config.num_attention_heads,
+        #         shortest_period=0.01,
+        #         longest_period=3000.0,
+        #     )
+        # else:
+        #     d_model = config.hidden_size // config.num_attention_heads
+        #     self.embed_positions = ContinuousPositionalEncoding1D(
+        #         d_model=d_model,
+        #         shortest_period=2 * math.pi,
+        #         longest_period=10000 ** ((d_model - 2) / d_model) * 2 * math.pi,
+        #     )  # Should be equivalent to original RoFormer implementation
+        #     # TODO: remove tests once sure it works
+        #     random_test = torch.arange(0, 20, requires_grad=False).unsqueeze(0)
+        #     # print("Testing old vs new positional embeddings (should be equal):")
+        #     assert torch.allclose(
+        #         self._old_embed_positions(random_test.shape),
+        #         self.embed_positions(random_test).squeeze(0),
+        #         atol=1e-5,
+        #     )
+        self.embed_positions = positional_encoder
 
     def forward(
         self,
         hidden_states,
         attention_mask=None,
+        input_positions=None,  # To use externally computed positions (e.g. based on time, or handling left-padding)
         head_mask=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
-        input_positions=None,  # To use externally computed positions (e.g. based on time)
+        encoder_input_positions=None,
         past_key_values=None,
         use_cache=None,
         output_attentions=False,
@@ -330,27 +463,39 @@ class CustomRoFormerEncoder(RoFormerEncoder):
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
 
-        past_key_values_length = (
-            past_key_values[0][0].shape[2] if past_key_values is not None else 0
-        )
+        # past_key_values_length = (
+        #     past_key_values[0][0].shape[2] if past_key_values is not None else 0
+        # )
 
         # [sequence_length, embed_size_per_head] -> [batch_size, num_heads, sequence_length, embed_size_per_head]
         # We have to ensure that positional embeddings work for both encoder and decoder states
-        B, T = hidden_states.shape[:-1]
-        T = max(encoder_hidden_states.shape[1] if encoder_hidden_states is not None else 0, T)
-        if (
-            input_positions is None or not self.continuous_positional_encoding
-        ):  # Classical behaviour: index-based position
-            input_positions = torch.arange(
-                past_key_values_length,
-                T + past_key_values_length,
-                device=hidden_states.device,
-            ).unsqueeze(
-                0
-            )  # (B, T)
+        if input_positions is None:  # Classical behavior: index-based position
+            raise NotImplementedError(
+                "Make sure to explicitly construct input_positions to avoid issues"
+            )
+        if encoder_hidden_states is not None and encoder_input_positions is None:
+            raise NotImplementedError(
+                "Make sure to explicitly construct encoder_input_positions to avoid issues"
+            )
+            # hidden_states_length = hidden_states.size(1)
+            # encoder_hidden_states_length = encoder_hidden_states.size(1) if encoder_hidden_states is not None else 0
+            # max_pos = max(hidden_states_length, encoder_hidden_states_length)
+            # input_positions = torch.arange(
+            #     past_key_values_length,
+            #     max_pos + past_key_values_length,
+            #     device=hidden_states.device,
+            # ).unsqueeze(
+            #     0
+            # )  # (B, T)
         # print(input_positions)
         sinusoidal_pos = self.embed_positions.forward(input_positions).unsqueeze(1)
         # (B, 1, T, D)  ->  New dimension for the head
+        if encoder_input_positions is not None:
+            encoder_sinusoidal_pos = self.embed_positions.forward(
+                encoder_input_positions
+            ).unsqueeze(1)
+        else:
+            encoder_sinusoidal_pos = None
 
         next_decoder_cache = () if use_cache else None
         for i, layer_module in enumerate(self.layer):
@@ -376,6 +521,7 @@ class CustomRoFormerEncoder(RoFormerEncoder):
                     layer_head_mask,
                     encoder_hidden_states,
                     encoder_attention_mask,
+                    encoder_sinusoidal_pos,
                 )
             else:
                 layer_outputs = layer_module(
@@ -385,6 +531,7 @@ class CustomRoFormerEncoder(RoFormerEncoder):
                     layer_head_mask,
                     encoder_hidden_states,
                     encoder_attention_mask,
+                    encoder_sinusoidal_pos,
                     past_key_value,
                     output_attentions,
                 )
@@ -422,12 +569,9 @@ class CustomRoFormerEncoder(RoFormerEncoder):
 
 
 class RoFormerModel(RoFormerModelBase):
-    def __init__(self, config, continuous_positional_encoding: bool = False):
+    def __init__(self, config, positional_encoder: ContinuousPositionalEncoding1D):
         super().__init__(config)
-        self.encoder = CustomRoFormerEncoder(
-            config,
-            continuous_positional_encoding=continuous_positional_encoding,
-        )
+        self.encoder = CustomRoFormerEncoder(config, positional_encoder=positional_encoder)
         del self.embeddings
 
 
@@ -445,9 +589,16 @@ class Roformer(nn.Module):
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
         max_position_embeddings: int = 4096,
-        use_time_based_rope_encoder: bool = False,
+        positional_encoder: ContinuousPositionalEncoding1D = None,
+        token_positions_multiplier_in_cross_attention: float = 1.0,
     ):
         super().__init__()
+        if positional_encoder is None:
+            positional_encoder = ContinuousPositionalEncoding1D(
+                d_model=hidden_size // num_attention_heads,
+                shortest_period=2 * math.pi,
+                longest_period=10000 ** ((hidden_size - 2) / hidden_size) * 2 * math.pi,
+            )
 
         common_configuration = dict(
             hidden_size=hidden_size,
@@ -473,9 +624,12 @@ class Roformer(nn.Module):
         )
         self.encoder = RoFormerModel(
             enc_configuration,
-            continuous_positional_encoding=use_time_based_rope_encoder,
+            positional_encoder=positional_encoder,
         )
-        self.decoder = RoFormerModel(dec_configuration)
+        self.decoder = RoFormerModel(
+            dec_configuration,
+            positional_encoder=positional_encoder,
+        )
 
         self.norm = nn.LayerNorm(
             hidden_size,
@@ -483,13 +637,23 @@ class Roformer(nn.Module):
             bias=True,
         )
 
+        self.token_positions_multiplier_in_cross_attention = (
+            token_positions_multiplier_in_cross_attention
+        )
+
     def forward_enc(
         self,
         midi_embeddings: torch.Tensor,
-        input_positions: torch.Tensor = None,
+        midi_onset_times: torch.Tensor = None,
         attention_mask: torch.Tensor | None = None,
+        also_return_pre_norm_encoder_output: bool = False,
         output_attentions: bool = False,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | tuple[torch.Tensor, BaseModelOutputWithPast]:
+        if output_attentions and not also_return_pre_norm_encoder_output:
+            logger.warning(
+                "Using `output_attentions=True` without `also_return_pre_norm_encoder_output=True`"
+                " is useless as you will not be able to access the attention matrices."
+            )
         output_attentions = output_attentions or self.encoder.config.output_attentions
         output_hidden_states = self.encoder.config.output_hidden_states
         return_dict = self.encoder.config.use_return_dict
@@ -508,24 +672,30 @@ class Roformer(nn.Module):
         # if hasattr(self, "embeddings_project"):
         #     embedding_output = self.encoder.embeddings_project(midi_embeddings)
 
-        encoder_outputs = self.encoder.encoder(
+        encoder_outputs = self.encoder.encoder.forward(
             midi_embeddings,
             attention_mask=extended_attention_mask,
             head_mask=None,
             encoder_attention_mask=encoder_extended_attention_mask,
-            input_positions=input_positions,
+            input_positions=midi_onset_times,
             use_cache=False,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        return self.norm(encoder_outputs.last_hidden_state)
+        post_norm = self.norm(encoder_outputs.last_hidden_state)
+        if also_return_pre_norm_encoder_output:
+            return post_norm, encoder_outputs
+        return post_norm
 
     def forward_dec(
         self,
         score_embeddings: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        positions: torch.Tensor | None = None,
         encoder_hidden_states: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
+        encoder_input_positions: torch.Tensor | None = None,
         past_key_values: tuple[torch.Tensor] | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
@@ -536,23 +706,53 @@ class Roformer(nn.Module):
         return_dict = self.decoder.config.use_return_dict
 
         B, T = score_embeddings.size()[:2]
-        if past_key_values is not None:
-            T += past_key_values[0][0].size(2)
+        past_key_values_length = (
+            past_key_values[0][0].shape[2] if past_key_values is not None else 0
+        )
+        T += past_key_values_length
         device = score_embeddings.device
 
         # Make/convert attention masks
-        attention_mask = torch.ones(((B, T)), device=device)
+        if attention_mask is None:
+            attention_mask = torch.ones(((B, T)), dtype=torch.bool, device=device)
+        elif attention_mask.shape != (B, T):
+            raise ValueError(
+                f"Attention mask should be of size {(B, T)}, but is {attention_mask.shape}."
+            )
+        if positions is None:
+            positions = (attention_mask.cumsum(dim=1) - 1)[:, past_key_values_length:T]
+        elif positions.shape != (B, T - past_key_values_length):
+            raise ValueError(
+                f"Positions should be of size {(B, T - past_key_values_length)}, "
+                f"but is {positions.shape}."
+            )
         extended_attention_mask: torch.Tensor = self.decoder.get_extended_attention_mask(
             attention_mask, (B, T)
         )
         if not self.decoder.config.is_autoregressive:
+            raise NotImplementedError("Non-autoregressive decoding is not implemented.")
             extended_attention_mask = torch.zeros_like(extended_attention_mask)
 
         assert self.decoder.config.is_decoder
         if encoder_hidden_states is not None:
+            positions = positions.float() * self.token_positions_multiplier_in_cross_attention
             encoder_hidden_shape = encoder_hidden_states.size()[:2]
             if encoder_attention_mask is None:
-                encoder_attention_mask = torch.ones(encoder_hidden_shape, device=device)
+                encoder_attention_mask = torch.ones(
+                    encoder_hidden_shape, dtype=torch.bool, device=device
+                )
+            elif encoder_attention_mask.shape != encoder_hidden_shape:
+                raise ValueError(
+                    f"Attention mask should be of size {encoder_hidden_shape}, "
+                    f"but is {encoder_attention_mask.shape}."
+                )
+            if encoder_input_positions is None:
+                encoder_input_positions = encoder_attention_mask.cumsum(dim=1) - 1
+            elif encoder_input_positions.shape != encoder_hidden_shape:
+                raise ValueError(
+                    f"Positions should be of size {encoder_hidden_shape}, "
+                    f"but is {encoder_input_positions.shape}."
+                )
             encoder_extended_attention_mask = self.decoder.invert_attention_mask(
                 encoder_attention_mask
             )
@@ -564,9 +764,11 @@ class Roformer(nn.Module):
         decoder_outputs = self.decoder.encoder.forward(
             score_embeddings,
             attention_mask=extended_attention_mask,
+            input_positions=positions,
             head_mask=None,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_extended_attention_mask,
+            encoder_input_positions=encoder_input_positions,
             past_key_values=past_key_values,
             use_cache=use_cache,
             output_attentions=output_attentions,

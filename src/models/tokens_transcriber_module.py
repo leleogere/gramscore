@@ -1,4 +1,3 @@
-import difflib
 from collections import defaultdict
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -6,20 +5,17 @@ from typing import Any
 
 import lightning as L
 import torch
-import torch.nn.functional as F
 import wandb.plot
-from torchmetrics import MetricCollection
-from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, BinaryF1Score
 from einops import rearrange
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 from torch import nn
-from loguru import logger
+from torchmetrics import MetricCollection
+from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, BinaryF1Score
 
-from data.asap_tokens_datamodule import AsapTokensDataModule
-
-# from models.automata.transcriber_model import TokensTranscriberModel
-from models.automata.vectorization_torch import TokenTensor
 import models.automata.tokens as tk
+from data.asap_tokens_datamodule import AsapTokensDataModule
+from models.automata.vectorization_torch import TokenTensor
+from models.components.positional_encoding import ContinuousPositionalEncoding1D
 from models.components.roformer import Roformer
 from models.components.tokens_transcriber_model import TokensTranscriberModel
 from utils.constants import PADDING_VALUE
@@ -37,7 +33,7 @@ class TokensTranscriberModule(L.LightningModule):
         hidden_dropout_prob: float = 0.1,
         layer_norm_eps: float = 1e-12,
         max_position_embeddings=8192,
-        use_time_based_rope_encoder: bool = True,
+        positional_encoder: ContinuousPositionalEncoding1D = None,
         experts_inner_dims: list[int] = None,
         expert_loss_weight: float = 0.01,
         performance_dropout: float = 0.05,
@@ -45,6 +41,7 @@ class TokensTranscriberModule(L.LightningModule):
         log_logits_each_n_val_steps: int = 1,
         val_max_logits_logged: int = 5,
         scale_expert_losses_with_token_frequency: bool = False,
+        tokens_positions_scaling_factor: float = 1.0,
     ):
         super().__init__()
         if experts_inner_dims is None:
@@ -66,7 +63,8 @@ class TokensTranscriberModule(L.LightningModule):
                 num_attention_heads=num_attention_heads,
                 intermediate_size=intermediate_size,
                 max_position_embeddings=max_position_embeddings,
-                use_time_based_rope_encoder=use_time_based_rope_encoder,
+                positional_encoder=positional_encoder,
+                token_positions_multiplier_in_cross_attention=tokens_positions_scaling_factor,
             ),
             expert_inner_dims=experts_inner_dims,
         )
@@ -228,6 +226,7 @@ class TokensTranscriberModule(L.LightningModule):
             input_tokens=score_tensor_input,
             encoder_hidden_states=encoder_outputs,
             encoder_attention_mask=performance_not_padded_mask,
+            encoder_positions=performance_onset_times,
         )  # (B, T, E)
 
         # Pass the decoder outputs through the router

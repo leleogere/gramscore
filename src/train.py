@@ -16,6 +16,8 @@ from omegaconf import OmegaConf
 
 from models.tokens_transcriber_module import TokensTranscriberModule
 
+OmegaConf.register_new_resolver("eval", eval)
+
 
 def instantiate_callbacks(callbacks_cfg: DictConfig) -> list[Callback]:
     """Instantiates callbacks from config.

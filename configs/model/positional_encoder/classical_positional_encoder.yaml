@@ -1,0 +1,5 @@
+_target_: src.models.components.positional_encoding.ContinuousPositionalEncoding1D
+
+d_model: ${eval:'${model.embedding_dim} // ${model.num_attention_heads}'}
+shortest_period: 6.283185307179586  # = 2pi
+longest_period: ${eval:'10_000 ** ((${d_model} - 2)/${d_model}) * 6.283185307179586'}  # = 10000**((d_model - 2) / d_model) * 2pi
