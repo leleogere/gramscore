@@ -488,8 +488,9 @@ class Roformer(nn.Module):
         midi_embeddings: torch.Tensor,
         input_positions: torch.Tensor = None,
         attention_mask: torch.Tensor | None = None,
+        output_attentions: bool = False,
     ) -> torch.Tensor:
-        output_attentions = self.encoder.config.output_attentions
+        output_attentions = output_attentions or self.encoder.config.output_attentions
         output_hidden_states = self.encoder.config.output_hidden_states
         return_dict = self.encoder.config.use_return_dict
 
@@ -527,9 +528,10 @@ class Roformer(nn.Module):
         encoder_attention_mask: torch.Tensor | None = None,
         past_key_values: tuple[torch.Tensor] | None = None,
         use_cache: bool = False,
+        output_attentions: bool = False,
     ) -> BaseModelOutputWithPastAndCrossAttentions:
 
-        output_attentions = self.decoder.config.output_attentions
+        output_attentions = output_attentions or self.decoder.config.output_attentions
         output_hidden_states = self.decoder.config.output_hidden_states
         return_dict = self.decoder.config.use_return_dict
 

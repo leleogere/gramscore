@@ -77,6 +77,7 @@ class TokensTranscriberModel(nn.Module):
         input_streams: dict[str, torch.Tensor],
         onset_times: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
+        output_attentions: bool = False,
     ) -> torch.Tensor:
         B, T = input_streams[next(iter(input_streams))].shape[:2]
         if not all(v.shape[:2] == (B, T) for v in input_streams.values()):
@@ -97,6 +98,7 @@ class TokensTranscriberModel(nn.Module):
             midi_embeddings=midi_embeddings,
             input_positions=onset_times,
             attention_mask=attention_mask,
+            output_attentions=output_attentions,
         )
         return outputs_encoder
 
