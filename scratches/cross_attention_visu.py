@@ -2,11 +2,18 @@
 Visualize cross attention
 """
 
+import torch
+
 import partitura as pt
 
 import matplotlib.pyplot as plt
 
 from pathlib import Path
+
+from transformers.modeling_outputs import (
+    BaseModelOutputWithPastAndCrossAttentions,
+    BaseModelOutputWithPast,
+)
 
 import data.components.transforms as t
 from data.components.score_performance_dataset import ScorePerformanceEntry, ScorePerformanceDataset
@@ -96,13 +103,16 @@ dataset = ScorePerformanceDataset(
 performance = next(iter(dataset))
 
 
-encoder_outputs = model.transcriber_model.forward_encoder(
+encoder_outputs, encoder_pre_norm_outputs = model.transcriber_model.forward_encoder(
     input_streams={
         k: v.unsqueeze(0) for k, v in performance["performance_streams"].items() if k != "pad"
     },
     onset_times=performance["performance_streams_raw"]["onset"].unsqueeze(0),
     attention_mask=None,
+    also_return_pre_norm_encoder_outputs=True,
+    output_attentions=True,
 )
+print(f"Encoders self-attention shape: {encoder_pre_norm_outputs.attentions[-1].shape}")
 
 if GENERATE_INSTEAD_OF_GT:
     input_tokens, flag = model.transcriber_model.generate(
@@ -139,130 +149,218 @@ decoder_outputs = model.transcriber_model.forward_decoder(
     output_attentions=True,
 )
 
-print(decoder_outputs.cross_attentions[-1].shape)
+print(f"Decoder self-attention shape: {decoder_outputs.attentions[-1].shape}")
+print(f"Decoder cross-attention shape: {decoder_outputs.cross_attentions[-1].shape}")
+# exit(0)
 
 
-# %% Plot the head-averaged cross-attention maps
+# %% Define the attention plotting function
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
+import itertools
+from typing import Iterable
 
-n_layers = len(decoder_outputs.cross_attentions)
-n_heads = decoder_outputs.cross_attentions[0].shape[1]
-performance_length = len(performance["performance_notes"])
-score_length = len(input_tokens_decoded)
 
-fig, axes = plt.subplots(
-    n_layers, 1, figsize=(int(0.2 * score_length), int(0.1 * n_layers * performance_length))
+def flatten(x):
+    return itertools.chain.from_iterable([i] if not isinstance(i, Iterable) else i for i in x)
+
+
+def plot_attentions(
+    outputs: BaseModelOutputWithPastAndCrossAttentions | BaseModelOutputWithPast,
+    cross: bool = False,
+    average_over_heads: bool = True,
+    tokens_names: list[str] | None = None,
+    output_path: Path | None = None,
+    show: bool = True,
+) -> None:
+    attentions = outputs.attentions if not cross else outputs.cross_attentions
+    assert all(a.shape[0] == 1 for a in attentions), "Only batch size 1 is supported"
+
+    n_layers = len(attentions)
+    n_heads = attentions[0].shape[1]
+    src_length, tgt_length = attentions[0].shape[-2:]
+
+    if average_over_heads:
+        fig, axes = plt.subplots(
+            1,
+            n_layers,
+            figsize=(int(0.1 * n_layers * src_length), int(0.12 * tgt_length)),
+        )
+        for l in range(n_layers):
+            axes[l].imshow(
+                attentions[l][0].mean(dim=0).detach().cpu().numpy().T,
+                interpolation="nearest",
+                aspect="equal",
+            )
+            axes[l].set_title(f"Layer {l}")
+    else:
+        fig, axes = plt.subplots(
+            n_layers,
+            n_heads,
+            figsize=(int(0.1 * n_heads * tgt_length), int(0.06 * n_layers * src_length)),
+        )
+        for l in range(n_layers):
+            for h in range(n_heads):
+                axes[l, h].imshow(
+                    attentions[l][0, h].detach().cpu().numpy().T,
+                    interpolation="nearest",
+                    aspect="equal",
+                )
+                if l == 0:
+                    axes[l, h].set_title(f"Head {h}")
+    for ax in flatten(axes):
+        if tokens_names:
+            ax.set_xticks(range(len(tokens_names)))
+            ax.set_xticklabels(tokens_names, rotation=90, size=7)
+            if not cross:
+                ax.set_yticks(range(len(tokens_names)))
+                ax.set_yticklabels(tokens_names, rotation=0, size=7)
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+plot_attentions(
+    decoder_outputs,
+    cross=False,
+    average_over_heads=True,
+    tokens_names=[f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])],
+    output_path=output_dir / f"avg_self_attention.pdf",
 )
-for l in range(n_layers):
-    axes[l].imshow(
-        decoder_outputs.cross_attentions[l][0].mean(dim=0).detach().cpu().numpy().T,
-        interpolation="nearest",
-        aspect="equal",
-    )
-    # axes[l].yaxis.set_major_locator(tck.MultipleLocator())
-    axes[l].set_title(f"Layer {l}")
-    xticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])]
-    axes[l].set_xticks(range(len(xticks)))
-    axes[l].set_xticklabels(xticks, rotation=90, size=7)
-    axes[l].grid(which="major", axis="both", alpha=0.05)
-    axes[l].grid(which="minor", axis="both", alpha=0.05)
+plot_attentions(
+    decoder_outputs,
+    cross=True,
+    average_over_heads=True,
+    tokens_names=[f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])],
+    output_path=output_dir / f"avg_cross_attention.pdf",
+)
+
+
+# # %% Plot the head-averaged cross-attention maps
+# import matplotlib.pyplot as plt
+# import matplotlib.ticker as tck
+#
+# n_layers = len(decoder_outputs.cross_attentions)
+# n_heads = decoder_outputs.cross_attentions[0].shape[1]
+# performance_length = len(performance["performance_notes"])
+# score_length = len(input_tokens_decoded)
+#
+# fig, axes = plt.subplots(
+#     n_layers, 1, figsize=(int(0.2 * score_length), int(0.1 * n_layers * performance_length))
+# )
+# for l in range(n_layers):
+#     axes[l].imshow(
+#         decoder_outputs.cross_attentions[l][0].mean(dim=0).detach().cpu().numpy().T,
+#         interpolation="nearest",
+#         aspect="equal",
+#     )
+#     # axes[l].yaxis.set_major_locator(tck.MultipleLocator())
+#     axes[l].set_title(f"Layer {l}")
+#     xticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])]
+#     axes[l].set_xticks(range(len(xticks)))
+#     axes[l].set_xticklabels(xticks, rotation=90, size=7)
+#     axes[l].grid(which="major", axis="both", alpha=0.05)
+#     axes[l].grid(which="minor", axis="both", alpha=0.05)
+# # plt.tight_layout()
+# plt.savefig(output_dir / "cross_attention_maps_headavg.pdf", bbox_inches="tight")
+# # plt.show()
+# plt.close()
+#
+
+# # %% Plot the head-averaged self-attention maps
+# fig, axes = plt.subplots(
+#     n_layers, 1, figsize=(int(0.1 * score_length), int(0.1 * n_layers * score_length))
+# )
+#
+# for l in range(n_layers):
+#     axes[l].imshow(
+#         decoder_outputs.attentions[l][0].mean(dim=0).detach().cpu().numpy().T,
+#         interpolation="nearest",
+#         aspect="equal",
+#     )
+#     axes[l].set_title(f"Layer {l}")
+#     ticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded)]
+#     axes[l].set_xticks(range(len(ticks) - 1))
+#     axes[l].set_xticklabels(ticks[1:], rotation=90, size=7)
+#     axes[l].set_yticks(range(len(ticks) - 1))
+#     axes[l].set_yticklabels(ticks[:-1], size=7)
+#     axes[l].grid(which="major", axis="both", alpha=0.05)
+#     axes[l].grid(which="minor", axis="both", alpha=0.05)
 # plt.tight_layout()
-plt.savefig(output_dir / "cross_attention_maps_headavg.pdf", bbox_inches="tight")
-# plt.show()
-plt.close()
-
-
-# %% Plot the head-averaged self-attention maps
-fig, axes = plt.subplots(
-    n_layers, 1, figsize=(int(0.1 * score_length), int(0.1 * n_layers * score_length))
-)
-
-for l in range(n_layers):
-    axes[l].imshow(
-        decoder_outputs.attentions[l][0].mean(dim=0).detach().cpu().numpy().T,
-        interpolation="nearest",
-        aspect="equal",
-    )
-    axes[l].set_title(f"Layer {l}")
-    ticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded)]
-    axes[l].set_xticks(range(len(ticks) - 1))
-    axes[l].set_xticklabels(ticks[1:], rotation=90, size=7)
-    axes[l].set_yticks(range(len(ticks) - 1))
-    axes[l].set_yticklabels(ticks[:-1], size=7)
-    axes[l].grid(which="major", axis="both", alpha=0.05)
-    axes[l].grid(which="minor", axis="both", alpha=0.05)
-plt.tight_layout()
-plt.savefig(output_dir / "self_attention_maps_headavg.pdf", bbox_inches="tight")
-plt.close()
-
-
-# %% Plot the cross-attention maps
-n_heads = decoder_outputs.cross_attentions[0].shape[1]
-performance_length = len(performance["performance_notes"])
-score_length = len(input_tokens_decoded)
-
-fig, axes = plt.subplots(
-    n_layers,
-    n_heads,
-    figsize=(int(0.1 * n_heads * score_length), int(0.2 * n_layers * performance_length)),
-)
-for l in range(n_layers):
-    for h in range(n_heads):
-        axes[l, h].imshow(
-            decoder_outputs.cross_attentions[l][0, h].detach().cpu().numpy().T,
-            interpolation="nearest",
-            aspect="equal",
-        )
-        axes[l, h].yaxis.set_major_locator(tck.MultipleLocator())
-        if l == 0:
-            axes[l, h].set_title(f"Head {h}")
-        if h == 0:
-            axes[l, h].set_ylabel(f"Layer {l}")
-        # if l == n_layers - 1:
-        xticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])]
-        axes[l, h].set_xticks(range(len(xticks)))
-        axes[l, h].set_xticklabels(xticks, rotation=90, size=7)
-        axes[l, h].grid(which="major", axis="both", alpha=0.05)
-        axes[l, h].grid(which="minor", axis="both", alpha=0.05)
-plt.tight_layout()
-plt.savefig(output_dir / "cross_attention_maps.pdf", bbox_inches="tight")
-plt.close()
-# plt.show()
-
-
-# %% Also plot the self-attention maps
-fig, axes = plt.subplots(
-    n_layers,
-    n_heads,
-    figsize=(int(0.15 * n_heads * score_length), int(0.15 * n_layers * score_length)),
-)
-for l in range(n_layers):
-    for h in range(n_heads):
-        axes[l, h].imshow(
-            decoder_outputs.attentions[l][0, h].detach().cpu().numpy().T,
-            interpolation="nearest",
-            aspect="equal",
-        )
-        if l == 0:
-            axes[l, h].set_title(f"Head {h}")
-        if h == 0:
-            axes[l, h].set_ylabel(f"Layer {l}")
-        # if l == n_layers - 1:
-        ticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded)]
-        axes[l, h].set_xticks(range(len(ticks) - 1))
-        axes[l, h].set_xticklabels(ticks[1:], rotation=90, size=7)
-        axes[l, h].set_yticks(range(len(ticks) - 1))
-        axes[l, h].set_yticklabels(ticks[:-1], size=7)
-        axes[l, h].grid(which="major", axis="both", alpha=0.05)
-        axes[l, h].grid(which="minor", axis="both", alpha=0.05)
-plt.tight_layout()
-plt.savefig(output_dir / "self_attention_maps.pdf", bbox_inches="tight")
-plt.close()
-# plt.show()
-
-
-# %% Print the index of Bar tokens in the sequence
-print(
-    f"Bar tokens: {[i for i, t in enumerate(performance['score_tokens']) if isinstance(t, tk.Bar)]}"
-)
+# plt.savefig(output_dir / "self_attention_maps_headavg.pdf", bbox_inches="tight")
+# plt.close()
+#
+#
+# # %% Plot the cross-attention maps
+# n_heads = decoder_outputs.cross_attentions[0].shape[1]
+# performance_length = len(performance["performance_notes"])
+# score_length = len(input_tokens_decoded)
+#
+# fig, axes = plt.subplots(
+#     n_layers,
+#     n_heads,
+#     figsize=(int(0.1 * n_heads * score_length), int(0.2 * n_layers * performance_length)),
+# )
+# for l in range(n_layers):
+#     for h in range(n_heads):
+#         axes[l, h].imshow(
+#             decoder_outputs.cross_attentions[l][0, h].detach().cpu().numpy().T,
+#             interpolation="nearest",
+#             aspect="equal",
+#         )
+#         axes[l, h].yaxis.set_major_locator(tck.MultipleLocator())
+#         if l == 0:
+#             axes[l, h].set_title(f"Head {h}")
+#         if h == 0:
+#             axes[l, h].set_ylabel(f"Layer {l}")
+#         # if l == n_layers - 1:
+#         xticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])]
+#         axes[l, h].set_xticks(range(len(xticks)))
+#         axes[l, h].set_xticklabels(xticks, rotation=90, size=7)
+#         axes[l, h].grid(which="major", axis="both", alpha=0.05)
+#         axes[l, h].grid(which="minor", axis="both", alpha=0.05)
+# plt.tight_layout()
+# plt.savefig(output_dir / "cross_attention_maps.pdf", bbox_inches="tight")
+# plt.close()
+# # plt.show()
+#
+#
+# # %% Also plot the self-attention maps
+# fig, axes = plt.subplots(
+#     n_layers,
+#     n_heads,
+#     figsize=(int(0.15 * n_heads * score_length), int(0.15 * n_layers * score_length)),
+# )
+# for l in range(n_layers):
+#     for h in range(n_heads):
+#         axes[l, h].imshow(
+#             decoder_outputs.attentions[l][0, h].detach().cpu().numpy().T,
+#             interpolation="nearest",
+#             aspect="equal",
+#         )
+#         if l == 0:
+#             axes[l, h].set_title(f"Head {h}")
+#         if h == 0:
+#             axes[l, h].set_ylabel(f"Layer {l}")
+#         # if l == n_layers - 1:
+#         ticks = [f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded)]
+#         axes[l, h].set_xticks(range(len(ticks) - 1))
+#         axes[l, h].set_xticklabels(ticks[1:], rotation=90, size=7)
+#         axes[l, h].set_yticks(range(len(ticks) - 1))
+#         axes[l, h].set_yticklabels(ticks[:-1], size=7)
+#         axes[l, h].grid(which="major", axis="both", alpha=0.05)
+#         axes[l, h].grid(which="minor", axis="both", alpha=0.05)
+# plt.tight_layout()
+# plt.savefig(output_dir / "self_attention_maps.pdf", bbox_inches="tight")
+# plt.close()
+# # plt.show()
+#
+#
+# # %% Print the index of Bar tokens in the sequence
+# print(
+#     f"Bar tokens: {[i for i, t in enumerate(performance['score_tokens']) if isinstance(t, tk.Bar)]}"
+# )
