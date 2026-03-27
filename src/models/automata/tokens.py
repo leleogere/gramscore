@@ -436,6 +436,9 @@ class Token:
     def as_str(cls) -> str:
         return cls.__name__
 
+    @abstractmethod
+    def short_name(self): ...
+
 
 @dataclass(kw_only=True)
 class StartOfScore(Token):
@@ -446,6 +449,9 @@ class StartOfScore(Token):
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.started = True
         return state
+
+    def short_name(self):
+        return "SOS"
 
 
 @dataclass(kw_only=True)
@@ -460,6 +466,9 @@ class EndOfScore(Token):
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.finished = True
         return state
+
+    def short_name(self):
+        return "EOS"
 
 
 @dataclass(kw_only=True)
@@ -522,6 +531,9 @@ class Bar(Token):
         denominator_duration = Fraction(2 ** (3 - self.denominator.bit_length()))
         return self.numerator * denominator_duration
 
+    def short_name(self):
+        return f"B({self.numerator}/{self.denominator}{'*' if not self.is_nominal else ''})"
+
 
 @dataclass(kw_only=True)
 class KeySignature(Token):
@@ -540,6 +552,9 @@ class KeySignature(Token):
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         return state
+
+    def short_name(self):
+        return f"KS({self.accidentals})"
 
 
 @dataclass(kw_only=True)
@@ -607,6 +622,9 @@ class Clef(Token, HasStaffMixin):
     def octave_change(self):
         return 0  # TODO: deal with this
 
+    def short_name(self):
+        return f"C(S{self.staff_idx},{self.clef})"
+
 
 @dataclass(kw_only=True)
 class HasDurationMixin:
@@ -671,6 +689,12 @@ class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         else:
             voice.advance_position(self.duration.quarter_length)
         return state
+
+    def short_name(self):
+        typ = "RM" if self.measure_rest else "R"
+        dur = self.duration.type.name.lower() + ("." * self.duration.dots)
+        fer = "*" if self.fermata else ""
+        return f"{typ}(V{self.voice_idx},S{self.staff_idx},{dur}){fer}"
 
 
 @dataclass(kw_only=True)
@@ -789,6 +813,21 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             voice.advance_position(self.duration.quarter_length)
         return state
 
+    def short_name(self):
+        dur = self.duration.type.name.lower() + ("." * self.duration.dots)
+        if abs(self.accidental) == 0:
+            acc = ""
+        elif abs(self.accidental) == 1:
+            acc = "♯" if self.accidental > 0 else "♭"
+        elif abs(self.accidental) == 2:
+            acc = "𝄪" if self.accidental > 0 else "𝄫"
+        else:
+            acc = str(self.accidental)
+        tie = "+" if self.tied else ""
+        fer = "F" if self.fermata else ""
+        gra = "G" if self.grace else ""
+        return f"N(V{self.voice_idx},S{self.staff_idx},{self.note_class}{acc}{self.octave},{gra}{dur}{tie}){fer}"
+
 
 @dataclass(kw_only=True)
 class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
@@ -831,6 +870,10 @@ class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
         state.voices[self.voice_idx].chord = ChordState(self.duration)
         return state
 
+    def short_name(self):
+        dur = self.duration.type.name.lower() + ("." * self.duration.dots)
+        return f"C<(V{self.voice_idx},{dur})"
+
 
 @dataclass(kw_only=True)
 class ChordEnd(Token, HasVoiceMixin):
@@ -855,6 +898,9 @@ class ChordEnd(Token, HasVoiceMixin):
         voice.advance_position(voice.chord.duration.quarter_length)
         voice.chord = None
         return state
+
+    def short_name(self):
+        return f"C>(V{self.voice_idx})"
 
 
 @dataclass(kw_only=True)
@@ -939,6 +985,10 @@ class TupletStart(Token, HasVoiceMixin):
         )
         return state
 
+    def short_name(self):
+        dur = self.unit_duration.type.name.lower() + ("." * self.unit_duration.dots)
+        return f"T<(V{self.voice_idx},{self.n_actual}:{self.n_normal},{dur}"
+
 
 @dataclass(kw_only=True)
 class TupletEnd(Token, HasVoiceMixin):
@@ -968,6 +1018,9 @@ class TupletEnd(Token, HasVoiceMixin):
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
         state.voices[self.voice_idx].tuplet = None
         return state
+
+    def short_name(self):
+        return f"T>(V{self.voice_idx})"
 
 
 TOKEN_TYPES = [
