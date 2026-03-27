@@ -107,6 +107,7 @@ class TokensTranscriberModel(nn.Module):
         encoder_attention_mask: torch.Tensor | None = None,
         past_key_values: tuple[torch.Tensor] | None = None,
         use_cache: bool = False,
+        output_attentions: bool = False,
     ) -> BaseModelOutputWithPastAndCrossAttentions:
         score_embeddings = self.score_embedding.forward(input_tokens)
         outputs_decoder = self.roformer.forward_dec(
@@ -115,6 +116,7 @@ class TokensTranscriberModel(nn.Module):
             encoder_attention_mask=encoder_attention_mask,
             past_key_values=past_key_values,
             use_cache=use_cache,
+            output_attentions=output_attentions,
         )
         return outputs_decoder
 
