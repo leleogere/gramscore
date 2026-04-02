@@ -35,6 +35,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
         test_pieces_filename: str | None = None,
         rating_oversampler_config: RatingOversamplerConfig = None,
         allowed_staffs: tuple[int, ...] = (1, 2),
+        chunk_size: int = 500,
         **kwargs,
     ) -> None:
         """Initialize a `PdmxTokensDataModule`
@@ -70,7 +71,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 t.VoiceReorderer(),
                 t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
                 t.PerformanceReader(),
-                t.QuantizedMusicChunker(num_performed_notes=500, mode="random"),
+                t.QuantizedMusicChunker(num_performed_notes=self.hparams.chunk_size, mode="random"),
                 t.RandomTransposer(),
                 t.ScoreVectorizer(),
                 t.PerformanceToPerformedNoteList(),
@@ -94,7 +95,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 t.VoiceReorderer(),
                 t.PerformanceReader(),
                 t.QuantizedMusicChunker(
-                    num_performed_notes=500,
+                    num_performed_notes=self.hparams.chunk_size,
                     mode=(
                         0
                         if self.test_validation_mode == "first_chunk"

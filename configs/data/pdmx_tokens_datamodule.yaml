@@ -29,6 +29,8 @@ test_pieces_filename: null
 
 allowed_staffs: [1, 2]
 
+chunk_size: 500
+
 batch_size: 2
 num_workers: 2
 prefetch_factor: 2
