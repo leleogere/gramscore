@@ -24,6 +24,7 @@ prefetch_factor: 2
 persistent_workers: true
 pin_memory: false
 artificial_dataset_repetitions: 1000
+chunk_size: 500
 
 test_validation_mode: "all_wo_overlap"
 

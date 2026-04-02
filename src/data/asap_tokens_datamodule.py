@@ -41,6 +41,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
         validation_pieces_filename: str = "validation_pieces.txt",
         test_pieces_filename: str = "test_pieces.txt",
         artificial_dataset_repetitions: int = 1,
+        chunk_size: int = 500,
         multiprocessing_manager: SyncManager | None = None,
         test_validation_mode: Literal[
             "first_chunk", "all_w_overlap", "all_wo_overlap"
@@ -164,7 +165,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.PerformanceReader(),
                 # # Debugger(lambda s: print("DEBUG", s["entry"])),
                 t.AsapMusicChunker(
-                    num_performed_notes=500,
+                    num_performed_notes=self.hparams.chunk_size,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                     mode="random",
                 ),
@@ -197,7 +198,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 ),
                 t.PerformanceReader(),
                 t.AsapMusicChunker(
-                    num_performed_notes=500,
+                    num_performed_notes=self.hparams.chunk_size,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                     mode=(
                         0
@@ -217,7 +218,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.VoiceRestFiller(tolerant=True),
                 t.VoiceReorderer(),
                 t.AsapMusicChunker(
-                    num_performed_notes=500,
+                    num_performed_notes=self.hparams.chunk_size,
                     annotations=self.hparams.data_dir / "asap_annotations.json",
                     mode=(
                         0
