@@ -185,14 +185,16 @@ class TokensTranscriberModel(nn.Module):
         performance_streams: dict[str, torch.Tensor],
         performance_onset_times: torch.Tensor,
         performance_attention_mask: torch.BoolTensor = None,  # 1 for attended, 0 for masked
-        prefix: TokenTensor | list[tk.Token] = None,
+        prefix: TokenTensor = None,
         constraint: bool = False,
         max_constraint_iterations: int = None,
-        max_generated_tokens: int = 1024,
+        max_generated_length: int = 1024,
         use_cache: bool = True,
         progress_bar: bool = True,
         return_logits_and_mask: bool = False,
     ) -> TokenTensor | tuple[list[tk.Token], torch.Tensor, torch.Tensor]:
+        if not use_cache:
+            raise NotImplementedError("Generating without cache is not implemented yet")
         # Check dimensions
         batch_size, seq_length = performance_onset_times.shape
         if any(s.shape[:-1] != (batch_size, seq_length) for s in performance_streams.values()) or (
@@ -233,24 +235,24 @@ class TokensTranscriberModel(nn.Module):
             batched_tokens_tensor = TokenTensor.from_tokens([[tk.StartOfScore()]]).expand(
                 batch_size, -1, -1
             )
+            # prefix_attention_mask = None
         else:
-            if isinstance(list, prefix):
-                prefix = TokenTensor.from_tokens(prefix)
             batched_tokens_tensor: TokenTensor = prefix
-            if batched_tokens_tensor.ndim == 1:
-                batched_tokens_tensor = batched_tokens_tensor.repeat(batch_size)
+            # prefix_attention_mask = batched_tokens_tensor[..., 0] != PADDING_VALUE
+            # Adapt the prefix tokens to the shift caused by left padding
+            # [0, 1, 2, 3...] -> [0, 0, 0, 1, 2, 3...] if padded 2 tokens
+            # prefix_tokens_positions = torch.cumsum(~prefix_padding_mask, dim=1) - 1
+            # if batched_tokens_tensor.ndim == 1:
+            #     batched_tokens_tensor = batched_tokens_tensor.repeat(batch_size)
             if constraint:
                 for sequence, automaton in zip(batched_tokens_tensor.to_tokens(), automata):
                     for token in sequence:
                         automaton.transition(token)
             # last_predicted_tokens = batched_tokens_tensor[:, -1].to_tokens()
 
-        # Prepare output
-        batched_finished_flag = torch.full(
-            (batch_size, 2), GenerationState.UNFINISHED.value, dtype=torch.long
-        )  # contains the generation flags at index 0, and the position the flag was reached at index 1
-        batched_finished_flag[:, 1] = (
-            max_generated_tokens  # default to max for tracks that will not end
+        # Prepare output flags
+        batched_finished_flag = torch.tensor([[GenerationState.UNFINISHED.value, 0]]).repeat(
+            batch_size, 1
         )
 
         with torch.no_grad():
@@ -262,31 +264,38 @@ class TokensTranscriberModel(nn.Module):
                 attention_mask=performance_attention_mask,
             )
 
-            # Pass prefix
-            if batched_tokens_tensor.shape[1] > 1:
-                batched_decoder_outputs = self.forward_decoder(
-                    input_tokens=batched_tokens_tensor,
-                    encoder_hidden_states=batched_encoder_output,
-                    encoder_attention_mask=performance_attention_mask,
-                    use_cache=use_cache,
-                    past_key_values=None,
-                )  # TODO: make sure that it is equivalent to multiple forward passes
-                past_key_values = batched_decoder_outputs.past_key_values
-            else:
-                past_key_values = None
+            # # Pass prefix
+            # if batched_tokens_tensor.shape[1] > 1:
+            #     batched_decoder_outputs = self.forward_decoder(
+            #         input_tokens=batched_tokens_tensor,
+            #         encoder_hidden_states=batched_encoder_output,
+            #         encoder_attention_mask=performance_attention_mask,
+            #         use_cache=use_cache,
+            #         past_key_values=None,
+            #     )  # TODO: make sure that it is equivalent to multiple forward passes
+            #     past_key_values = batched_decoder_outputs.past_key_values
+            # else:
+            #     past_key_values = None
 
             # Generation loop
-            for pos in (pbar := trange(max_generated_tokens, disable=not progress_bar)):
-                unfinished_mask = batched_finished_flag[:, 0] == GenerationState.UNFINISHED.value
-                # Implement check with KV cache
-                batched_input_tokens: TokenTensor = (
-                    batched_tokens_tensor[:, -1:] if use_cache else batched_tokens_tensor
+            init_pos = batched_tokens_tensor.shape[1]
+            past_key_values = None
+            for pos in (pbar := trange(init_pos, max_generated_length, disable=not progress_bar)):
+                # Pass the last token if there is already cache, else the whole sequence
+                if past_key_values is None:
+                    batched_input_tokens = batched_tokens_tensor
+                else:
+                    batched_input_tokens = batched_tokens_tensor[:, -1:]
+                tokens_attention_mask = (
+                    batched_tokens_tensor[..., 0] != PADDING_VALUE  # Computed for whole sequence
                 )
                 write_compare_to_file(batched_input_tokens[0], f"input_tokens_{pos}.txt")
                 batched_decoder_outputs = self.forward_decoder(
                     input_tokens=batched_input_tokens,
+                    attention_mask=tokens_attention_mask,
                     encoder_hidden_states=batched_encoder_output,
                     encoder_attention_mask=performance_attention_mask,
+                    encoder_positions=performance_onset_times,
                     past_key_values=past_key_values if use_cache else None,
                     use_cache=use_cache,
                 )
@@ -401,9 +410,13 @@ class TokensTranscriberModel(nn.Module):
                             found = True
                         except StopIteration as e:
                             if e.args[0] == "max_iterations reached":
-                                batched_finished_flag[i, 0] = GenerationState.KILLED.value
+                                batched_finished_flag[i, 0] = (
+                                    GenerationState.EXCEED_CONSTRAINED_ITERATIONS.value
+                                )
                             elif e.args[0] == "No combination found":
-                                batched_finished_flag[i, 0] = GenerationState.IMPOSSIBLE.value
+                                batched_finished_flag[i, 0] = (
+                                    GenerationState.NO_ALLOWED_TOKENS.value
+                                )
                             else:
                                 raise ValueError(f"Unexpected error: {e}")
                             batched_finished_flag[i, 1] = pos
@@ -457,6 +470,11 @@ class TokensTranscriberModel(nn.Module):
 
                 if all(batched_finished_flag[:, 0] != GenerationState.UNFINISHED.value):
                     break
+
+        # Mark unfinished scores as max tokens exceeded
+        batched_finished_flag[batched_finished_flag[:, 0] == GenerationState.UNFINISHED.value] = (
+            torch.tensor([GenerationState.EXCEEDED_MAX_TOKENS.value, pos])
+        )
 
         if return_logits_and_mask:
             logits, masks = zip(*logits_and_masks)
@@ -817,5 +835,7 @@ class TokensTranscriberModel(nn.Module):
 class GenerationState(Enum):
     UNFINISHED = 0
     FINISHED = 1
-    IMPOSSIBLE = 2
-    KILLED = 3
+    EXCEEDED_MAX_TOKENS = 2
+    EXCEED_CONSTRAINED_ITERATIONS = 3
+    NO_ALLOWED_TOKENS = 4
+    CHUNK_ALIGNMENT_ERROR = 5

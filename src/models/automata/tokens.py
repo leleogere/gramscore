@@ -60,7 +60,7 @@ class SymbolicDurationType(StrEnum):
         return self.value
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class SymbolicDuration:
     type: SymbolicDurationType
     dots: int = 0
