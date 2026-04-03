@@ -517,7 +517,7 @@ class TokensTranscriberModule(L.LightningModule):
             flags = flags_and_positions[:, 0]
             positions = flags_and_positions[:, 1] + 1
             flag_counts = flags.unique(return_counts=True)
-            for count, flag in flag_counts:
+            for flag, count in zip(*flag_counts):
                 self.log(
                     f"[V] Generation metrics/Flag {GenerationState(flag.item()).name}",
                     count.float(),
