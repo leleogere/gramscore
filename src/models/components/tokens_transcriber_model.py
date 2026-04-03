@@ -155,6 +155,7 @@ class TokensTranscriberModel(nn.Module):
         decoder_outputs: torch.Tensor,  # B * T * E
         token_type_masks: dict[str, torch.Tensor],  # B * T
         convert_to_tokentensor: bool = False,
+        device=None,
     ) -> dict[str, dict[str, torch.Tensor]] | TokenTensor:
         # Check that the shapes make sense
         if not all(mask.shape == decoder_outputs.shape[:2] for mask in token_type_masks.values()):
@@ -176,6 +177,7 @@ class TokensTranscriberModel(nn.Module):
             return TokenTensor.build_from_dict(
                 type_dim_values_dict=expert_outputs,
                 token_type_masks=token_type_masks,
+                device=device,
             )
         else:
             return expert_outputs
@@ -193,6 +195,7 @@ class TokensTranscriberModel(nn.Module):
         progress_bar: bool = True,
         return_logits_and_mask: bool = False,
     ) -> TokenTensor | tuple[list[tk.Token], torch.Tensor, torch.Tensor]:
+        device = performance_onset_times.device
         if not use_cache:
             raise NotImplementedError("Generating without cache is not implemented yet")
         # Check dimensions
@@ -232,9 +235,9 @@ class TokensTranscriberModel(nn.Module):
 
         # Handle eventual prefix
         if prefix is None:
-            batched_tokens_tensor = TokenTensor.from_tokens([[tk.StartOfScore()]]).expand(
-                batch_size, -1, -1
-            )
+            batched_tokens_tensor = TokenTensor.from_tokens(
+                [[tk.StartOfScore()]], device=device
+            ).expand(batch_size, -1, -1)
             # prefix_attention_mask = None
         else:
             batched_tokens_tensor: TokenTensor = prefix
@@ -251,7 +254,7 @@ class TokensTranscriberModel(nn.Module):
             # last_predicted_tokens = batched_tokens_tensor[:, -1].to_tokens()
 
         # Prepare output flags
-        batched_finished_flag = torch.tensor([[GenerationState.UNFINISHED.value, 0]]).repeat(
+        batched_finished_flag = torch.tensor([[GenerationState.UNFINISHED.value, 0]], device=device).repeat(
             batch_size, 1
         )
 
@@ -426,7 +429,7 @@ class TokensTranscriberModel(nn.Module):
                             automaton.transition(next_token, inplace=True)
                         batched_next_token.append(next_token)
                     batched_next_token_tensor = TokenTensor.from_tokens(
-                        batched_next_token
+                        batched_next_token, device=device
                     ).unsqueeze(1)
                 else:
                     batched_next_token_tensor = self.forward_experts(
@@ -444,7 +447,7 @@ class TokensTranscriberModel(nn.Module):
                         == 1,
                         batched_finished_flag[:, 0] == GenerationState.UNFINISHED.value,
                     )
-                ] = torch.tensor([[GenerationState.FINISHED.value, pos]])
+                ] = torch.tensor([[GenerationState.FINISHED.value, pos]], device=device)
 
                 # Gather stats for progress bar
                 if progress_bar:
@@ -473,7 +476,7 @@ class TokensTranscriberModel(nn.Module):
 
         # Mark unfinished scores as max tokens exceeded
         batched_finished_flag[batched_finished_flag[:, 0] == GenerationState.UNFINISHED.value] = (
-            torch.tensor([GenerationState.EXCEEDED_MAX_TOKENS.value, pos])
+            torch.tensor([GenerationState.EXCEEDED_MAX_TOKENS.value, pos], device=device)
         )
 
         if return_logits_and_mask:
