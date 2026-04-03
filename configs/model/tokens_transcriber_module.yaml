@@ -4,6 +4,7 @@ defaults:
     - optimizer: adamw
     - scheduler: warmup_cosine_scheduler
     - positional_encoder: finer_positional_encoder
+    - chunk_size_scheduler@generic_scheduler: null
 
 embedding_dim: 512
 num_hidden_layers: 4

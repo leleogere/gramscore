@@ -1,19 +1,18 @@
-import sys
-
-import omegaconf
-import torch.multiprocessing
-from pathlib import Path
 import os
+import sys
+from pathlib import Path
 
 import hydra
 import lightning
+import omegaconf
+import torch.multiprocessing
 from dotenv import load_dotenv
 from fsspec import Callback
-from lightning import LightningModule
 from loguru import logger
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
 
+import data.components.transforms as t
 from models.tokens_transcriber_module import TokensTranscriberModule
 
 OmegaConf.register_new_resolver("eval", eval)
@@ -122,6 +121,25 @@ def train(cfg: DictConfig) -> None:
     else:
         model: TokensTranscriberModule = hydra.utils.instantiate(cfg.model)
     logger.info(f"Model {model} loaded!")
+    if model.chunk_size_scheduler is not None:
+        try:
+            step = model.trainer.global_step
+        except RuntimeError:
+            step = 0
+        chunk_size = model.chunk_size_scheduler(step)
+        logger.info(
+            f"Chunk size scheduler set up, overwriting initial train and val datasets chunk size "
+            f"from step {step} at size {chunk_size}."
+        )
+        datamodule.hparams.chunk_size = chunk_size
+        for dataset in (datamodule.data_train, datamodule.data_val):
+            if dataset is not None:
+                quantizer: t.AsapMusicChunker = next(
+                    tr
+                    for tr in dataset.transforms
+                    if isinstance(tr, (t.QuantizedMusicChunker, t.AsapMusicChunker))
+                )
+                quantizer.num_performed_notes = chunk_size
 
     logger.info(f"Instantiating callbacks")
     callbacks = instantiate_callbacks(cfg.callbacks)

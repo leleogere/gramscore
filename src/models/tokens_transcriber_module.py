@@ -14,6 +14,7 @@ from torch import nn
 from torchmetrics import MetricCollection
 from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, BinaryF1Score
 
+import data.components.transforms as t
 import models.automata.tokens as tk
 from data.asap_tokens_datamodule import AsapTokensDataModule
 from models.automata.vectorization_torch import TokenTensor
@@ -44,6 +45,7 @@ class TokensTranscriberModule(L.LightningModule):
         val_max_logits_logged: int = 5,
         scale_expert_losses_with_token_frequency: bool = False,
         tokens_positions_scaling_factor: float = 1.0,
+        chunk_size_scheduler: Callable[[int], int] | None = None,
     ):
         super().__init__()
         if experts_inner_dims is None:
@@ -72,6 +74,7 @@ class TokensTranscriberModule(L.LightningModule):
         )
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.chunk_size_scheduler = chunk_size_scheduler
 
         # See scripts/estimate_tokens_distribution.py for the weights
         self.token_weights = {
@@ -368,6 +371,29 @@ class TokensTranscriberModule(L.LightningModule):
         self.log("Learning rate", self.trainer.optimizers[0].param_groups[0]["lr"])
         return loss
 
+    def on_train_start(self) -> None:
+        if (
+            self.chunk_size_scheduler is not None
+            and not self.trainer.reload_dataloaders_every_n_epochs
+        ):
+            raise ValueError(
+                f"A chunk size scheduler is active, but the trainer is not reloading "
+                f"dataloaders every epoch, it will likely cause issues with num_workers > 0. "
+                "Please set reload_dataloaders_every_n_epochs=1 in the Trainer."
+            )
+
+    def on_train_epoch_end(self) -> None:
+        if self.chunk_size_scheduler is not None:
+            new_chunk_size = int(self.chunk_size_scheduler(self.global_step))
+            for dl in (self.trainer.train_dataloader, self.trainer.val_dataloaders):
+                quantizer: t.AsapMusicChunker = next(
+                    tr
+                    for tr in dl.dataset.transforms
+                    if isinstance(tr, (t.QuantizedMusicChunker, t.AsapMusicChunker))
+                )
+                quantizer.num_performed_notes = new_chunk_size
+            self.log("[T|V] Global metrics/Chunk size", new_chunk_size)
+
     def on_validation_start(self) -> None:
         logger.info(f"Validation starting")
 
@@ -581,9 +607,6 @@ def mask_tokens_randomly(
 
 
 if __name__ == '__main__':
-    from pathlib import Path
-    from loguru import logger
-
     data_module = AsapTokensDataModule(
         data_dir=Path("~/Documents/datasets/asap-dataset").expanduser(),
         batch_size=2,

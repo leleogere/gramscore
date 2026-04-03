@@ -5,6 +5,9 @@ default_root_dir: ${paths.output_dir}
 # accumulate gradients to enable larger batch sizes
 #accumulate_grad_batches: 4
 
+# controls dataset resetting (needed for chunk size scheduling)
+reload_dataloaders_every_n_epochs: 0
+
 # perform a validation loop every N training epochs
 val_check_interval: 1
 log_every_n_steps: 10
