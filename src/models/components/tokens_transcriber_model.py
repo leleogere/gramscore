@@ -478,7 +478,7 @@ class TokensTranscriberModel(nn.Module):
                 # TODO: avoid (and probably fix as it should not work) computations above when constrained
                 batched_next_token_tensor[
                     batched_finished_flag[:, 0] != GenerationState.UNFINISHED.value
-                ] = TokenTensor.from_tokens(tk.EndOfScore())
+                ] = TokenTensor.from_tokens(tk.EndOfScore(), device=device)
                 batched_tokens_tensor = torch.concat(
                     [batched_tokens_tensor, batched_next_token_tensor], dim=1
                 )
