@@ -37,6 +37,7 @@ class TokensTranscriberModule(L.LightningModule):
         layer_norm_eps: float = 1e-12,
         max_position_embeddings=8192,
         positional_encoder: ContinuousPositionalEncoding1D = None,
+        router_inner_dims: list[int] = None,
         experts_inner_dims: list[int] = None,
         expert_loss_weight: float = 0.01,
         performance_dropout: float = 0.05,
@@ -50,6 +51,8 @@ class TokensTranscriberModule(L.LightningModule):
         super().__init__()
         if experts_inner_dims is None:
             experts_inner_dims = [256, 128]
+        if router_inner_dims is None:
+            router_inner_dims = []  # for backward compatibility (and coherence)
 
         self.save_hyperparameters()
         self.transcriber_model = TokensTranscriberModel(
@@ -71,6 +74,7 @@ class TokensTranscriberModule(L.LightningModule):
                 token_positions_multiplier_in_cross_attention=tokens_positions_scaling_factor,
             ),
             expert_inner_dims=experts_inner_dims,
+            router_inner_dims=router_inner_dims,
         )
         self.optimizer = optimizer
         self.scheduler = scheduler

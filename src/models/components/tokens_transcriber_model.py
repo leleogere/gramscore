@@ -31,6 +31,7 @@ class TokensTranscriberModel(nn.Module):
         stream_dimensions: dict[str, int],
         roformer: Roformer | None,
         expert_inner_dims: list[int],
+        router_inner_dims: list[int] = None,
     ):
         super().__init__()
 
@@ -53,7 +54,15 @@ class TokensTranscriberModel(nn.Module):
             dropout_prob=self.hidden_dropout_prob,
         )
 
-        self.token_type_router = nn.Linear(self.embedding_dim, len(TokenTensor.TOKEN_INDEXER))
+        modules = []
+        last_dim = self.embedding_dim
+        if router_inner_dims is not None:
+            for dim in router_inner_dims:
+                modules.append(nn.Linear(last_dim, dim))
+                modules.append(nn.ReLU())
+                last_dim = dim
+        modules.append(nn.Linear(last_dim, len(TokenTensor.TOKEN_INDEXER)))
+        self.token_type_router = nn.Sequential(*modules)
 
         self.expert_inner_dims = expert_inner_dims
         self.expert_heads: Mapping[str, ExpertHead] = nn.ModuleDict(
