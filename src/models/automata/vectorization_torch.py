@@ -196,7 +196,6 @@ class TokenTensor(torch.Tensor):
                 self.CUM_DIMS[dim_name] : self.CUM_DIMS[dim_name] + self.DIMS[dim_name],
             ] = value
         else:
-            print(f"{key=} | {value=} | {self.device=} | {value.device if isinstance(value, torch.Tensor) else None}")
             super().__setitem__(key, value)
 
     @classmethod
@@ -622,7 +621,7 @@ class TokenTensor(torch.Tensor):
                     # Dimension unused for the token type
                     else:
                         quantized[(*related_idx, token_sub_dimension)] = 0.0
-
+        print(f"{quantized.device = }")
         return quantized
 
     # def get_token_type_specific_part(
