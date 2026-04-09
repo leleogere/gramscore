@@ -149,6 +149,13 @@ class TokenTensor(torch.Tensor):
         tensor = tensor.as_subclass(self.__class__)
         return tensor
 
+    def to(self, *args, **kwargs):
+        """See https://discuss.pytorch.org/t/subclassing-torch-tensor/23754/5"""
+        new_obj = super().to(*args, **kwargs)
+        if new_obj is self:
+            return self
+        return TokenTensor(new_obj)
+
     def __getitem__(self, item: int | str | tuple) -> Self | torch.Tensor:
         # If query is a string, then it is a dimension name
         # -> return the corresponding slice in the last dimension
@@ -454,7 +461,7 @@ class TokenTensor(torch.Tensor):
     def _from_token_single(cls, token: tk.Token, device=None) -> torch.Tensor:
         assert isinstance(token, tk.Token), f"Expected Token, got {type(token)}"
 
-        vector = cls(torch.zeros(cls.TOTAL_DIMENSIONS, dtype=torch.float, device=device))
+        vector = cls(torch.zeros(cls.TOTAL_DIMENSIONS, dtype=torch.float)).to(device)
 
         # Vectorize token type
         vector.__embed_token_type(token)
@@ -557,7 +564,7 @@ class TokenTensor(torch.Tensor):
         :return: The TokenTensor.
         """
         initial_shape = list(token_type_masks.values())[0].shape
-        tensor = TokenTensor(torch.zeros((*initial_shape, TokenTensor.TOTAL_DIMENSIONS)), device=device)
+        tensor = TokenTensor(torch.zeros((*initial_shape, TokenTensor.TOTAL_DIMENSIONS))).to(device)
         for token_type in TokenTensor.TOKEN_INDEXER:
             mask = token_type_masks[token_type.as_str()]
             mask_indices = mask.nonzero(as_tuple=True)
