@@ -166,7 +166,6 @@ class TokensTranscriberModel(nn.Module):
         decoder_outputs: torch.Tensor,  # B * T * E
         token_type_masks: dict[str, torch.Tensor],  # B * T
         convert_to_tokentensor: bool = False,
-        device=None,
     ) -> dict[str, dict[str, torch.Tensor]] | TokenTensor:
         # Check that the shapes make sense
         if not all(mask.shape == decoder_outputs.shape[:2] for mask in token_type_masks.values()):
@@ -188,7 +187,7 @@ class TokensTranscriberModel(nn.Module):
             return TokenTensor.build_from_dict(
                 type_dim_values_dict=expert_outputs,
                 token_type_masks=token_type_masks,
-                device=device,
+                device=decoder_outputs.device,
             )
         else:
             return expert_outputs
