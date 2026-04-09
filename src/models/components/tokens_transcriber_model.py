@@ -265,9 +265,9 @@ class TokensTranscriberModel(nn.Module):
             # last_predicted_tokens = batched_tokens_tensor[:, -1].to_tokens()
 
         # Prepare output flags
-        batched_finished_flag = torch.tensor([[GenerationState.UNFINISHED.value, 0]], device=device).repeat(
-            batch_size, 1
-        )
+        batched_finished_flag = torch.tensor(
+            [[GenerationState.UNFINISHED.value, 0]], device=device
+        ).repeat(batch_size, 1)
 
         with torch.no_grad():
             # Pass performance streams through the encoder
