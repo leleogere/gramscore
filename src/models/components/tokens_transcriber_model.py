@@ -444,9 +444,6 @@ class TokensTranscriberModel(nn.Module):
                         batched_next_token, device=device
                     ).unsqueeze(1)
                 else:
-                    print(f"{last_hidden_state.shape=}, {last_hidden_state.device=}")
-                    for k, v in batched_token_types_mask.items():
-                        print(f"{k=}, {v.shape=}, {v.device=}")
                     batched_next_token_tensor = self.forward_experts(
                         decoder_outputs=last_hidden_state,  # 1 * E
                         token_type_masks=batched_token_types_mask,

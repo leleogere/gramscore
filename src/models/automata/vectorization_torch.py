@@ -621,7 +621,6 @@ class TokenTensor(torch.Tensor):
                     # Dimension unused for the token type
                     else:
                         quantized[(*related_idx, token_sub_dimension)] = 0.0
-        print(f"{quantized.device = }")
         return quantized
 
     # def get_token_type_specific_part(
