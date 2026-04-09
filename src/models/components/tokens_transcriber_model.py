@@ -300,9 +300,9 @@ class TokensTranscriberModel(nn.Module):
                     batched_input_tokens = batched_tokens_tensor
                 else:
                     batched_input_tokens = batched_tokens_tensor[:, -1:]
-                tokens_attention_mask = (
-                    batched_tokens_tensor[..., 0] != PADDING_VALUE  # Computed for whole sequence
-                ).as_tensor()
+                tokens_attention_mask = (  # Computed for whole sequence
+                    batched_tokens_tensor[..., 0].as_tensor() != PADDING_VALUE
+                )
                 write_compare_to_file(batched_input_tokens[0], f"input_tokens_{pos}.txt")
                 batched_decoder_outputs = self.forward_decoder(
                     input_tokens=batched_input_tokens,

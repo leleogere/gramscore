@@ -762,7 +762,7 @@ class Roformer(nn.Module):
             extended_attention_mask = extended_attention_mask[..., -score_embeddings.size(1) :, :]
 
         decoder_outputs = self.decoder.encoder.forward(
-            score_embeddings,
+            score_embeddings.as_tensor(),
             attention_mask=extended_attention_mask,
             input_positions=positions,
             head_mask=None,

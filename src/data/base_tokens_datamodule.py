@@ -91,7 +91,9 @@ class BaseTokensDataModule(LightningDataModule):
                     batch_first=True,
                     padding_value=PADDING_VALUE,
                 )  # B * N_TOKENS_MAX * TOTAL_DIMENSIONS
-                score_padding_mask = scores_collated[:, :, 0] == PADDING_VALUE  # B * N_TOKENS_MAX
+                score_padding_mask = (
+                    scores_collated[:, :, 0].as_tensor() == PADDING_VALUE
+                )  # B * N_TOKENS_MAX
                 score_lengths = torch.LongTensor([s.size(0) for s in scores])
                 # Store results
                 results["score_tensor"] = scores_collated
