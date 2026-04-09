@@ -130,7 +130,8 @@ class TokenTensor(torch.Tensor):
         tensor = super().__new__(*args, **kwargs)
         if tensor.dim() < 1 or tensor.size(-1) != cls.TOTAL_DIMENSIONS:
             raise ValueError(
-                f"Last dimension must be of size {cls.TOTAL_DIMENSIONS}, but is {tensor.size(-1)}"
+                f"Last dimension must be of size {cls.TOTAL_DIMENSIONS}, "
+                f"but is {tensor.size(-1) if tensor.ndim > 0 else 0}"
             )
         return tensor
 
