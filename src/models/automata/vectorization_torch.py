@@ -149,6 +149,9 @@ class TokenTensor(torch.Tensor):
         tensor = tensor.as_subclass(self.__class__)
         return tensor
 
+    def as_tensor(self):
+        return self.as_subclass(torch.Tensor)
+
     def to(self, *args, **kwargs):
         """See https://discuss.pytorch.org/t/subclassing-torch-tensor/23754/5"""
         new_obj = super().to(*args, **kwargs)
@@ -595,6 +598,7 @@ class TokenTensor(torch.Tensor):
                             quantized[(*related_idx, token_sub_dimension)] = (
                                 self[*related_idx]
                                 ._quantize_dim(token_sub_dimension)
+                                .as_tensor()
                                 .to(torch.float)
                             )
                         elif self.PROBLEM_TYPES[token_sub_dimension] == ProblemType.REGRESSION:
