@@ -182,10 +182,12 @@ class BaseTokensDataModule(LightningDataModule):
                 self.batch_size_per_device if self.test_validation_mode == "first_chunk" else 1
             ),
             shuffle=False,
-            collate_fn=(
-                self.collate_fn
-                if self.test_validation_mode == "first_chunk"
-                else lambda b: self.collate_fn(b[0])
+            collate_fn=partial(
+                (
+                    partial(self.collate_fn, keep_fields=("entry", "score_tokens"))
+                    if self.test_validation_mode == "first_chunk"
+                    else lambda b: self.collate_fn(b[0], keep_fields=("entry", "score_tokens"))
+                ),
             ),
             num_workers=min(len(self.data_val.entries), self.hparams.num_workers),
             prefetch_factor=self.hparams.prefetch_factor,

@@ -1,3 +1,5 @@
+import tempfile
+import warnings
 from collections import defaultdict
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -5,11 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import lightning as L
+import partitura as pt
 import torch
 import wandb.plot
 from einops import rearrange
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 from loguru import logger
+from muster import muster
 from torch import nn
 from torchmetrics import MetricCollection
 from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, BinaryF1Score
@@ -17,10 +21,12 @@ from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score, B
 import data.components.transforms as t
 import models.automata.tokens as tk
 from data.asap_tokens_datamodule import AsapTokensDataModule
+from metrics.score_similarity.score_similarity import score_similarity_normalized
+from models.automata.io import token_sequence_to_partitura_permissive
 from models.automata.vectorization_torch import TokenTensor
 from models.components.positional_encoding import ContinuousPositionalEncoding1D
 from models.components.roformer import Roformer
-from models.components.tokens_transcriber_model import TokensTranscriberModel
+from models.components.tokens_transcriber_model import TokensTranscriberModel, GenerationState
 from utils.constants import PADDING_VALUE
 
 
@@ -47,6 +53,8 @@ class TokensTranscriberModule(L.LightningModule):
         scale_expert_losses_with_token_frequency: bool = False,
         tokens_positions_scaling_factor: float = 1.0,
         chunk_size_scheduler: Callable[[int], int] | None = None,
+        full_eval_every_n_val_steps: int = 100,
+        full_eval_max_batches: int = None,
     ):
         super().__init__()
         if experts_inner_dims is None:
@@ -492,6 +500,83 @@ class TokensTranscriberModule(L.LightningModule):
             )
             self.log(name, metric)
 
+        # Evaluate score with full metrics from time to time (not frequently as expensive)
+        # and limit also the number of batches computed
+        if (self.validation_counter % self.hparams.full_eval_every_n_val_steps == 0) and (
+            (self.hparams.full_eval_max_batches is None)
+            or (batch_idx < self.hparams.full_eval_max_batches)
+        ):
+            logger.info(f"Computing complete metrics on autoregressively transcribed scores")
+            transcribed_token_tensor, flags_and_positions = self.transcriber_model.generate(
+                performance_streams=batch["performance_streams"],
+                performance_onset_times=batch["performance_onset_times"],
+                performance_attention_mask=~batch["performance_padding_mask"],
+                prefix=None,
+                constraint=False,
+                max_constraint_iterations=None,
+                max_generated_length=1500,
+                progress_bar=False,
+                return_logits_and_mask=False,
+            )
+            flags = flags_and_positions[:, 0]
+            positions = flags_and_positions[:, 1] + 1
+            flag_counts = flags.unique(return_counts=True)
+            for flag, count in zip(*flag_counts):
+                self.log(
+                    f"[V] Generation metrics/Flag {GenerationState(flag.item()).name}",
+                    count.float(),
+                    reduce_fx="sum",
+                )
+            # Only evaluate scores for which the transcription has finished (biases results toward
+            # good transcription, but not sure how to deal with that differently, probably with a
+            # large penalty for unfinished transcription but how large then?
+            to_evaluate = flags == GenerationState.FINISHED.value
+            if to_evaluate.any():
+                end_positions = positions[to_evaluate].tolist()
+                predicted_tokens = [
+                    tokens[:end_position]
+                    for tokens, end_position in zip(
+                        transcribed_token_tensor.quantize(inplace=True).to_tokens(),
+                        end_positions,
+                    )
+                ]
+                full_eval_results = self.evaluate_transcription(
+                    predictions=predicted_tokens,
+                    ground_truth=[s for s, f in zip(batch["score_tokens"], to_evaluate) if f],
+                )
+                score_similarities_scores = full_eval_results["score_similarities_scores"]
+                num_score_similarity_errors = full_eval_results["num_score_similarity_errors"]
+                muster_scores = full_eval_results["muster_scores"]
+                num_muster_errors = full_eval_results["num_muster_errors"]
+                num_conversion_errors = full_eval_results["num_conversion_errors"]
+                if score_similarities_scores:
+                    for key in score_similarities_scores[0].keys():
+                        items = [s[key] for s in score_similarities_scores if s[key] is not None]
+                        if len(items) != 0:
+                            self.log(
+                                f"[V] Generation metrics/ScoreSimilarity/{key}",
+                                torch.tensor(items, dtype=torch.float).mean(dim=0),
+                            )
+                self.log(
+                    f"[V] Generation metrics/ScoreSimilarity/ERRORS",
+                    num_score_similarity_errors,
+                    reduce_fx="sum",
+                )
+                if muster_scores:
+                    for key in muster_scores[0].keys():
+                        items = [s[key] for s in muster_scores if s[key] is not None]
+                        if len(items) != 0:
+                            self.log(
+                                f"[V] Generation metrics/MUSTER/{key}",
+                                torch.tensor(items, dtype=torch.float).mean(dim=0),
+                            )
+                self.log(
+                    f"[V] Generation metrics/MUSTER/ERRORS", num_muster_errors, reduce_fx="sum"
+                )
+                self.log(
+                    f"[V] Generation metrics/Detok. errors", num_conversion_errors, reduce_fx="sum"
+                )
+
         return loss
 
         # input_ids = batch["input_ids"]
@@ -577,6 +662,80 @@ class TokensTranscriberModule(L.LightningModule):
         self.validation_counter += 1
 
         logger.info("Validation finished!")
+
+    def evaluate_transcription(
+        self,
+        predictions: list[list[tk.AnyToken]],
+        ground_truth: list[list[tk.AnyToken]],
+        sequence_names: list[str] | None = None,
+    ):
+        if len(predictions) != len(ground_truth):
+            raise ValueError(
+                f"The number of predictions ({len(predictions)}) and ground truth "
+                f"({len(ground_truth)}) do not match."
+            )
+        if sequence_names is None:
+            sequence_names = [str(i) for i in range(len(predictions))]
+        else:
+            if len(sequence_names) != len(predictions):
+                raise ValueError(
+                    f"The number of sequence names ({len(sequence_names)}) and predictions "
+                    f"({len(predictions)}) do not match."
+                )
+        # Prepare metrics
+        num_conversion_errors = 0
+        score_similarities_scores = []
+        num_score_similarity_errors = 0
+        muster_scores = []
+        num_muster_errors = 0
+        for pred, gt, name in zip(predictions, ground_truth, sequence_names):
+            with tempfile.TemporaryDirectory(prefix="transcription_") as tmpdir_name:
+                # Prepare paths to the temporary files
+                tmpdir = Path(tmpdir_name)
+                pred_path = tmpdir / "pred.musicxml"
+                gt_path = tmpdir / "gt.musicxml"
+                # Convert both sequences to Partitura, then to MusicXML (start with
+                # transcription to catch errors early
+                try:
+                    pred_pt = token_sequence_to_partitura_permissive(pred)
+                    pt.save_musicxml(pred_pt, pred_path)
+                    gt_pt = token_sequence_to_partitura_permissive(gt)
+                    pt.save_musicxml(gt_pt, gt_path)
+                except Exception as e:
+                    logger.error(
+                        f"Error converting token sequence '{name}' to partitura or MusicXML, "
+                        f"skipping it: {e}"
+                    )
+                    num_conversion_errors += 1
+                    continue
+                # Evaluate them
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore")
+                    try:
+                        score_sim = score_similarity_normalized(
+                            est=pred_path.as_posix(), gt=gt_path.as_posix(), full=False
+                        )
+                        score_similarities_scores.append(score_sim)
+                    except Exception as e:
+                        logger.error(f"Error on score similarity on {name}: {e}")
+                        num_score_similarity_errors += 1
+                    try:
+                        muster_sim = muster(
+                            score_est=pred_path, score_gt=gt_path, clean_scores=False
+                        )
+                        if all(v is None for v in muster_sim.values()):
+                            raise Exception("All Muster metrics are None")
+                        muster_scores.append(muster_sim)
+                    except Exception as e:
+                        logger.error(f"Error on MUSTER on {name}: {e}")
+                        num_muster_errors += 1
+        return {
+            "num_conversion_errors": num_conversion_errors,
+            "num_score_similarity_errors": num_score_similarity_errors,
+            "num_muster_errors": num_muster_errors,
+            "score_similarities_scores": score_similarities_scores,
+            "muster_scores": muster_scores,
+        }
 
 
 def mask_tokens_randomly(

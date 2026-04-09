@@ -451,10 +451,10 @@ class TokenTensor(torch.Tensor):
         self.__embed_voice_information(chord_end)
 
     @classmethod
-    def _from_token_single(cls, token: tk.Token) -> torch.Tensor:
+    def _from_token_single(cls, token: tk.Token, device=None) -> torch.Tensor:
         assert isinstance(token, tk.Token), f"Expected Token, got {type(token)}"
 
-        vector = cls(torch.zeros(cls.TOTAL_DIMENSIONS, dtype=torch.float))
+        vector = cls(torch.zeros(cls.TOTAL_DIMENSIONS, dtype=torch.float, device=device))
 
         # Vectorize token type
         vector.__embed_token_type(token)
@@ -488,11 +488,11 @@ class TokenTensor(torch.Tensor):
         return vector
 
     @classmethod
-    def from_tokens(cls, token: tk.Token | list[tk.Token] | list) -> Self:
+    def from_tokens(cls, token: tk.Token | list[tk.Token] | list, device=None) -> Self:
         if isinstance(token, tk.Token):
-            return cls._from_token_single(token)
+            return cls._from_token_single(token, device=device)
         else:
-            return torch.stack([cls.from_tokens(t) for t in token])
+            return torch.stack([cls.from_tokens(t, device=device) for t in token])
 
     def get_as_dict(
         self,
@@ -546,6 +546,7 @@ class TokenTensor(torch.Tensor):
         type_dim_values_dict: dict[str, dict[str, torch.Tensor]],
         token_type_masks: dict[str, torch.Tensor],  # B * T
         padding_mask: torch.Tensor | None = None,  # B * T
+        device=None,
     ) -> Self:
         """
         Convert the expert outputs to a TokenTensor.
@@ -556,7 +557,7 @@ class TokenTensor(torch.Tensor):
         :return: The TokenTensor.
         """
         initial_shape = list(token_type_masks.values())[0].shape
-        tensor = TokenTensor(torch.zeros((*initial_shape, TokenTensor.TOTAL_DIMENSIONS)))
+        tensor = TokenTensor(torch.zeros((*initial_shape, TokenTensor.TOTAL_DIMENSIONS)), device=device)
         for token_type in TokenTensor.TOKEN_INDEXER:
             mask = token_type_masks[token_type.as_str()]
             mask_indices = mask.nonzero(as_tuple=True)
