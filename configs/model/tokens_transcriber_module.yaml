@@ -22,6 +22,7 @@ log_logits_each_n_val_steps: 10
 val_max_logits_logged: 5
 scale_expert_losses_with_token_frequency: false
 tokens_positions_scaling_factor: 1.0
+time_based_cross_attention: false
 full_eval_every_n_val_steps: 5
 full_eval_max_batches: null
 

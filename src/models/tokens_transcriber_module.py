@@ -52,6 +52,7 @@ class TokensTranscriberModule(L.LightningModule):
         val_max_logits_logged: int = 5,
         scale_expert_losses_with_token_frequency: bool = False,
         tokens_positions_scaling_factor: float = 1.0,
+        time_based_cross_attention: bool = False,
         chunk_size_scheduler: Callable[[int], int] | None = None,
         full_eval_every_n_val_steps: int = 100,
         full_eval_max_batches: int = None,
@@ -83,6 +84,7 @@ class TokensTranscriberModule(L.LightningModule):
             ),
             expert_inner_dims=experts_inner_dims,
             router_inner_dims=router_inner_dims,
+            time_based_cross_attention=time_based_cross_attention,
         )
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -243,7 +245,9 @@ class TokensTranscriberModule(L.LightningModule):
             input_tokens=score_tensor_input,
             encoder_hidden_states=encoder_outputs,
             encoder_attention_mask=performance_not_padded_mask,
-            encoder_positions=performance_onset_times,
+            encoder_positions=(
+                performance_onset_times if self.hparams.time_based_cross_attention else None
+            ),
         )  # (B, T, E)
 
         # Pass the decoder outputs through the router

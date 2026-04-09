@@ -32,10 +32,12 @@ class TokensTranscriberModel(nn.Module):
         roformer: Roformer | None,
         expert_inner_dims: list[int],
         router_inner_dims: list[int] = None,
+        time_based_cross_attention: bool = False,
     ):
         super().__init__()
 
         self.roformer = roformer
+        self.time_based_cross_attention = time_based_cross_attention
 
         self.embedding_dim = self.roformer.encoder.config.hidden_size
         self.layer_norm_eps = self.roformer.encoder.config.layer_norm_eps
@@ -307,7 +309,9 @@ class TokensTranscriberModel(nn.Module):
                     attention_mask=tokens_attention_mask,
                     encoder_hidden_states=batched_encoder_output,
                     encoder_attention_mask=performance_attention_mask,
-                    encoder_positions=performance_onset_times,
+                    encoder_positions=(
+                        performance_onset_times if self.time_based_cross_attention else None
+                    ),
                     past_key_values=past_key_values if use_cache else None,
                     use_cache=use_cache,
                 )
