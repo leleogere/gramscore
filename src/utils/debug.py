@@ -13,18 +13,40 @@ def show_matrix(
     matrix: torch.Tensor | np.ndarray,
     figsize: tuple[int, int] | None = None,
     colorbar: bool = False,
+    title: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    origin: str | None = None,
+    extent: tuple[float, float, float, float] | None = None,
 ):
     if isinstance(matrix, torch.Tensor):
         matrix = matrix.detach().cpu().numpy()
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    mat = ax.matshow(matrix, aspect="auto", cmap="viridis", interpolation="none")
+    mat = ax.imshow(
+        matrix,
+        aspect="auto",
+        cmap="viridis",
+        interpolation="none",
+        extent=extent,
+        origin=origin,
+    )
 
     if colorbar:
         plt.colorbar(mat, ax=ax)
 
-    ax.set_title(f"shape={matrix.shape} min={matrix.min()} max={matrix.max()}")
+    if title is not None:
+        title = f"{title}\n"
+    else:
+        title = ""
+    title += f"shape={matrix.shape} min={matrix.min()} max={matrix.max()}"
+    ax.set_title(title)
+
+    if xlabel is not None:
+        ax.set_xlabel(xlabel)
+    if ylabel is not None:
+        ax.set_ylabel(ylabel)
     plt.show()
 
 
