@@ -554,8 +554,13 @@ class TokensTranscriberModule(L.LightningModule):
                 num_muster_errors = full_eval_results["num_muster_errors"]
                 num_conversion_errors = full_eval_results["num_conversion_errors"]
                 if score_similarities_scores:
-                    for key in score_similarities_scores[0].keys():
-                        items = [s[key] for s in score_similarities_scores if s[key] is not None]
+                    keys = {k for d in score_similarities_scores for k in d}
+                    for key in keys:
+                        items = [
+                            s[key]
+                            for s in score_similarities_scores
+                            if s.get(key, None) is not None
+                        ]
                         if len(items) != 0:
                             self.log(
                                 f"[V] Generation metrics/ScoreSimilarity/{key}",
@@ -567,8 +572,9 @@ class TokensTranscriberModule(L.LightningModule):
                     reduce_fx="sum",
                 )
                 if muster_scores:
-                    for key in muster_scores[0].keys():
-                        items = [s[key] for s in muster_scores if s[key] is not None]
+                    keys = {k for d in score_similarities_scores for k in d}
+                    for key in keys:
+                        items = [s[key] for s in muster_scores if s.get(key, None) is not None]
                         if len(items) != 0:
                             self.log(
                                 f"[V] Generation metrics/MUSTER/{key}",
