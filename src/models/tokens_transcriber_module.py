@@ -574,7 +574,7 @@ class TokensTranscriberModule(L.LightningModule):
                     reduce_fx="sum",
                 )
                 if muster_scores:
-                    keys = {k for d in score_similarities_scores for k in d}
+                    keys = {k for d in muster_scores for k in d}
                     for key in keys:
                         items = [s[key] for s in muster_scores if s.get(key, None) is not None]
                         if len(items) != 0:
