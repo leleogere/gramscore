@@ -33,6 +33,7 @@ class TokensTranscriberModel(nn.Module):
         expert_inner_dims: list[int],
         router_inner_dims: list[int] = None,
         time_based_cross_attention: bool = False,
+        latent_part_reserved_for_router: float | int | None = None,
     ):
         super().__init__()
 
@@ -42,6 +43,44 @@ class TokensTranscriberModel(nn.Module):
         self.embedding_dim = self.roformer.encoder.config.hidden_size
         self.layer_norm_eps = self.roformer.encoder.config.layer_norm_eps
         self.hidden_dropout_prob = self.roformer.encoder.config.hidden_dropout_prob
+
+        if latent_part_reserved_for_router is not None:
+            # In case of float, consider a proportion and convert to int (prop * hidden_size)
+            if isinstance(latent_part_reserved_for_router, float):
+                if not (0 < latent_part_reserved_for_router < 1):
+                    raise ValueError(
+                        f"latent_part_reserved_for_router must be between 0 and 1 (both "
+                        f"excluded), got {latent_part_reserved_for_router}"
+                    )
+                latent_part_reserved_for_router = round(
+                    latent_part_reserved_for_router * self.embedding_dim
+                )
+                if latent_part_reserved_for_router == 0:
+                    logger.warning(
+                        "Fraction of embedding dimension reserved for router is too small, "
+                        "capping it to 1 dimension"
+                    )
+                    latent_part_reserved_for_router = 1
+                elif latent_part_reserved_for_router == self.embedding_dim:
+                    logger.warning(
+                        "Fraction of embedding dimension reserved for router is too large, "
+                        f"capping it to {self.embedding_dim - 1} dimensions"
+                    )
+                    latent_part_reserved_for_router = self.embedding_dim - 1
+            # For an int, consider it directly the number of dimensions
+            else:
+                if not (0 < latent_part_reserved_for_router < self.embedding_dim):
+                    raise ValueError(
+                        f"latent_part_reserved_for_router must be between 0 and "
+                        f"{self.embedding_dim} (both excluded), got {latent_part_reserved_for_router}"
+                    )
+        self.latent_part_reserved_for_router = latent_part_reserved_for_router
+        if self.latent_part_reserved_for_router:
+            logger.info(
+                f"Embedding dimension is {self.embedding_dim}, "
+                f"{self.latent_part_reserved_for_router} dimensions are reserved for the router, "
+                f"and {self.embedding_dim - self.latent_part_reserved_for_router} for the experts. "
+            )
 
         self.midi_embedding = MIDIEmbedding(
             stream_dimensions=stream_dimensions,
@@ -57,7 +96,11 @@ class TokensTranscriberModel(nn.Module):
         )
 
         modules = []
-        last_dim = self.embedding_dim
+        last_dim = (
+            self.embedding_dim
+            if self.latent_part_reserved_for_router is None
+            else self.latent_part_reserved_for_router
+        )
         if router_inner_dims is not None:
             for dim in router_inner_dims:
                 modules.append(nn.Linear(last_dim, dim))
@@ -70,7 +113,11 @@ class TokensTranscriberModel(nn.Module):
         self.expert_heads: Mapping[str, ExpertHead] = nn.ModuleDict(
             {
                 token_type.as_str(): ExpertHead(
-                    embedding_dim=self.embedding_dim,
+                    embedding_dim=(
+                        self.embedding_dim
+                        if self.latent_part_reserved_for_router is None
+                        else self.embedding_dim - self.latent_part_reserved_for_router
+                    ),
                     inner_dims=self.expert_inner_dims,
                     output_dims={
                         dimension_name: TokenTensor.DIMS[dimension_name]
@@ -145,6 +192,8 @@ class TokensTranscriberModel(nn.Module):
         return outputs_decoder
 
     def forward_router(self, decoder_outputs: torch.Tensor) -> torch.Tensor:
+        if self.latent_part_reserved_for_router is not None:
+            decoder_outputs = decoder_outputs[..., : self.latent_part_reserved_for_router]
         return self.token_type_router(decoder_outputs)
 
     def forward_expert(
@@ -157,6 +206,8 @@ class TokensTranscriberModel(nn.Module):
         the expert, you only need some indices to pass though this expert, make sure to filter them
         out of decoder_outputs before.
         """
+        if self.latent_part_reserved_for_router is not None:
+            decoder_outputs = decoder_outputs[..., self.latent_part_reserved_for_router :]
         expert_head: ExpertHead = self.expert_heads[token_type]
         expert_outputs = expert_head.forward(decoder_outputs)
         return expert_outputs
@@ -180,6 +231,8 @@ class TokensTranscriberModel(nn.Module):
         for token_type in self.expert_heads:
             expert: ExpertHead = self.expert_heads[token_type]
             involved_decoder_outputs = decoder_outputs[token_type_masks[token_type]]
+            if self.latent_part_reserved_for_router is not None:
+                involved_decoder_outputs = involved_decoder_outputs[..., self.latent_part_reserved_for_router :]
             expert_output = expert.forward(involved_decoder_outputs)
             expert_outputs[token_type] = expert_output
 

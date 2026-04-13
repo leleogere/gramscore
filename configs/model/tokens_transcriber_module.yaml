@@ -16,6 +16,7 @@ max_position_embeddings: 8192
 router_inner_dims: null
 experts_inner_dims: [256, 128]
 expert_loss_weight: 0.01
+latent_part_reserved_for_router: null
 performance_dropout: 0.0
 score_dropout: 0.0
 log_logits_each_n_val_steps: 10

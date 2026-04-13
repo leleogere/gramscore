@@ -46,6 +46,7 @@ class TokensTranscriberModule(L.LightningModule):
         router_inner_dims: list[int] = None,
         experts_inner_dims: list[int] = None,
         expert_loss_weight: float = 0.01,
+        latent_part_reserved_for_router: float | int | None = None,
         performance_dropout: float = 0.05,
         score_dropout: float = 0.75,
         log_logits_each_n_val_steps: int = 1,
@@ -85,6 +86,7 @@ class TokensTranscriberModule(L.LightningModule):
             expert_inner_dims=experts_inner_dims,
             router_inner_dims=router_inner_dims,
             time_based_cross_attention=time_based_cross_attention,
+            latent_part_reserved_for_router=latent_part_reserved_for_router,
         )
         self.optimizer = optimizer
         self.scheduler = scheduler
