@@ -530,14 +530,15 @@ class TokensTranscriberModule(L.LightningModule):
             for flag, count in zip(*flag_counts):
                 self.log(
                     f"[V] Generation metrics/Flag {GenerationState(flag.item()).name}",
-                    count.float(),
-                    reduce_fx="sum",
+                    count.float() / flags.shape[0],
+                    reduce_fx="mean",
                 )
             # Only evaluate scores for which the transcription has finished (biases results toward
             # good transcription, but not sure how to deal with that differently, probably with a
             # large penalty for unfinished transcription but how large then?
             to_evaluate = flags == GenerationState.FINISHED.value
-            if to_evaluate.any():
+            num_to_evaluate = to_evaluate.sum().item()
+            if num_to_evaluate > 0:
                 end_positions = positions[to_evaluate].tolist()
                 predicted_tokens = [
                     tokens[:end_position]
@@ -570,8 +571,8 @@ class TokensTranscriberModule(L.LightningModule):
                             )
                 self.log(
                     f"[V] Generation metrics/ScoreSimilarity/ERRORS",
-                    num_score_similarity_errors,
-                    reduce_fx="sum",
+                    num_score_similarity_errors / num_to_evaluate,
+                    reduce_fx="mean",
                 )
                 if muster_scores:
                     keys = {k for d in muster_scores for k in d}
@@ -583,10 +584,14 @@ class TokensTranscriberModule(L.LightningModule):
                                 torch.tensor(items, dtype=torch.float).mean(dim=0),
                             )
                 self.log(
-                    f"[V] Generation metrics/MUSTER/ERRORS", num_muster_errors, reduce_fx="sum"
+                    f"[V] Generation metrics/MUSTER/ERRORS",
+                    num_muster_errors / num_to_evaluate,
+                    reduce_fx="mean",
                 )
                 self.log(
-                    f"[V] Generation metrics/Detok. errors", num_conversion_errors, reduce_fx="sum"
+                    f"[V] Generation metrics/Detok. errors",
+                    num_conversion_errors / num_to_evaluate,
+                    reduce_fx="mean",
                 )
 
         return loss
