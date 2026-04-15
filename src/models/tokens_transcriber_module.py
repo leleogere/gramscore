@@ -732,6 +732,8 @@ class TokensTranscriberModule(L.LightningModule):
                         score_sim = score_similarity_normalized(
                             est=pred_path.as_posix(), gt=gt_path.as_posix(), full=False
                         )
+                        if all(v is None for v in score_sim.values()):
+                            raise Exception("All score similarity metrics are None")
                         score_similarities_scores.append(score_sim)
                     except Exception as e:
                         logger.error(f"Error on score similarity on {name}: {e}")
