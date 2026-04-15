@@ -256,7 +256,9 @@ class TokensTranscriberModel(nn.Module):
             expert: ExpertHead = self.expert_heads[token_type]
             involved_decoder_outputs = decoder_outputs[token_type_masks[token_type]]
             if self.latent_part_reserved_for_router is not None:
-                involved_decoder_outputs = involved_decoder_outputs[..., self.latent_part_reserved_for_router :]
+                involved_decoder_outputs = involved_decoder_outputs[
+                    ..., self.latent_part_reserved_for_router :
+                ]
             expert_output = expert.forward(involved_decoder_outputs)
             expert_outputs[token_type] = expert_output
 
