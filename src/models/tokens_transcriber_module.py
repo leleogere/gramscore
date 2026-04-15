@@ -44,7 +44,7 @@ class TokensTranscriberModule(L.LightningModule):
         max_position_embeddings=8192,
         positional_encoder: ContinuousPositionalEncoding1D = None,
         router_inner_dims: list[int] = None,
-        experts_inner_dims: list[int] = None,
+        experts_inner_dims: list[int] | dict[str, list[int]] = None,
         expert_loss_weight: float = 0.01,
         latent_part_reserved_for_router: float | int | None = None,
         performance_dropout: float = 0.05,

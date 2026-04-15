@@ -3,6 +3,7 @@ import itertools
 from collections import defaultdict
 from collections.abc import Mapping, Callable
 from enum import Enum
+from typing import MutableMapping
 
 import torch
 import torch.nn as nn
@@ -30,7 +31,7 @@ class TokensTranscriberModel(nn.Module):
         self,
         stream_dimensions: dict[str, int],
         roformer: Roformer | None,
-        expert_inner_dims: list[int],
+        expert_inner_dims: list[int] | dict[str, list[int]],
         router_inner_dims: list[int] = None,
         time_based_cross_attention: bool = False,
         latent_part_reserved_for_router: float | int | None = None,
@@ -109,7 +110,30 @@ class TokensTranscriberModel(nn.Module):
         modules.append(nn.Linear(last_dim, len(TokenTensor.TOKEN_INDEXER)))
         self.token_type_router = nn.Sequential(*modules)
 
-        self.expert_inner_dims = expert_inner_dims
+        if isinstance(expert_inner_dims, list):
+            self.expert_inner_dims = {
+                ttype.as_str(): expert_inner_dims.copy() for ttype in tk.TOKEN_TYPES
+            }
+        elif isinstance(expert_inner_dims, MutableMapping):
+            default = expert_inner_dims.pop("_default", None)
+            provided_keys = set(expert_inner_dims.keys())
+            required_keys = {t.as_str() for t in tk.TOKEN_TYPES}
+            # Make sure no unknown key passed
+            if unknown_keys := provided_keys.difference(required_keys):
+                raise ValueError(f"Unknown token types in expert_inner_dims: {unknown_keys}")
+            # Make sure a default is passed if not all required keys are provided
+            if default is None and (missing_keys := required_keys.difference(provided_keys)):
+                raise ValueError(
+                    f"expert_inner_dims is missing the following token types: {missing_keys}. "
+                    f"Either provide them of provide a '_default' key."
+                )
+            # Build the complete dict
+            self.expert_inner_dims = {k: expert_inner_dims.get(k, default) for k in required_keys}
+        else:
+            raise ValueError(
+                f"expert_inner_dims must be a list[int] or a dict[str, list[int]], "
+                f"got {type(expert_inner_dims)}"
+            )
         self.expert_heads: Mapping[str, ExpertHead] = nn.ModuleDict(
             {
                 token_type.as_str(): ExpertHead(
@@ -118,7 +142,7 @@ class TokensTranscriberModel(nn.Module):
                         if self.latent_part_reserved_for_router is None
                         else self.embedding_dim - self.latent_part_reserved_for_router
                     ),
-                    inner_dims=self.expert_inner_dims,
+                    inner_dims=self.expert_inner_dims[token_type.as_str()],
                     output_dims={
                         dimension_name: TokenTensor.DIMS[dimension_name]
                         for dimension_name in TokenTensor.TOKEN_TYPE_TO_DIMS[token_type]
