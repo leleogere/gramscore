@@ -12,7 +12,7 @@ from models.automata.vectorization_torch import TokenTensor
 @pytest.fixture
 def tokens_tensor():
     torch.random.manual_seed(42)
-    tensor = TokenTensor(torch.randn(5, 10, 97))
+    tensor = TokenTensor(torch.randn(5, 10, TokenTensor.TOTAL_DIMENSIONS))
     return tensor
 
 
@@ -54,7 +54,7 @@ def tokens():
         ),
         tk.ChordEnd(voice_idx=3),
         tk.Rest(
-            staff_idx=2,
+            staff_idx=0,
             voice_idx=1,
             duration=tk.SymbolicDuration(type=tk.SymbolicDurationType.WHOLE, dots=1),
         ),
@@ -69,35 +69,34 @@ def test_getattr(tokens_tensor: TokenTensor):
     Test if the TokenTensor can be indexed by attribute names.
     """
     assert tokens_tensor["token_type"].shape == (5, 10, 11)
-    assert tokens_tensor["bar_numerator"].shape == (5, 10)
-    assert tokens_tensor["bar_denominator"].shape == (5, 10, 6)
-    assert tokens_tensor["bar_is_nominal"].shape == (5, 10)
+    assert tokens_tensor["bar_time_signature"].shape == (5, 10, 180)
+    assert tokens_tensor["bar_is_nominal"].shape == (5, 10, 2)
     assert tokens_tensor["key_signature"].shape == (5, 10, 15)
-    assert tokens_tensor["clef_type"].shape == (5, 10)
-    assert tokens_tensor["staff_idx"].shape == (5, 10, 4)
-    assert tokens_tensor["voice_idx"].shape == (5, 10, 16)
+    assert tokens_tensor["clef_type"].shape == (5, 10, 2)
+    assert tokens_tensor["staff_idx"].shape == (5, 10, 2)
+    assert tokens_tensor["voice_idx"].shape == (5, 10, 8)
     assert tokens_tensor["duration_type"].shape == (5, 10, 11)
     assert tokens_tensor["duration_dots"].shape == (5, 10, 4)
     assert tokens_tensor["note_class"].shape == (5, 10, 7)
     assert tokens_tensor["note_octave"].shape == (5, 10, 9)
     assert tokens_tensor["note_accidental"].shape == (5, 10, 5)
-    assert tokens_tensor["note_tied"].shape == (5, 10)
+    assert tokens_tensor["note_tied"].shape == (5, 10, 2)
     assert tokens_tensor["note_stem_direction"].shape == (5, 10, 3)
-    assert tokens_tensor["tuplet_actual_notes"].shape == (5, 10)
-    assert tokens_tensor["tuplet_normal_notes"].shape == (5, 10)
+    assert tokens_tensor["tuplet_actual_notes"].shape == (5, 10, 1)
+    assert tokens_tensor["tuplet_normal_notes"].shape == (5, 10, 1)
 
     # Test slicing
     assert tokens_tensor[0, :5, "token_type"].shape == (5, 11)
-    assert tokens_tensor[0, :5, "bar_numerator"].shape == (5,)
-    assert tokens_tensor[0, 5, "bar_numerator"].shape == torch.Size([])
+    assert tokens_tensor[0, :5, "tuplet_actual_notes"].shape == (5, 1)
+    assert tokens_tensor[0, 5, "tuplet_actual_notes"].shape == torch.Size([1])
 
 
 def test_setattr(tokens_tensor: TokenTensor):
     """
     Test if the TokenTensor can be indexed by attribute names.
     """
-    tokens_tensor["bar_numerator"] = 12
-    assert torch.all(tokens_tensor["bar_numerator"] == 12)
+    tokens_tensor["note_tied"] = 1
+    assert torch.all(tokens_tensor["note_tied"] == 1)
 
     tokens_tensor[0, :5, "note_class"] = torch.randn((5, 7))
     with pytest.raises(RuntimeError):
@@ -111,7 +110,7 @@ def test_encode_nested(tokens: list[list[tk.Token]]):
     nested_tokens = [tokens for _ in range(3)]
     nested_tokens = [nested_tokens for _ in range(2)]
     tensor = TokenTensor.from_tokens(nested_tokens)
-    assert tensor.shape == (2, 3, len(tokens), 97)
+    assert tensor.shape == (2, 3, len(tokens), TokenTensor.TOTAL_DIMENSIONS)
 
 
 def test_decode_nested(tokens_tensor: TokenTensor):
@@ -137,7 +136,8 @@ def test_encode_decode_stress_test():
     """
     Test if encoding and decoding a sequence of tokens results in the same sequence.
     """
-    random_tensor = TokenTensor(torch.randn(3, 20, 100, 97))
+    torch.manual_seed(42)
+    random_tensor = TokenTensor(torch.randn(3, 20, 100, TokenTensor.TOTAL_DIMENSIONS))
     tokens = random_tensor.to_tokens()
 
     tokens_tensor = TokenTensor.from_tokens(tokens)
@@ -153,3 +153,11 @@ def test_encode_decode_stress_test():
             assert t_original == t_decoded
 
     recursive_test_encode_decode(tokens, decoded_tokens)
+
+
+def test_quantize():
+    torch.manual_seed(42)
+    tensor = TokenTensor(torch.randn(3, 20, 100, TokenTensor.TOTAL_DIMENSIONS))
+    quantized = tensor.quantize()
+    reconstructed = TokenTensor.from_tokens(tensor.to_tokens())
+    assert torch.all(quantized == reconstructed)
