@@ -209,9 +209,9 @@ class BaseTokensDataModule(LightningDataModule):
             ),
             shuffle=False,
             collate_fn=(
-                self.collate_fn
+                partial(self.collate_fn, keep_fields="all")
                 if self.test_validation_mode == "first_chunk"
-                else lambda b: self.collate_fn(b[0])
+                else lambda b: self.collate_fn(b[0], keep_fields="all")
             ),
             num_workers=min(len(self.data_val.entries), self.hparams.num_workers),
             prefetch_factor=self.hparams.prefetch_factor,
