@@ -5,6 +5,7 @@ defaults:
     - scheduler: warmup_cosine_scheduler
     - positional_encoder: finer_positional_encoder
     - chunk_size_scheduler@generic_scheduler: null
+    - loss_weights: defaults
 
 embedding_dim: 512
 num_hidden_layers: 4
@@ -16,13 +17,11 @@ max_position_embeddings: 8192
 router_inner_dims: null
 experts_inner_dims:
   _default: [256, 128]
-expert_loss_weight: 0.01
 latent_part_reserved_for_router: null
 performance_dropout: 0.0
 score_dropout: 0.0
 log_logits_each_n_val_steps: 10
 val_max_logits_logged: 5
-scale_expert_losses_with_token_frequency: false
 tokens_positions_scaling_factor: 1.0
 time_based_cross_attention: false
 full_eval_every_n_val_steps: 5

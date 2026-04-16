@@ -28,6 +28,7 @@ from models.components.positional_encoding import ContinuousPositionalEncoding1D
 from models.components.roformer import Roformer
 from models.components.tokens_transcriber_model import TokensTranscriberModel, GenerationState
 from utils.constants import PADDING_VALUE
+from utils.utils import check_for_missing_and_extra_elements
 
 
 class TokensTranscriberModule(L.LightningModule):
@@ -45,13 +46,14 @@ class TokensTranscriberModule(L.LightningModule):
         positional_encoder: ContinuousPositionalEncoding1D = None,
         router_inner_dims: list[int] = None,
         experts_inner_dims: list[int] | dict[str, list[int]] = None,
-        expert_loss_weight: float = 0.01,
+        expert_loss_weight: float = None,  # Deprecated, use loss_weights instead
+        loss_weights: dict[str, dict[str, float]] = None,
         latent_part_reserved_for_router: float | int | None = None,
         performance_dropout: float = 0.05,
         score_dropout: float = 0.75,
         log_logits_each_n_val_steps: int = 1,
         val_max_logits_logged: int = 5,
-        scale_expert_losses_with_token_frequency: bool = False,
+        scale_expert_losses_with_token_frequency: bool = False,  # Unsupported anymore
         tokens_positions_scaling_factor: float = 1.0,
         time_based_cross_attention: bool = False,
         chunk_size_scheduler: Callable[[int], int] | None = None,
@@ -63,6 +65,73 @@ class TokensTranscriberModule(L.LightningModule):
             experts_inner_dims = [256, 128]
         if router_inner_dims is None:
             router_inner_dims = []  # for backward compatibility (and coherence)
+
+        if scale_expert_losses_with_token_frequency:
+            raise ValueError(
+                "scale_expert_losses_with_token_frequency is deprecated, use loss_weights instead"
+            )
+
+        if expert_loss_weight is not None:
+            logger.warning(
+                "expert_loss_weight is deprecated, use loss_weights instead. Using a weight of 1 "
+                f"for the router loss, and {expert_loss_weight} for all other losses"
+            )
+            loss_weights = {
+                "Router": {"token_type": 1.0},
+                **{
+                    token_type.as_str(): {
+                        dimension_name: expert_loss_weight
+                        for dimension_name in TokenTensor.TOKEN_TYPE_TO_DIMS[token_type]
+                        if dimension_name != "token_type"
+                    }
+                    for token_type in tk.TOKEN_TYPES
+                    if len(TokenTensor.TOKEN_TYPE_TO_DIMS[token_type])
+                    > 1  # filter types without attributes
+                },
+            }
+
+        # Check that loss_weight contains all needed information
+        if loss_weights is None:
+            raise ValueError("loss_weights must be provided")
+        else:
+            required_keys = {
+                "Router",
+                *(
+                    token_type.as_str()
+                    for token_type in tk.TOKEN_TYPES
+                    if len(TokenTensor.TOKEN_TYPE_TO_DIMS[token_type])
+                    > 1  # filter types without attributes
+                ),
+            }
+            provided_keys = set(loss_weights.keys())
+            missing_keys, extra_keys = check_for_missing_and_extra_elements(
+                required_keys, provided_keys
+            )
+            if missing_keys:
+                raise ValueError(f"Loss weights are missing keys: {missing_keys}.")
+            if extra_keys:
+                raise ValueError(f"Loss weights contain unknown keys: {extra_keys}.")
+            for token_type in tk.TOKEN_TYPES:
+                if token_type.as_str() not in loss_weights:
+                    continue  # Filter out types without attributes
+                required_attributes = set(
+                    d for d in TokenTensor.TOKEN_TYPE_TO_DIMS[token_type] if d != "token_type"
+                )
+                provided_attributes = set(loss_weights[token_type.as_str()].keys())
+                missing_attributes, extra_attributes = check_for_missing_and_extra_elements(
+                    required_attributes, provided_attributes
+                )
+                if missing_attributes:
+                    raise ValueError(
+                        f"Loss weights for token type {token_type.as_str()} are missing keys: "
+                        f"{missing_attributes}."
+                    )
+                if extra_attributes:
+                    raise ValueError(
+                        f"Loss weights for token type {token_type.as_str()} contain unknown keys: "
+                        f"{extra_attributes}."
+                    )
+        self.loss_weights = loss_weights
 
         self.save_hyperparameters()
         self.transcriber_model = TokensTranscriberModel(
@@ -91,6 +160,12 @@ class TokensTranscriberModule(L.LightningModule):
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.chunk_size_scheduler = chunk_size_scheduler
+        assert set(self.transcriber_model.expert_heads.keys()) == set(
+            self.loss_weights.keys()
+        ).difference({"Router"}), (
+            f"Non-matching keys between loss_weights {self.loss_weights.keys()} "
+            f"and expert_heads {self.transcriber_model.expert_heads.keys()}"
+        )
 
         # See scripts/estimate_tokens_distribution.py for the weights
         self.token_weights = {
@@ -332,21 +407,17 @@ class TokensTranscriberModule(L.LightningModule):
                     expert_loss = None
                 losses["expert_losses"][token_type][dim_name] = expert_loss
             losses["expert_losses"][token_type]["_global"] = sum(
-                [l for l in losses["expert_losses"][token_type].values() if l is not None]
+                [
+                    self.loss_weights[token_type][dim] * l
+                    for dim, l in losses["expert_losses"][token_type].items()
+                    if l is not None
+                ]
             )
 
         # Combine all losses
-        if self.hparams.scale_expert_losses_with_token_frequency:
-            loss = losses["router_loss"] + self.hparams.expert_loss_weight * sum(
-                self.token_weights[tk.TOKEN_STR_TO_TYPE[token_type]]
-                * losses["expert_losses"][token_type]["_global"]
-                for token_type in losses["expert_losses"]
-            )
-        else:
-            loss = losses["router_loss"] + self.hparams.expert_loss_weight * sum(
-                losses["expert_losses"][token_type]["_global"]
-                for token_type in losses["expert_losses"]
-            )
+        loss = self.loss_weights["Router"]["token_type"] * losses["router_loss"] + sum(
+            losses["expert_losses"][token_type]["_global"] for token_type in losses["expert_losses"]
+        )
 
         return loss, {
             "losses": losses,
