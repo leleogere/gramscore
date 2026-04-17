@@ -600,7 +600,8 @@ class TokensTranscriberModule(L.LightningModule):
             )
             or self.full_eval_on_next_val
         ):
-            logger.info(f"Computing complete metrics on autoregressively transcribed scores")
+            if batch_idx == 0:
+                logger.info(f"Computing complete metrics on autoregressively transcribed scores")
             transcribed_token_tensor, flags_and_positions = self.transcriber_model.generate(
                 performance_streams=batch["performance_streams"],
                 performance_onset_times=batch["performance_onset_times"],
