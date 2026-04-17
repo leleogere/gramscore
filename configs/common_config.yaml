@@ -12,4 +12,3 @@ defaults:
 
 resume_training: false
 log_level: INFO
-tags: ["dev"]
