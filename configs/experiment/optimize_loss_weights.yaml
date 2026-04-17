@@ -13,6 +13,8 @@ data:
     num_workers: 20
     chunk_size: 200
     allowed_staffs: [2]
+    validation_pieces_filename: validation_pieces_double_staff.txt
+    test_pieces_filename: test_pieces_double_staff.txt
 
 trainer:
     max_steps: 10_000  # Short training for each trial
