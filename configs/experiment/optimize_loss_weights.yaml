@@ -18,7 +18,7 @@ trainer:
     log_every_n_steps: 100
     val_check_interval: 500
 #    limit_train_batches: 0.2  # Only use 20% of training data per trial
-    limit_val_batches: 10  # Use 2 batches per validation step
+    limit_val_batches: 20  # Use 2 batches per validation step
     num_sanity_val_steps: 0  # Disable sanity check
 
 model:
@@ -31,6 +31,7 @@ model:
         _default: [128, 64]
     # Disable expensive full evaluation during optimization
     full_eval_every_n_val_steps: 4  # Will be manually enabled at training end
+    full_eval_max_batches: 10
     log_logits_each_n_val_steps: null  # Disabled
 
 param_groups:
