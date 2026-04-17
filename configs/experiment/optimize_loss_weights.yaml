@@ -30,7 +30,7 @@ model:
     experts_inner_dims:
         _default: [128, 64]
     # Disable expensive full evaluation during optimization
-    full_eval_every_n_val_steps: null  # Will be manually enabled at training end
+    full_eval_every_n_val_steps: 4  # Will be manually enabled at training end
     log_logits_each_n_val_steps: null  # Disabled
 
 param_groups:
