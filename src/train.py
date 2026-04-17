@@ -97,6 +97,7 @@ def train(cfg: DictConfig) -> None:
     # datamodule.setup()
     logger.info(f"Datamodule {datamodule} ready!")
 
+    # Load model
     logger.info(f"Instantiating model {cfg.model._target_}")
     with omegaconf.open_dict(cfg.model):
         load_from_checkpoint = cfg.model.pop("load_from_checkpoint", "")
@@ -141,12 +142,14 @@ def train(cfg: DictConfig) -> None:
                 )
                 quantizer.num_performed_notes = chunk_size
 
+    # Instantiate callbacks
     logger.info(f"Instantiating callbacks")
     callbacks = instantiate_callbacks(cfg.callbacks)
     if wandb_osh_callback is not None:
         callbacks.append(wandb_osh_callback)
     logger.info(f"Callbacks {callbacks} ready!")
 
+    # Instantiate trainer
     logger.info(f"Instantiating trainer {cfg.trainer._target_}")
     trainer: lightning.Trainer = hydra.utils.instantiate(
         cfg.trainer, callbacks=callbacks, logger=training_logger

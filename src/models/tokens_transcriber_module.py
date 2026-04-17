@@ -229,6 +229,11 @@ class TokensTranscriberModule(L.LightningModule):
         self.all_flattened_true_token_types = []
         self.all_flattened_pred_token_types = []
 
+        self.full_eval_on_next_val = False
+
+    def force_full_evaluation_on_next_validation(self):
+        self.full_eval_on_next_val = True
+
     def common_step(
         self,
         batch: dict[str, Any],
@@ -500,7 +505,8 @@ class TokensTranscriberModule(L.LightningModule):
 
         # Log the first chunks of each of the first val_max_logits_logged batches
         if (
-            self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0
+            self.hparams.log_logits_each_n_val_steps is not None
+            and self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0
             and batch_idx < self.hparams.val_max_logits_logged
         ):
             entry = batch["entry"][0]
@@ -561,7 +567,10 @@ class TokensTranscriberModule(L.LightningModule):
             self.log(name, metric)
 
         # Log confusion matrix
-        if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
+        if (
+            self.hparams.log_logits_each_n_val_steps is not None
+            and self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0
+        ):
             self.all_flattened_true_token_types.append(flattened_true_token_types)
             self.all_flattened_pred_token_types.append(flattened_pred_token_types)
 
@@ -579,9 +588,16 @@ class TokensTranscriberModule(L.LightningModule):
 
         # Evaluate score with full metrics from time to time (not frequently as expensive)
         # and limit also the number of batches computed
-        if (self.validation_counter % self.hparams.full_eval_every_n_val_steps == 0) and (
-            (self.hparams.full_eval_max_batches is None)
-            or (batch_idx < self.hparams.full_eval_max_batches)
+        if (
+            (
+                self.hparams.full_eval_every_n_val_steps is not None
+                and self.validation_counter % self.hparams.full_eval_every_n_val_steps == 0
+            )
+            and (
+                (self.hparams.full_eval_max_batches is None)
+                or (batch_idx < self.hparams.full_eval_max_batches)
+            )
+            or self.full_eval_on_next_val
         ):
             logger.info(f"Computing complete metrics on autoregressively transcribed scores")
             transcribed_token_tensor, flags_and_positions = self.transcriber_model.generate(
@@ -720,7 +736,10 @@ class TokensTranscriberModule(L.LightningModule):
 
     def on_validation_end(self) -> None:
         # Log large metrics periodically
-        if self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0:
+        if (
+            self.hparams.log_logits_each_n_val_steps is not None
+            and self.validation_counter % self.hparams.log_logits_each_n_val_steps == 0
+        ):
             # Log confusion matrix
             cm = wandb.plot.confusion_matrix(
                 y_true=torch.concat(self.all_flattened_true_token_types).cpu().numpy(),
@@ -750,6 +769,7 @@ class TokensTranscriberModule(L.LightningModule):
         self.validation_counter += 1
 
         logger.info("Validation finished!")
+        self.full_eval_on_next_val = False
 
     def evaluate_transcription(
         self,
