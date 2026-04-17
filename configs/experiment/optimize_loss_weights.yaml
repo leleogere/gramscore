@@ -27,7 +27,8 @@ model:
     num_attention_heads: 4
     embedding_dim: 128
     router_inner_dims: [128, 64]
-    experts_inner_dims: [128, 64]
+    experts_inner_dims:
+        _default: [128, 64]
     # Disable expensive full evaluation during optimization
     full_eval_every_n_val_steps: null  # Will be manually enabled at training end
     log_logits_each_n_val_steps: null  # Disabled
