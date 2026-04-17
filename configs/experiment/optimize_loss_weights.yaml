@@ -17,7 +17,7 @@ data:
     test_pieces_filename: test_pieces_double_staff.txt
 
 trainer:
-    max_steps: null
+    max_steps: -1
     val_check_interval: null
     max_epochs: 30
     log_every_n_steps: 50
