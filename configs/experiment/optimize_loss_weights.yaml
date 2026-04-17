@@ -11,6 +11,7 @@ callbacks: null
 data:
     batch_size: 64
     num_workers: 30
+    prefetch_factor: 3
     chunk_size: 200
     allowed_staffs: [2]
     validation_pieces_filename: validation_pieces_double_staff.txt
