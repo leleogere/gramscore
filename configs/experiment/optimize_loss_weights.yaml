@@ -40,7 +40,7 @@ model:
     full_eval_max_batches: 5
     log_logits_each_n_val_steps: null  # Disabled
     optimizer:
-        lr: 0.001
+        lr: 0.0005
     scheduler:
         warmup_steps: 500
 
