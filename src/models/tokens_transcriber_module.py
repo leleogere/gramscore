@@ -591,6 +591,7 @@ class TokensTranscriberModule(L.LightningModule):
         if (
             (
                 self.hparams.full_eval_every_n_val_steps is not None
+                and self.validation_counter > 0  # Skip first step
                 and self.validation_counter % self.hparams.full_eval_every_n_val_steps == 0
             )
             and (
