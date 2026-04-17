@@ -12,7 +12,7 @@ data:
     batch_size: 48
     num_workers: 20
     prefetch_factor: 4
-    chunk_size: 300
+    chunk_size: 200
     allowed_staffs: [2]
     validation_pieces_filename: validation_pieces_double_staff.txt
     test_pieces_filename: test_pieces_double_staff.txt
@@ -40,7 +40,9 @@ model:
     full_eval_max_batches: 5
     log_logits_each_n_val_steps: null  # Disabled
     optimizer:
-        lr: 0.0005
+        lr: 0.001
+    scheduler:
+        warmup_steps: 500
 
 param_groups:
     - model.loss_weights.Note.note_class:
