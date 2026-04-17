@@ -24,6 +24,8 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from models.tokens_transcriber_module import TokensTranscriberModule
 from train import instantiate_callbacks
 
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 
 def expand_grouped_weights(cfg: DictConfig) -> DictConfig:
     """
