@@ -10,7 +10,7 @@ callbacks: null
 # Reduce training time for optimization trials
 data:
     batch_size: 48
-    num_workers: 58
+    num_workers: 20
     prefetch_factor: 4
     chunk_size: 200
     allowed_staffs: [2]
