@@ -17,9 +17,11 @@ data:
     test_pieces_filename: test_pieces_double_staff.txt
 
 trainer:
-    max_steps: 5_000  # Short training for each trial
+    max_steps: null
+    val_check_interval: null
+    max_epochs: 30
     log_every_n_steps: 50
-    val_check_interval: 200
+    check_val_every_n_epoch: 1
 #    limit_train_batches: 0.2  # Only use 20% of training data per trial
 #    limit_val_batches: 20  # Use 2 batches per validation step
     num_sanity_val_steps: 0  # Disable sanity check
