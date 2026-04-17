@@ -50,8 +50,9 @@ param_groups:
           - model.loss_weights.Note.inverted_mordent
           - model.loss_weights.Note.tremolo
 
-optimized_metric: "[V] Generation metrics/MUSTER/MeanER"
-#optimized_metric: "[V] Router specific metrics/Macro F1"
+optimized_metrics:
+    - "[V] Generation metrics/MUSTER/MeanER"
+    - "[V] Router specific metrics/Macro F1"
 
 # Hydra Optuna Sweeper configuration
 hydra:
@@ -62,11 +63,13 @@ hydra:
         _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
 
         # Optimization setup
-        direction: minimize
+        direction:
+            - minimize
+            - maximize
         study_name: loss_weights_optimization
         storage: sqlite:///optuna_${now:%Y-%m-%d_%H-%M-%S.%f}.db
         n_trials: 100
-        n_jobs: 3  # Set to number of GPUs available for parallel trials
+        n_jobs: 1  # Set to number of GPUs available for parallel trials
 
         # Sampler configuration
         sampler:

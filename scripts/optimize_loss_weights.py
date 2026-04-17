@@ -71,12 +71,9 @@ def expand_grouped_weights(cfg: DictConfig) -> DictConfig:
     return cfg
 
 
-def train_with_config(cfg: DictConfig) -> float:
+def train_with_config(cfg: DictConfig) -> tuple[float, ...]:
     """
     Train a model with the given configuration and return a metric.
-
-    Returns:
-        float: metric to minimize
     """
     # Fix output dir to be in the sweep subdir
     with open_dict(cfg):
@@ -185,21 +182,27 @@ def train_with_config(cfg: DictConfig) -> float:
     model.force_full_evaluation_on_next_validation()
     trainer.validate(model=model, datamodule=datamodule)
 
-    # Get validation metric
-    # metric_name = "[V] Generation metrics/MUSTER/MeanER"
-    if trainer.callback_metrics:
-        optimized_metric = trainer.callback_metrics.get(cfg.optimized_metric, None)
-        if optimized_metric is not None:
-            optimized_metric = float(optimized_metric)
-            logger.info(f"Trial completed with {cfg.optimized_metric}: {optimized_metric:.4f}")
-            return optimized_metric
+    # Get metrics
+    if not trainer.callback_metrics:
+        logger.warning("No metrics found in trainer.callback_metrics, returning infinity for all")
+        metrics = [float('inf') for _ in cfg.optimized_metrics]
+    else:
+        metrics = []
+        for optimized_metric in cfg.optimized_metrics:
+            value = trainer.callback_metrics.get(optimized_metric, None)
+            if value is None:
+                logger.warning(f"Could not find {optimized_metric} in metrics, returning infinity")
+                value = float('inf')
+            else:
+                value = float(value)
+                logger.info(f"Trial completed with {optimized_metric}: {value:.4f}")
+            metrics.append(value)
 
-    logger.warning(f"Could not find {cfg.optimized_metric} in metrics, returning large value")
-    return float('inf')
+    return tuple(metrics)
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="common_config")
-def main(cfg: DictConfig) -> float:
+def main(cfg: DictConfig) -> tuple[float, ...]:
     """
     Main entry point for Optuna optimization with Hydra.
 
@@ -211,13 +214,13 @@ def main(cfg: DictConfig) -> float:
 
     # Train and return metric
     try:
-        optimized_metric = train_with_config(cfg)
+        optimized_metrics = train_with_config(cfg)
     except Exception as e:
         wandb.finish(exit_code=1)
         raise e
     wandb.finish()
 
-    return optimized_metric
+    return optimized_metrics
 
 
 if __name__ == "__main__":
