@@ -84,7 +84,7 @@ hydra:
         # Sampler configuration
         sampler:
             _target_: optuna.samplers.TPESampler
-            seed: ${now:%H%M%S%f}
+            seed: ${now:%-m%d%f}
             n_startup_trials: 10  # Random trials before TPE kicks in
 
         # Search space for grouped loss weights
