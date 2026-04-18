@@ -29,8 +29,8 @@ trainer:
 
 model:
     # Smaller model for faster optimization
-    num_hidden_layers: 2
-    num_attention_heads: 4
+    num_hidden_layers: 3
+    num_attention_heads: 6
     embedding_dim: 256
     router_inner_dims: [128, 64]
     experts_inner_dims:
