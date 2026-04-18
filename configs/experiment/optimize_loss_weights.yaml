@@ -11,8 +11,8 @@ callbacks: null
 data:
     batch_size: 48
     num_workers: 60
-    prefetch_factor: 4
-    chunk_size: 200
+    prefetch_factor: 3
+    chunk_size: 300
     allowed_staffs: [2]
     validation_pieces_filename: validation_pieces_double_staff.txt
     test_pieces_filename: test_pieces_double_staff.txt
@@ -29,7 +29,7 @@ trainer:
 
 model:
     # Smaller model for faster optimization
-    num_hidden_layers: 3
+    num_hidden_layers: 4
     num_attention_heads: 8
     embedding_dim: 512
     router_inner_dims: [256, 128]
@@ -42,7 +42,7 @@ model:
     optimizer:
         lr: 0.0001
     scheduler:
-        warmup_steps: 500
+        warmup_steps: 1000
 
 param_groups:
     - model.loss_weights.Note.note_class:
