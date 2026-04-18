@@ -30,17 +30,17 @@ trainer:
 model:
     # Smaller model for faster optimization
     num_hidden_layers: 3
-    num_attention_heads: 6
-    embedding_dim: 256
-    router_inner_dims: [128, 64]
+    num_attention_heads: 8
+    embedding_dim: 512
+    router_inner_dims: [256, 128]
     experts_inner_dims:
-        _default: [128, 64]
+        _default: [256, 128]
     # Disable expensive full evaluation during optimization
     full_eval_every_n_val_steps: 7  # Will be manually enabled at training end
     full_eval_max_batches: 5
     log_logits_each_n_val_steps: null  # Disabled
     optimizer:
-        lr: 0.0005
+        lr: 0.0001
     scheduler:
         warmup_steps: 500
 
