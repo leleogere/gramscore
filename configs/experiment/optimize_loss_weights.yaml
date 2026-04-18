@@ -20,7 +20,7 @@ data:
 trainer:
     max_steps: -1
     val_check_interval: null
-    max_epochs: 30
+    max_epochs: 20
     log_every_n_steps: 50
     check_val_every_n_epoch: 1
 #    limit_train_batches: 0.2  # Only use 20% of training data per trial
