@@ -78,7 +78,6 @@ hydra:
             - maximize
         study_name: loss_weights_optimization
         storage: sqlite:////local/DEEPLEARNING/music/optuna.db
-        load_if_exists: true
         n_trials: 100
         n_jobs: 1  # Set to number of GPUs available for parallel trials
 
