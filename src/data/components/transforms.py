@@ -69,19 +69,22 @@ class AbstractProcessor:
 
 
 class ScoreReader(AbstractProcessor):
-    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+    def process(self, path: Path) -> pt.score.Part:
         worker = torch.utils.data.get_worker_info()
         if worker is not None:
             logger.trace(
-                f"Worker {worker.id + 1}/{worker.num_workers}: "
-                f"Reading score {sample['entry'].xml_score.as_posix()}"
+                f"Worker {worker.id + 1}/{worker.num_workers}: " f"Reading score {path.as_posix()}"
             )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            score = pt.load_musicxml(sample["entry"].xml_score, force_note_ids=True)
+            score = pt.load_musicxml(path, force_note_ids=True)
             if len(score) > 1:
-                raise ValueError(f"More than one part in {sample['entry'].xml_score}")
+                raise ValueError(f"More than one part in {path.as_posix()}")
             score = pt.score.unfold_part_maximal(score.parts[0], ignore_leaps=False)
+        return score
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        score = self.process(sample["entry"].xml_score)
         return {"score": score}
 
 
@@ -291,8 +294,12 @@ class VoiceRestFiller(AbstractProcessor):
     def __init__(self, tolerant: bool = False):
         self.tolerant = tolerant
 
+    def process(self, score: pt.score.Part) -> pt.score.Part:
+        fill_rests(score, tolerant=self.tolerant)  # WARNING: relace in place
+        return score
+
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
-        fill_rests(sample["score"], tolerant=self.tolerant)
+        self.process(sample["score"])
         return {"score": sample["score"]}
 
 
