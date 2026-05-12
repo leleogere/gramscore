@@ -115,8 +115,8 @@ class TokensTranscriberModel(nn.Module):
                 ttype.as_str(): expert_inner_dims.copy() for ttype in tk.TOKEN_TYPES
             }
         elif isinstance(expert_inner_dims, MutableMapping):
-            default = expert_inner_dims.pop("_default", None)
-            provided_keys = set(expert_inner_dims.keys())
+            default = expert_inner_dims.get("_default", None)
+            provided_keys = set(k for k in expert_inner_dims.keys() if k != "_default')")
             required_keys = {t.as_str() for t in tk.TOKEN_TYPES}
             # Make sure no unknown key passed
             if unknown_keys := provided_keys.difference(required_keys):
