@@ -120,7 +120,7 @@ class TokensTranscriberModel(nn.Module):
             if len(expert_inner_dims) == 0 and default is None:
                 logger.warning(f"Empty expert_inner_dims, using [256, 128] as default expert dims")
                 default = [256, 128]
-            provided_keys = set(k for k in expert_inner_dims.keys() if k != "_default')")
+            provided_keys = set(k for k in expert_inner_dims.keys() if k != "_default")
             required_keys = {t.as_str() for t in tk.TOKEN_TYPES}
             # Make sure no unknown key passed
             if unknown_keys := provided_keys.difference(required_keys):
