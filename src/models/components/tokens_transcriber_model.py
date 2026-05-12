@@ -116,6 +116,10 @@ class TokensTranscriberModel(nn.Module):
             }
         elif isinstance(expert_inner_dims, MutableMapping):
             default = expert_inner_dims.get("_default", None)
+            # For backward compatibility due to config saving bug
+            if len(expert_inner_dims) == 0 and default is None:
+                logger.warning(f"Empty expert_inner_dims, using [256, 128] as default expert dims")
+                default = [256, 128]
             provided_keys = set(k for k in expert_inner_dims.keys() if k != "_default')")
             required_keys = {t.as_str() for t in tk.TOKEN_TYPES}
             # Make sure no unknown key passed
