@@ -26,7 +26,8 @@ from models.automata.io import token_sequence_to_partitura_permissive
 from models.automata.vectorization_torch import TokenTensor
 from models.components.positional_encoding import ContinuousPositionalEncoding1D
 from models.components.roformer import Roformer
-from models.components.tokens_transcriber_model import TokensTranscriberModel, GenerationState
+from models.components.tokens_transcriber_model import TokensTranscriberModel
+from utils.generation import GenerationState
 from utils.constants import PADDING_VALUE
 from utils.utils import check_for_missing_and_extra_elements
 

@@ -25,7 +25,7 @@ class BaseTokensDataModule(LightningDataModule):
         self,
         batch_size: int = 64,
         test_validation_mode: Literal[
-            "first_chunk", "all_wo_overlap", "all_w_overlap"
+            "first_chunk", "all_wo_overlap", "all_w_overlap", "full_piece"
         ] = "first_chunk",
         num_workers: int = 4,
         prefetch_factor: int = None,
@@ -63,7 +63,7 @@ class BaseTokensDataModule(LightningDataModule):
         :return: The collated batch.
         """
         if not isinstance(batch, list) or not all(isinstance(d, dict) for d in batch):
-            raise ValueError("Batch must be a list of dictionaries")
+            raise ValueError(f"Batch must be a list of dictionaries, but is {type(batch)}")
 
         if skip_none:
             batch = [x for x in batch if x is not None]
@@ -181,13 +181,15 @@ class BaseTokensDataModule(LightningDataModule):
         return DataLoader(
             dataset=self.data_val,
             batch_size=(
-                self.batch_size_per_device if self.test_validation_mode == "first_chunk" else 1
+                self.batch_size_per_device
+                if self.test_validation_mode in ("first_chunk", "full_piece")
+                else 1
             ),
             shuffle=False,
             collate_fn=partial(
                 (
                     partial(self.collate_fn, keep_fields=("entry", "score_tokens"))
-                    if self.test_validation_mode == "first_chunk"
+                    if self.test_validation_mode in ("first_chunk", "full_piece")
                     else lambda b: self.collate_fn(b[0], keep_fields=("entry", "score_tokens"))
                 ),
             ),
@@ -205,12 +207,14 @@ class BaseTokensDataModule(LightningDataModule):
         return DataLoader(
             dataset=self.data_test,
             batch_size=(
-                self.batch_size_per_device if self.test_validation_mode == "first_chunk" else 1
+                self.batch_size_per_device
+                if self.test_validation_mode in ("first_chunk", "full_piece")
+                else 1
             ),
             shuffle=False,
             collate_fn=(
                 partial(self.collate_fn, keep_fields="all")
-                if self.test_validation_mode == "first_chunk"
+                if self.test_validation_mode in ("first_chunk", "full_piece")
                 else lambda b: self.collate_fn(b[0], keep_fields="all")
             ),
             num_workers=min(len(self.data_val.entries), self.hparams.num_workers),

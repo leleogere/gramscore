@@ -44,7 +44,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
         chunk_size: int = 500,
         multiprocessing_manager: SyncManager | None = None,
         test_validation_mode: Literal[
-            "first_chunk", "all_w_overlap", "all_wo_overlap"
+            "first_chunk", "all_w_overlap", "all_wo_overlap", "full_piece"
         ] = "all_wo_overlap",
         **kwargs,
     ) -> None:
@@ -197,14 +197,20 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     cache=self._scores_cache,
                 ),
                 t.PerformanceReader(),
-                t.AsapMusicChunker(
-                    num_performed_notes=self.hparams.chunk_size,
-                    annotations=self.hparams.data_dir / "asap_annotations.json",
-                    mode=(
-                        0
-                        if self.test_validation_mode == "first_chunk"
-                        else self.test_validation_mode
-                    ),
+                *(
+                    [
+                        t.AsapMusicChunker(
+                            num_performed_notes=self.hparams.chunk_size,
+                            annotations=self.hparams.data_dir / "asap_annotations.json",
+                            mode=(
+                                0
+                                if self.test_validation_mode == "first_chunk"
+                                else self.test_validation_mode
+                            ),
+                        )
+                    ]
+                    if self.test_validation_mode != "full_piece"
+                    else []
                 ),
                 t.ScoreVectorizer(),
                 t.PerformanceToPerformedNoteList(),
@@ -217,14 +223,20 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.PerformanceReader(),
                 t.VoiceRestFiller(tolerant=True),
                 t.VoiceReorderer(),
-                t.AsapMusicChunker(
-                    num_performed_notes=self.hparams.chunk_size,
-                    annotations=self.hparams.data_dir / "asap_annotations.json",
-                    mode=(
-                        0
-                        if self.test_validation_mode == "first_chunk"
-                        else self.test_validation_mode
-                    ),
+                *(
+                    [
+                        t.AsapMusicChunker(
+                            num_performed_notes=self.hparams.chunk_size,
+                            annotations=self.hparams.data_dir / "asap_annotations.json",
+                            mode=(
+                                0
+                                if self.test_validation_mode == "first_chunk"
+                                else self.test_validation_mode
+                            ),
+                        )
+                    ]
+                    if self.test_validation_mode != "full_piece"
+                    else []
                 ),
                 t.ScoreVectorizer(),
                 t.PerformanceToPerformedNoteList(),
