@@ -18,6 +18,9 @@ asap_test_pieces_path:
     _args_:
         - ${paths.data_dir}/asap-dataset/test_pieces.txt
 
+include_states: false
+state_num_voices: 8
+
 rating_oversampler_config: null
 #    _target_: src.data.pdmx_tokens_datamodule.RatingOversamplerConfig
 #    min_rating_to_consider_good: 4.0

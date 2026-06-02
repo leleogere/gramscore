@@ -13,6 +13,8 @@ import wandb.plot
 from einops import rearrange
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 from loguru import logger
+
+from models.automata.tokens import TranscriptionState
 from muster import muster
 from torch import nn
 from torchmetrics import MetricCollection
@@ -50,6 +52,10 @@ class TokensTranscriberModule(L.LightningModule):
         expert_loss_weight: float = None,  # Deprecated, use loss_weights instead
         loss_weights: dict[str, dict[str, float]] = None,
         latent_part_reserved_for_router: float | int | None = None,
+        states_prediction: bool = False,
+        states_prediction_mlp_dims: list[int] = None,
+        states_prediction_loss_weight: float | None = None,
+        state_num_voices: int = 8,
         performance_dropout: float = 0.05,
         score_dropout: float = 0.75,
         log_logits_each_n_val_steps: int = 1,
@@ -157,6 +163,8 @@ class TokensTranscriberModule(L.LightningModule):
             router_inner_dims=router_inner_dims,
             time_based_cross_attention=time_based_cross_attention,
             latent_part_reserved_for_router=latent_part_reserved_for_router,
+            states_prediction=states_prediction,
+            states_prediction_mlp_dims=states_prediction_mlp_dims,
         )
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -198,6 +206,19 @@ class TokensTranscriberModule(L.LightningModule):
                 in self.transcriber_model.expert_heads  # TODO: remove this when all heads implemented
             }
         )
+
+        # Manage loss computation of state prediction, aka random projection + MSE loss
+        if states_prediction:
+            self.state_prediction_projector_dim = states_prediction_mlp_dims[-1]
+            self.state_prediction_projector = nn.Linear(
+                in_features=TranscriptionState.compute_n_vec_dims(num_voices=state_num_voices),
+                out_features=self.state_prediction_projector_dim,
+            )
+            # Mark as frozen as only part of the loss
+            for param in self.state_prediction_projector.parameters():
+                param.requires_grad_(False)
+            self.state_prediction_loss = nn.MSELoss()
+            self.state_prediction_loss_weight = states_prediction_loss_weight
 
         self.global_metrics = MetricCollection(
             {
@@ -259,6 +280,12 @@ class TokensTranscriberModule(L.LightningModule):
         score_padded_mask: torch.Tensor = batch["score_padding_mask"]  # B * T
         score_not_padded_mask = torch.logical_not(score_padded_mask)
         score_num_tokens: torch.Tensor = batch["score_length"]  # B
+        automata_states: torch.Tensor = batch.get("automata_states_tensor", None)  # B*T*F_state
+        if self.hparams.states_prediction and automata_states is None:
+            raise RuntimeError("State prediction is enabled but no states tensor is provided")
+        elif not self.hparams.states_prediction and automata_states is not None:
+            automata_states = None
+            logger.warning("State prediction is disabled: provided states tensor ignored")
 
         if (
             score_tensor.size(1)
@@ -293,6 +320,9 @@ class TokensTranscriberModule(L.LightningModule):
         # Shift score tokens to the right
         score_tensor_input: TokenTensor = score_tensor[:, :-1]
         score_tensor_expected: TokenTensor = score_tensor[:, 1:]
+        if self.hparams.states_prediction:
+            automata_states_input = automata_states[:, :-1]
+            automata_states_expected = automata_states[:, 1:]
 
         # Dropout some tokens when training
         if train:
@@ -326,6 +356,7 @@ class TokensTranscriberModule(L.LightningModule):
         # Pass the score input and the encoder outputs through the decoder
         decoder_outputs = self.transcriber_model.forward_decoder(
             input_tokens=score_tensor_input,
+            input_states=automata_states_input,
             encoder_hidden_states=encoder_outputs,
             encoder_attention_mask=performance_not_padded_mask,
             encoder_positions=(
@@ -359,6 +390,12 @@ class TokensTranscriberModule(L.LightningModule):
             convert_to_tokentensor=False,
         )
 
+        # Also pass the decoder outputs through the state predictor MLP if needed
+        if self.hparams.states_prediction:
+            automata_states_predicted = self.transcriber_model.forward_state_predictor(
+                decoder_outputs.last_hidden_state
+            )
+
         # Compute all losses
         losses = {}
         # losses:
@@ -376,6 +413,7 @@ class TokensTranscriberModule(L.LightningModule):
         #       duration: <float>
         #       ...
         #     ...
+        #     [state_prediction_loss: float]
 
         # Compute the router loss
         flattened_true_token_types = rearrange(true_token_types, "b t k -> (b t) k")
@@ -420,10 +458,27 @@ class TokensTranscriberModule(L.LightningModule):
                 ]
             )
 
-        # Combine all losses
+        # Combine router and expert losses
         loss = self.loss_weights["Router"]["token_type"] * losses["router_loss"] + sum(
             losses["expert_losses"][token_type]["_global"] for token_type in losses["expert_losses"]
         )
+        # Also include state prediction loss if needed
+        if self.hparams.states_prediction:
+            # Reshape for padding filtering
+            automata_states_predicted_flattened = rearrange(
+                automata_states_predicted, "b t f -> (b t) f"
+            )
+            automata_states_expected_flattened = rearrange(
+                automata_states_expected, "b t f -> (b t) f"
+            )
+            # Evaluate loss
+            losses["state_prediction_loss"] = self.state_prediction_loss(
+                input=automata_states_predicted_flattened[flattened_score_not_padded_mask],
+                target=self.state_prediction_projector(
+                    automata_states_expected_flattened[flattened_score_not_padded_mask]
+                ),
+            )
+            loss += self.hparams.states_prediction_loss_weight * losses["state_prediction_loss"]
 
         return loss, {
             "losses": losses,
@@ -448,7 +503,7 @@ class TokensTranscriberModule(L.LightningModule):
             if loss_name == "router_loss":
                 self.log(f"{global_category_prefix}/Router loss", loss_values)
             # Log expert losses
-            else:
+            elif loss_name == "expert_losses":
                 # First log the sum, so that it appears first in wandb
                 for token_type, dimensions in loss_values.items():
                     self.log(f"{global_category_prefix}/{token_type} loss", dimensions["_global"])
@@ -458,8 +513,15 @@ class TokensTranscriberModule(L.LightningModule):
                     for dim_name, value in dimensions.items():
                         if dim_name != "_global" and value is not None:
                             self.log(f"{expert_components_prefix}/{dim_name} loss", value)
+            elif loss_name == "state_prediction_loss":
+                self.log(f"{global_category_prefix}/State prediction loss", loss_values)
+            else:
+                raise ValueError(f"Unknown loss name: {loss_name}")
 
     def training_step(self, batch: dict[str, Any], batch_idx: int = None) -> STEP_OUTPUT:
+        # Skip empty batch
+        if batch is None:
+            return None
         loss, outputs = self.common_step(batch, train=True)
         self.log("[T|V] Global metrics/Train loss", loss)
         self._log_loss_components(outputs["losses"], name="T")
@@ -493,6 +555,9 @@ class TokensTranscriberModule(L.LightningModule):
         logger.info(f"Validation starting")
 
     def validation_step(self, batch: dict[str, Any], batch_idx: int = None):
+        # Skip empty batch
+        if batch is None:
+            return None
         loss, results = self.common_step(batch, train=False)
         self.log("[T|V] Global metrics/Validation loss", loss)
         self._log_loss_components(results["losses"], name="V")
@@ -603,16 +668,18 @@ class TokensTranscriberModule(L.LightningModule):
         ):
             if batch_idx == 0:
                 logger.info(f"Computing complete metrics on autoregressively transcribed scores")
-            transcribed_token_tensor, flags_and_positions = self.transcriber_model.generate(
-                performance_streams=batch["performance_streams"],
-                performance_onset_times=batch["performance_onset_times"],
-                performance_attention_mask=~batch["performance_padding_mask"],
-                prefix=None,
-                constraint=False,
-                max_constraint_iterations=None,
-                max_generated_length=1500,
-                progress_bar=False,
-                return_logits_and_mask=False,
+            transcribed_token_tensor, flags_and_positions = (
+                self.transcriber_model.generate_single_chunk(
+                    performance_streams=batch["performance_streams"],
+                    performance_onset_times=batch["performance_onset_times"],
+                    performance_attention_mask=~batch["performance_padding_mask"],
+                    prefix=None,
+                    constraint=self.hparams.states_prediction,  # constraint when state prediction
+                    max_constraint_iterations=(10 if self.hparams.states_prediction else None),
+                    max_generated_length=1500,
+                    progress_bar=False,
+                    return_logits_and_mask=False,
+                )
             )
             flags = flags_and_positions[:, 0]
             positions = flags_and_positions[:, 1] + 1

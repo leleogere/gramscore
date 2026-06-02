@@ -5,6 +5,7 @@ from typing import Optional
 
 import torch
 from lightning import LightningDataModule
+from loguru import logger
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -79,6 +80,11 @@ class BaseTokensDataModule(LightningDataModule):
                 "Error key found in batch. Fix it or pass skip_error_key=True to the collate_fn."
             )
 
+        # Skip empty batch
+        if len(batch) == 0:
+            logger.warning("Empty batch encountered, returning None.")
+            return None
+
         results = {}
         fields = [key for key in batch[0]]
         for field in fields:
@@ -143,13 +149,13 @@ class BaseTokensDataModule(LightningDataModule):
                         [streams[stream_names[0]].size(0) for streams in batched_streams]
                     )
 
-            elif field == "performance_onset_times":
-                performance_onset_times = pad_sequence(
-                    [x["performance_onset_times"] for x in batch],
+            elif field in ("performance_onset_times", "automata_states_tensor"):
+                padded_tensor = pad_sequence(
+                    [x[field] for x in batch],
                     batch_first=True,
                     padding_value=PADDING_VALUE,
                 )
-                results["performance_onset_times"] = performance_onset_times
+                results[field] = padded_tensor
 
             # Simply collate as list other fields
             elif keep_fields == "all" or field in keep_fields:

@@ -22,8 +22,9 @@ from data.music_chunking import clip_quantized_midi
 from data.music_chunking import clip_score
 from data.music_chunking import read_chunk_file
 from midi2scoretransformer.tokenizer import MultistreamTokenizer
+from models.automata.automata import ConstrainedAutomata
 from models.automata.io import partitura_to_token_sequence
-from models.automata.tokens import fill_rests, AnyToken
+from models.automata.tokens import fill_rests, AnyToken, TranscriptionState
 from models.automata.vectorization_torch import TokenTensor
 from models.automata.voice_reordering import reorder_voices
 from utils.midi import compute_midi_end_without_tempo_changes, read_pretty_midi
@@ -837,6 +838,31 @@ class ScoreVectorizer(AbstractProcessor):
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         score_tokens, score_tensor = self.process(sample["score"])
         return {"score_tokens": score_tokens, "score_tensor": score_tensor}
+
+
+class AutomataStatesComputer(AbstractProcessor):
+    def __init__(self, num_voices: int = 8):
+        self.num_voices = num_voices
+
+    def process(self, tokens: list[AnyToken]) -> list[TranscriptionState]:
+        automata = ConstrainedAutomata(num_voices=self.num_voices)
+        states = []
+        for token in tokens:
+            automata.transition(token, inplace=True)
+            states.append(automata.state)
+        return states
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        states = self.process(sample["score_tokens"])
+        return {"automata_states": states}
+
+
+class AutomataStatesVectorizer(AbstractProcessor):
+    def process(self, states: list[TranscriptionState]) -> torch.Tensor:
+        return torch.stack([s.vectorize() for s in states], dim=0)
+
+    def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
+        return {"automata_states_tensor": self.process(sample["automata_states"])}
 
 
 class PerformanceToPerformedNoteList(AbstractProcessor):

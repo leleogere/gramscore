@@ -18,8 +18,9 @@ from transformers.modeling_outputs import (
 
 from data.components.transforms import VectorizedPerformanceStreamsBucketizer
 from models.automata import tokens as tk
+from models.automata.tokens import TranscriptionState
 from models.automata.vectorization_torch import TokenTensor, ProblemType, clip
-from models.components.embedding import MIDIEmbedding
+from models.components.embedding import MIDIEmbedding, StateEmbedding
 from models.components.embedding import ScoreTokenEmbedding
 from models.components.expert_head import ExpertHead
 from models.components.roformer import Roformer
@@ -38,6 +39,8 @@ class TokensTranscriberModel(nn.Module):
         router_inner_dims: list[int] = None,
         time_based_cross_attention: bool = False,
         latent_part_reserved_for_router: float | int | None = None,
+        states_prediction: bool = False,
+        states_prediction_mlp_dims: list[int] = None,
     ):
         super().__init__()
 
@@ -98,6 +101,28 @@ class TokensTranscriberModel(nn.Module):
             layer_norm_eps=self.layer_norm_eps,
             dropout_prob=self.hidden_dropout_prob,
         )
+
+        self.states_prediction = states_prediction
+        if states_prediction_mlp_dims is not None and not states_prediction:
+            logger.warning(
+                f"states_prediction_head_dims is ignored when states_prediction is False"
+            )
+        if self.states_prediction:
+            self.states_embedding = StateEmbedding(
+                embedding_dimension=self.embedding_dim,
+                layer_norm_eps=self.layer_norm_eps,
+                dropout_prob=self.hidden_dropout_prob,
+            )
+            state_prediction_mlp_layers = []
+            dim1 = self.embedding_dim
+            for dim2 in states_prediction_mlp_dims[:-1]:
+                state_prediction_mlp_layers.append(nn.Linear(dim1, dim2))
+                state_prediction_mlp_layers.append(nn.ReLU())
+                dim1 = dim2
+            state_prediction_mlp_layers.append(
+                nn.Linear(dim1, states_prediction_mlp_dims[-1])
+            )  # No ReLU last
+            self.states_prediction_mlp = nn.Sequential(*state_prediction_mlp_layers)
 
         modules = []
         last_dim = (
@@ -200,6 +225,7 @@ class TokensTranscriberModel(nn.Module):
     def forward_decoder(
         self,
         input_tokens: TokenTensor,
+        input_states: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_hidden_states: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
@@ -209,6 +235,11 @@ class TokensTranscriberModel(nn.Module):
         output_attentions: bool = False,
     ) -> BaseModelOutputWithPastAndCrossAttentions:
         score_embeddings = self.score_embedding.forward(input_tokens)
+        if self.states_prediction:
+            if input_states is None:
+                raise ValueError("Input states must be provided when states_prediction is True.")
+            state_embeddings = self.states_embedding.forward(input_states)
+            score_embeddings += state_embeddings  # Sum both embeddings
         outputs_decoder = self.roformer.forward_dec(
             score_embeddings=score_embeddings,
             attention_mask=attention_mask,
@@ -277,6 +308,11 @@ class TokensTranscriberModel(nn.Module):
             )
         else:
             return expert_outputs
+
+    def forward_state_predictor(self, decoder_outputs: torch.Tensor) -> torch.Tensor:
+        if self.latent_part_reserved_for_router is not None:
+            decoder_outputs = decoder_outputs[..., : self.latent_part_reserved_for_router]
+        return self.states_prediction_mlp(decoder_outputs)
 
     def generate(
         self,
@@ -718,7 +754,7 @@ class TokensTranscriberModel(nn.Module):
         performance_streams: dict[str, torch.Tensor],
         performance_onset_times: torch.Tensor,
         performance_attention_mask: torch.BoolTensor = None,  # 1 for attended, 0 for masked
-        prefix: TokenTensor = None,
+        prefix: list[tk.AnyToken] | None = None,
         constraint: bool = False,
         max_constraint_iterations: int = None,
         max_generated_length: int = 1024,
@@ -730,11 +766,19 @@ class TokensTranscriberModel(nn.Module):
         device = performance_onset_times.device
         if not use_cache:
             raise NotImplementedError("Generating without cache is not implemented yet")
+        if return_logits_and_mask:
+            raise NotImplementedError("Returning logits and mask is disabled for now until fixed")
+
+        if self.states_prediction:
+            if not constraint:
+                constraint = True
+                logger.warning(f"Forcing constraint to True as states prediction is enabled.")
+
         # Check dimensions
         batch_size, seq_length = performance_onset_times.shape
         if any(s.shape[:-1] != (batch_size, seq_length) for s in performance_streams.values()) or (
             prefix is not None
-            and prefix.shape[0] not in (batch_size, 1)
+            and len(prefix) != batch_size
             or (
                 performance_attention_mask is not None
                 and performance_attention_mask.shape != (batch_size, seq_length)
@@ -742,7 +786,7 @@ class TokensTranscriberModel(nn.Module):
         ):
             raise ValueError(
                 f"Performance streams (B*L*Fi), onset times (B*L) stream, attention mask (B*L) and "
-                f"prefix (B*P*E or 1*P*E) must have matching dimensions."
+                f"prefix (list of size B) must have matching dimensions."
             )
 
         # Handle eventual logits and masks
@@ -755,34 +799,54 @@ class TokensTranscriberModel(nn.Module):
 
             automata = [
                 ConstrainedAutomata(
-                    num_voices=16,
+                    num_voices=8,
                     allowed_pitches=pitch_stream.sum(0)
                     .nonzero(as_tuple=True)[0]
                     .tolist(),  # as pitch stream is OHE
                 )
                 for pitch_stream in performance_streams["pitch"]
             ]
+            if self.states_prediction:
+                batched_states_vectors = [[] for _ in automata]
         elif max_constraint_iterations:
             logger.warning("max_constraint_iterations is not used for unconstrained generation")
 
         # Handle eventual prefix
         if prefix is None:
-            batched_tokens_tensor = TokenTensor.from_tokens(
-                [[tk.StartOfScore()]], device=device
-            ).expand(batch_size, -1, -1)
-            # prefix_attention_mask = None
+            sos_token = tk.StartOfScore()
+            batched_tokens_tensor = TokenTensor.from_tokens([[sos_token]], device=device).expand(
+                batch_size, -1, -1
+            )
+            if self.states_prediction:
+                for a, states in zip(automata, batched_states_vectors):
+                    a.transition(sos_token)
+                    states.append(a.state.vectorize())
+                batched_states_tensor = torch.stack(
+                    [torch.stack(states_vectors) for states_vectors in batched_states_vectors]
+                )
         else:
-            batched_tokens_tensor: TokenTensor = prefix
-            # prefix_attention_mask = batched_tokens_tensor[..., 0] != PADDING_VALUE
-            # Adapt the prefix tokens to the shift caused by left padding
-            # [0, 1, 2, 3...] -> [0, 0, 0, 1, 2, 3...] if padded 2 tokens
-            # prefix_tokens_positions = torch.cumsum(~prefix_padding_mask, dim=1) - 1
-            # if batched_tokens_tensor.ndim == 1:
-            #     batched_tokens_tensor = batched_tokens_tensor.repeat(batch_size)
+            # Left-pad prefixes and convert them to tensor
+            prefix_tensor: TokenTensor = pad_sequence(
+                sequences=[TokenTensor.from_tokens(p) for p in prefix],
+                batch_first=True,
+                padding_value=PADDING_VALUE,
+                padding_side="left",
+            ).as_subclass(TokenTensor)
+            batched_tokens_tensor: TokenTensor = prefix_tensor
+            # Pass automata on prefixes
             if constraint:
-                for sequence, automaton in zip(batched_tokens_tensor.to_tokens(), automata):
+                for i, (sequence, automaton) in enumerate(zip(prefix, automata)):
                     for token in sequence:
                         automaton.transition(token)
+                        if self.states_prediction:
+                            batched_states_vectors[i].append(automaton.state.vectorize())
+                if self.states_prediction:
+                    batched_states_tensor = pad_sequence(
+                        sequences=batched_states_vectors,
+                        batch_first=True,
+                        padding_value=PADDING_VALUE,
+                        padding_side="left",
+                    )
             # last_predicted_tokens = batched_tokens_tensor[:, -1].to_tokens()
 
         # Prepare output flags
@@ -799,19 +863,6 @@ class TokensTranscriberModel(nn.Module):
                 attention_mask=performance_attention_mask,
             )
 
-            # # Pass prefix
-            # if batched_tokens_tensor.shape[1] > 1:
-            #     batched_decoder_outputs = self.forward_decoder(
-            #         input_tokens=batched_tokens_tensor,
-            #         encoder_hidden_states=batched_encoder_output,
-            #         encoder_attention_mask=performance_attention_mask,
-            #         use_cache=use_cache,
-            #         past_key_values=None,
-            #     )  # TODO: make sure that it is equivalent to multiple forward passes
-            #     past_key_values = batched_decoder_outputs.past_key_values
-            # else:
-            #     past_key_values = None
-
             # Generation loop
             init_pos = batched_tokens_tensor.shape[1]
             past_key_values = None
@@ -826,14 +877,19 @@ class TokensTranscriberModel(nn.Module):
                 # Pass the last token if there is already cache, else the whole sequence
                 if past_key_values is None:
                     batched_input_tokens = batched_tokens_tensor
+                    batched_input_states = batched_states_tensor if self.states_prediction else None
                 else:
                     batched_input_tokens = batched_tokens_tensor[:, -1:]
+                    batched_input_states = (
+                        batched_states_tensor[:, -1:] if self.states_prediction else None
+                    )
                 tokens_attention_mask = (  # Computed for whole sequence
                     batched_tokens_tensor[..., 0].as_tensor() != PADDING_VALUE
                 )
                 write_compare_to_file(batched_input_tokens[0], f"input_tokens_{pos}.txt")
                 batched_decoder_outputs = self.forward_decoder(
                     input_tokens=batched_input_tokens,
+                    input_states=batched_input_states,
                     attention_mask=tokens_attention_mask,
                     encoder_hidden_states=batched_encoder_output,
                     encoder_attention_mask=performance_attention_mask,
@@ -882,15 +938,15 @@ class TokensTranscriberModel(nn.Module):
                 else:
                     batched_token_type_logits_masked = batched_token_type_logits
 
-                if return_logits_and_mask:
-                    # TODO: make this works with constrains
-                    mask = torch.zeros(
-                        batched_token_type_logits.shape[-1],
-                        dtype=torch.bool,
-                        device=batched_token_type_logits.device,
-                    )
-                    mask[allowed_token_types_idx] = True
-                    logits_and_masks.append([batched_token_type_logits, mask])
+                # if return_logits_and_mask:
+                #     # TODO: make this works with constrains
+                #     mask = torch.zeros(
+                #         batched_token_type_logits.shape[-1],
+                #         dtype=torch.bool,
+                #         device=batched_token_type_logits.device,
+                #     )
+                #     mask[allowed_token_types_idx] = True
+                #     logits_and_masks.append([batched_token_type_logits, mask])
 
                 # Get the predicted token types
                 batched_predicted_token_types_tensor = batched_token_type_logits_masked.argmax(
@@ -930,12 +986,18 @@ class TokensTranscriberModel(nn.Module):
                         convert_to_tokentensor=False,
                     )
                     batched_next_token = []
+                    if self.states_prediction:
+                        batched_next_state = []
                     current_index_per_token_type = defaultdict(itertools.count)
                     for i, (next_type, automaton, flag) in enumerate(
                         zip(next_token_type, automata, batched_finished_flag)
                     ):
                         if flag[0] != GenerationState.UNFINISHED.value:
                             batched_next_token.append(tk.EndOfScore())
+                            if self.states_prediction:
+                                batched_next_state.append(
+                                    torch.zeros(TranscriptionState.compute_n_vec_dims(8))
+                                )
                             continue
                         idx = next(current_index_per_token_type[next_type])
                         expert_outputs = {
@@ -968,10 +1030,19 @@ class TokensTranscriberModel(nn.Module):
                             found = False
                         if found:
                             automaton.transition(next_token, inplace=True)
+                            if self.states_prediction:
+                                next_state = automaton.state.vectorize()
+                        else:
+                            if self.states_prediction:
+                                next_state = torch.zeros(TranscriptionState.compute_n_vec_dims(8))
                         batched_next_token.append(next_token)
+                        if self.states_prediction:
+                            batched_next_state.append(next_state)
                     batched_next_token_tensor = TokenTensor.from_tokens(
                         batched_next_token, device=device
                     ).unsqueeze(1)
+                    if self.states_prediction:
+                        batched_next_state_tensor = torch.stack(batched_next_state).unsqueeze(1)
                 else:
                     batched_next_token_tensor = self.forward_experts(
                         decoder_outputs=last_hidden_state,  # 1 * E
@@ -1008,6 +1079,10 @@ class TokensTranscriberModel(nn.Module):
                 batched_tokens_tensor = torch.concat(
                     [batched_tokens_tensor, batched_next_token_tensor], dim=1
                 )
+                if self.states_prediction:
+                    batched_states_tensor = torch.concat(
+                        [batched_states_tensor, batched_next_state_tensor], dim=1
+                    )
 
                 # print(next_token)
                 # print(automata.state)

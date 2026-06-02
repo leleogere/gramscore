@@ -36,6 +36,8 @@ class AsapTokensDataModule(BaseTokensDataModule):
         self,
         data_dir: Path,
         include_midi_scores: bool = False,
+        include_states: bool = False,
+        state_num_voices: int = 8,
         filter_fn: Callable[[ScorePerformanceEntry], bool] | None = None,
         valid_tsv_file: Path | None = None,
         validation_pieces_filename: str = "validation_pieces.txt",
@@ -184,6 +186,14 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 t.VectorizedPerformanceDurationJitterer(min_factor=0.95, max_factor=1.05),
                 t.VectorizedPerformanceStreamsBucketizer(),
                 t.ScoreVectorizer(),
+                *(
+                    [
+                        t.AutomataStatesComputer(num_voices=self.hparams.num_voices),
+                        t.AutomataStatesVectorizer(),
+                    ]
+                    if self.hparams.include_states
+                    else []
+                ),
             ],
             "validation": [
                 t.ToDict(),
@@ -213,6 +223,14 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     else []
                 ),
                 t.ScoreVectorizer(),
+                *(
+                    [
+                        t.AutomataStatesComputer(num_voices=self.hparams.num_voices),
+                        t.AutomataStatesVectorizer(),
+                    ]
+                    if self.hparams.include_states
+                    else []
+                ),
                 t.PerformanceToPerformedNoteList(),
                 t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceStreamsBucketizer(),
@@ -239,6 +257,14 @@ class AsapTokensDataModule(BaseTokensDataModule):
                     else []
                 ),
                 t.ScoreVectorizer(),
+                *(
+                    [
+                        t.AutomataStatesComputer(num_voices=self.hparams.num_voices),
+                        t.AutomataStatesVectorizer(),
+                    ]
+                    if self.hparams.include_states
+                    else []
+                ),
                 t.PerformanceToPerformedNoteList(),
                 t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceStreamsBucketizer(),

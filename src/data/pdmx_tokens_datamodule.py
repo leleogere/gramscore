@@ -29,6 +29,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
     def __init__(
         self,
         data_dir: Path,
+        include_states: bool = False,
+        state_num_voices: int = 8,
         asap_validation_pieces_path: Path | None = None,
         asap_test_pieces_path: Path | None = None,
         validation_pieces_filename: str = "validation_pieces.txt",
@@ -74,6 +76,14 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 t.QuantizedMusicChunker(num_performed_notes=self.hparams.chunk_size, mode="random"),
                 t.RandomTransposer(),
                 t.ScoreVectorizer(),
+                *(
+                    [
+                        t.AutomataStatesComputer(num_voices=self.hparams.state_num_voices),
+                        t.AutomataStatesVectorizer(),
+                    ]
+                    if self.hparams.include_states
+                    else []
+                ),
                 t.PerformanceToPerformedNoteList(),
                 t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceVariableSpeedAugmenter(
@@ -103,6 +113,14 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                     ),
                 ),
                 t.ScoreVectorizer(),
+                *(
+                    [
+                        t.AutomataStatesComputer(num_voices=self.hparams.state_num_voices),
+                        t.AutomataStatesVectorizer(),
+                    ]
+                    if self.hparams.include_states
+                    else []
+                ),
                 t.PerformanceToPerformedNoteList(),
                 t.PerformedNoteListVectorizer(),
                 t.VectorizedPerformanceStreamsBucketizer(),

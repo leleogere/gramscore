@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+from models.automata.tokens import TranscriptionState
 from models.automata.vectorization_torch import TokenTensor
 
 
@@ -43,7 +44,7 @@ class MIDIEmbedding(nn.Module):
 
 class ScoreTokenEmbedding(nn.Module):
     """
-    Project embeddings to compound tokens for score data.
+    Project score tokens into a fixed-size embedding space.
     Each token (dimension TokenTensor.TOTAL_DIMENSIONS) is projected into an embedding space,
     followed by a layer norm and dropout.
     """
@@ -69,6 +70,33 @@ class ScoreTokenEmbedding(nn.Module):
         """
         # Apply layer norm and dropout to the input embeddings
         embeddings = self.embedding(tokens)
+        embeddings = self.layer_norm(embeddings)
+        embeddings = self.dropout(embeddings)
+        return embeddings
+
+
+class StateEmbedding(nn.Module):
+    """
+    Project vectorized automata transcription states into a fixed-size embedding space.
+    """
+
+    def __init__(
+        self,
+        embedding_dimension: int,
+        layer_norm_eps: float,
+        dropout_prob: float,
+        num_voices: int = 8,
+    ):
+        super().__init__()
+        self.embedding_dimension = embedding_dimension
+        self.num_voices = num_voices
+        self.state_dim = TranscriptionState.compute_n_vec_dims(num_voices)
+        self.embedding = nn.Linear(self.state_dim, self.embedding_dimension)
+        self.layer_norm = nn.LayerNorm(self.embedding_dimension, eps=layer_norm_eps)
+        self.dropout = nn.Dropout(dropout_prob)
+
+    def forward(self, states: torch.Tensor) -> torch.Tensor:
+        embeddings = self.embedding(states)
         embeddings = self.layer_norm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings

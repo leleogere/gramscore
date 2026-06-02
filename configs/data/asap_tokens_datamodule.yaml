@@ -11,6 +11,8 @@ data_dir:
 
 batch_size: 1
 include_midi_scores: true
+include_states: false
+state_num_voices: 8
 #filter_fn: 'lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score"'
 #filter_fn: 'lambda e: e.composer == "Bach"'
 valid_tsv_file:

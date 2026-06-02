@@ -1,32 +1,26 @@
 import copy
-import dataclasses
 import functools
 import math
 import operator
-import random
-from collections import defaultdict
-from dataclasses import dataclass, fields, field
 from abc import abstractmethod
+from collections import defaultdict
+from collections import namedtuple
 from collections.abc import Callable
-from enum import Enum
+from dataclasses import dataclass
 from enum import StrEnum
 from fractions import Fraction
-from pprint import pprint
-from typing import Any
-import inspect
 from typing import Literal
 from typing import Self
-from collections import namedtuple
 from typing import TypeVar
 
 import partitura as pt
 import partitura.score
+import torch
 from loguru import logger
 from partitura.utils.globals import INT_TO_ALT
 
 from utils.musicxml import ARTICULATIONS
 from utils.musicxml import ORNAMENTS
-from utils.musicxml import voice_absolute_into_voice_relative_to_staff
 
 
 class SymbolicDurationType(StrEnum):
@@ -96,6 +90,8 @@ TieProperties = namedtuple("TieProperties", ["note_tuple", "min_resolution_pos"]
 
 
 class ChordState:
+    n_vec_dims: int = 130  # dur + pitches + num_notes
+
     def __init__(self, symbolic_duration: SymbolicDuration):
         self._symbolic_duration: SymbolicDuration = symbolic_duration
         self.notes: list[NoteTuple] = []
@@ -115,6 +111,28 @@ class ChordState:
 
     def __str__(self):
         return f"Chord({self.duration}, {self.num_notes} notes)"
+
+    def vectorize(self):
+        """Vectorize a chord into a tensor."""
+        pitches = torch.zeros(128, dtype=torch.float)
+        pitches[
+            [
+                pt.score.pitch_spelling_to_midi_pitch(step=s, alter=a, octave=o)
+                for (s, a, o) in self.notes
+            ]
+        ] = 1
+        return torch.cat(
+            [
+                torch.tensor(
+                    [
+                        float(self.duration.quarter_length),
+                        float(self.num_notes),
+                    ],
+                    dtype=torch.float,
+                ),
+                pitches,
+            ]
+        )
 
 
 class SegmentCompletionState:
@@ -163,6 +181,8 @@ class SegmentCompletionState:
 
 
 class TupletCompletionState(SegmentCompletionState):
+    n_vec_dims: int = 7  # norm/act_dur + norm/act_bu + bu + pos + complete
+
     def __init__(self, n_actual: int, n_normal: int, unit_duration: SymbolicDuration):
         self.n_actual = n_actual
         self.n_normal = n_normal
@@ -183,11 +203,32 @@ class TupletCompletionState(SegmentCompletionState):
     def duration_multiplier(self) -> Fraction:
         return Fraction(self.n_normal, self.n_actual)
 
+    @property
+    def completed(self) -> bool:
+        return self.current_position >= self.actual_duration
+
     def __str__(self):
         return f"Tuplet(pos={self.current_position}, rem={self.remaining_duration}, type={self.n_actual}:{self.n_normal} {self.unit_duration})"
 
+    def vectorize(self) -> torch.Tensor:
+        """Vectorize a tuplet into a tensor."""
+        return torch.tensor(
+            [
+                float(self.normal_duration),
+                float(self.actual_duration),
+                float(self.n_normal),
+                float(self.n_actual),
+                float(self.unit_duration.quarter_length),
+                float(self.current_position),
+                float(self.completed),
+            ],
+            dtype=torch.float,
+        )
+
 
 class VoiceCompletionState(SegmentCompletionState):
+    n_vec_dims: int = ChordState.n_vec_dims + TupletCompletionState.n_vec_dims + 6
+
     def __init__(self, total_time: Fraction | None):
         super().__init__(total_time)
         self.chord: ChordState | None = None
@@ -250,11 +291,39 @@ class VoiceCompletionState(SegmentCompletionState):
     def __str__(self):
         return f"VoiceCompletionState(pos={self.current_position}, tot={self.duration}, rem={self.remaining_duration}, chord={self.chord}, tuplet={self.tuplet})"
 
+    def vectorize(self) -> torch.Tensor:
+        """Vectorize a voice into a tensor."""
+        return torch.cat(
+            [
+                torch.tensor(
+                    [
+                        float(self.duration if self.is_bounded else 0),
+                        float(self.is_bounded),
+                        float(self.current_position),
+                        float(self.completed),
+                        float(self.in_chord),
+                        float(self.in_tuplet),
+                    ],
+                    dtype=torch.float,
+                ),
+                (
+                    self.chord.vectorize()
+                    if self.chord is not None
+                    else torch.zeros(ChordState.n_vec_dims, dtype=torch.float)
+                ),
+                (
+                    self.tuplet.vectorize()
+                    if self.tuplet is not None
+                    else torch.zeros(TupletCompletionState.n_vec_dims, dtype=torch.float)
+                ),
+            ]
+        )
+
 
 class TranscriptionState:
     def __init__(
         self,
-        num_voices: int = 1,
+        num_voices: int = 8,
         initial_measure_number: int = 1,
         allowed_pitches: set[int] = None,
     ):
@@ -267,6 +336,11 @@ class TranscriptionState:
         self.finished = False  # Whether the EOS token has been produced
         self.first_bar_started = False  # Whether the first bar has been started
         self.allowed_pitches = allowed_pitches
+        self.n_vec_dims = self.compute_n_vec_dims(num_voices)
+
+    @staticmethod
+    def compute_n_vec_dims(num_voices: int) -> int:
+        return num_voices * VoiceCompletionState.n_vec_dims + 2 * 128 + 1
 
     @property
     def num_voices(self) -> int:
@@ -330,6 +404,42 @@ class TranscriptionState:
         ]
         sep = ",\n  "
         return f"TranscriptionState(\n  {sep.join(components)}\n)"
+
+    def vectorize(self) -> torch.Tensor:
+        return torch.cat(
+            [
+                *[v.vectorize() for v in self.voices],
+                torch.tensor([self.are_started_voices_complete()], dtype=torch.float),
+                self._vectorize_tied_notes(),
+            ],
+            dim=0,
+        )
+
+    def _vectorize_tied_notes(self) -> torch.Tensor:
+        """
+        Vectorize the tied notes in the transcription state.
+        The vectorization is simply the concatenation of two 128d vectors:
+            - A boolean one indicating the MIDI pitches tied
+            - A floating point one indicating the minimum position (in quarter notes) the
+              corresponding tied pitch can be resolved to (0 for untied ones)
+        """
+        vectorized_ties = torch.zeros(2 * 128, dtype=torch.float)
+        if not self.tied_notes:
+            return vectorized_ties
+        tied_pitches = set(self.tied_notes.keys())
+        min_resolution_positions = [float(t.min_resolution_pos) for t in self.tied_notes.values()]
+        # Store boolean pitches in first half of vector
+        vectorized_ties[list(tied_pitches)] = 1
+        # Store min resolution positions in second half of vector
+        vectorized_ties[[128 + p for p in tied_pitches]] = torch.tensor(
+            min_resolution_positions, dtype=torch.float
+        )
+        return vectorized_ties
+
+    @staticmethod
+    def generate_empty_state_vector(num_voices: int = 8, device=None):
+        dim = TranscriptionState.compute_n_vec_dims(num_voices)
+        return torch.zeros(dim, dtype=torch.float, device=device)
 
 
 @dataclass(kw_only=True)

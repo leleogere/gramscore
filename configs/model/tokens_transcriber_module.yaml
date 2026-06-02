@@ -18,6 +18,10 @@ router_inner_dims: null
 experts_inner_dims:
   _default: [256, 128]
 latent_part_reserved_for_router: null
+states_prediction: false
+states_prediction_mlp_dims: null
+states_prediction_loss_weight: null
+state_num_voices: 8
 performance_dropout: 0.0
 score_dropout: 0.0
 log_logits_each_n_val_steps: 10
