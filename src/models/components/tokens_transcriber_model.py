@@ -1373,7 +1373,7 @@ class TokensTranscriberModel(nn.Module):
 
         elif token_type == tk.TupletEnd:
             # Find voices that are currently in a tuplet
-            allowed_voices = [i for i, v in enumerate(state.voices) if v.in_tuplet]
+            allowed_voices = [i for i, v in enumerate(state.voices) if v.in_tuplet and not v.in_chord and v.tuplet.remaining_duration == 0]
             voice_idx = (
                 cls._mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
             )
