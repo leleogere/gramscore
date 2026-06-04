@@ -820,7 +820,7 @@ class TokensTranscriberModel(nn.Module):
             if self.states_prediction:
                 for a, states in zip(automata, batched_states_vectors):
                     a.transition(sos_token)
-                    states.append(a.state.vectorize())
+                    states.append(a.state.vectorize(device=device))
                 batched_states_tensor = torch.stack(
                     [torch.stack(states_vectors) for states_vectors in batched_states_vectors]
                 )
@@ -839,7 +839,9 @@ class TokensTranscriberModel(nn.Module):
                     for token in sequence:
                         automaton.transition(token)
                         if self.states_prediction:
-                            batched_states_vectors[i].append(automaton.state.vectorize())
+                            batched_states_vectors[i].append(
+                                automaton.state.vectorize(device=device)
+                            )
                 if self.states_prediction:
                     batched_states_tensor = pad_sequence(
                         sequences=batched_states_vectors,
@@ -1031,7 +1033,7 @@ class TokensTranscriberModel(nn.Module):
                         if found:
                             automaton.transition(next_token, inplace=True)
                             if self.states_prediction:
-                                next_state = automaton.state.vectorize()
+                                next_state = automaton.state.vectorize(device=device)
                         else:
                             if self.states_prediction:
                                 next_state = torch.zeros(TranscriptionState.compute_n_vec_dims(8))

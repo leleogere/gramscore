@@ -112,9 +112,9 @@ class ChordState:
     def __str__(self):
         return f"Chord({self.duration}, {self.num_notes} notes)"
 
-    def vectorize(self):
+    def vectorize(self, device=None):
         """Vectorize a chord into a tensor."""
-        pitches = torch.zeros(128, dtype=torch.float)
+        pitches = torch.zeros(128, dtype=torch.float, device=device)
         pitches[
             [
                 pt.score.pitch_spelling_to_midi_pitch(step=s, alter=a, octave=o)
@@ -129,6 +129,7 @@ class ChordState:
                         float(self.num_notes),
                     ],
                     dtype=torch.float,
+                    device=device,
                 ),
                 pitches,
             ]
@@ -210,7 +211,7 @@ class TupletCompletionState(SegmentCompletionState):
     def __str__(self):
         return f"Tuplet(pos={self.current_position}, rem={self.remaining_duration}, type={self.n_actual}:{self.n_normal} {self.unit_duration})"
 
-    def vectorize(self) -> torch.Tensor:
+    def vectorize(self, device=None) -> torch.Tensor:
         """Vectorize a tuplet into a tensor."""
         return torch.tensor(
             [
@@ -223,6 +224,7 @@ class TupletCompletionState(SegmentCompletionState):
                 float(self.completed),
             ],
             dtype=torch.float,
+            device=device,
         )
 
 
@@ -291,7 +293,7 @@ class VoiceCompletionState(SegmentCompletionState):
     def __str__(self):
         return f"VoiceCompletionState(pos={self.current_position}, tot={self.duration}, rem={self.remaining_duration}, chord={self.chord}, tuplet={self.tuplet})"
 
-    def vectorize(self) -> torch.Tensor:
+    def vectorize(self, device=None) -> torch.Tensor:
         """Vectorize a voice into a tensor."""
         return torch.cat(
             [
@@ -305,16 +307,19 @@ class VoiceCompletionState(SegmentCompletionState):
                         float(self.in_tuplet),
                     ],
                     dtype=torch.float,
+                    device=device,
                 ),
                 (
-                    self.chord.vectorize()
+                    self.chord.vectorize(device=device)
                     if self.chord is not None
-                    else torch.zeros(ChordState.n_vec_dims, dtype=torch.float)
+                    else torch.zeros(ChordState.n_vec_dims, dtype=torch.float, device=device)
                 ),
                 (
-                    self.tuplet.vectorize()
+                    self.tuplet.vectorize(device=device)
                     if self.tuplet is not None
-                    else torch.zeros(TupletCompletionState.n_vec_dims, dtype=torch.float)
+                    else torch.zeros(
+                        TupletCompletionState.n_vec_dims, dtype=torch.float, device=device
+                    )
                 ),
             ]
         )
@@ -405,17 +410,19 @@ class TranscriptionState:
         sep = ",\n  "
         return f"TranscriptionState(\n  {sep.join(components)}\n)"
 
-    def vectorize(self) -> torch.Tensor:
+    def vectorize(self, device=None) -> torch.Tensor:
         return torch.cat(
             [
-                *[v.vectorize() for v in self.voices],
-                torch.tensor([self.are_started_voices_complete()], dtype=torch.float),
-                self._vectorize_tied_notes(),
+                *[v.vectorize(device=device) for v in self.voices],
+                torch.tensor(
+                    [self.are_started_voices_complete()], dtype=torch.float, device=device
+                ),
+                self._vectorize_tied_notes(device=device),
             ],
             dim=0,
         )
 
-    def _vectorize_tied_notes(self) -> torch.Tensor:
+    def _vectorize_tied_notes(self, device=None) -> torch.Tensor:
         """
         Vectorize the tied notes in the transcription state.
         The vectorization is simply the concatenation of two 128d vectors:
@@ -423,7 +430,7 @@ class TranscriptionState:
             - A floating point one indicating the minimum position (in quarter notes) the
               corresponding tied pitch can be resolved to (0 for untied ones)
         """
-        vectorized_ties = torch.zeros(2 * 128, dtype=torch.float)
+        vectorized_ties = torch.zeros(2 * 128, dtype=torch.float, device=device)
         if not self.tied_notes:
             return vectorized_ties
         tied_pitches = set(self.tied_notes.keys())
@@ -432,7 +439,7 @@ class TranscriptionState:
         vectorized_ties[list(tied_pitches)] = 1
         # Store min resolution positions in second half of vector
         vectorized_ties[[128 + p for p in tied_pitches]] = torch.tensor(
-            min_resolution_positions, dtype=torch.float
+            min_resolution_positions, dtype=torch.float, device=device
         )
         return vectorized_ties
 

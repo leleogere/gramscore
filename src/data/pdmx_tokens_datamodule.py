@@ -79,7 +79,9 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 *(
                     [
                         t.AutomataStatesComputer(num_voices=self.hparams.state_num_voices),
-                        t.AutomataStatesVectorizer(),
+                        t.AutomataStatesVectorizer(
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        ),
                     ]
                     if self.hparams.include_states
                     else []
@@ -116,7 +118,9 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 *(
                     [
                         t.AutomataStatesComputer(num_voices=self.hparams.state_num_voices),
-                        t.AutomataStatesVectorizer(),
+                        t.AutomataStatesVectorizer(
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        ),
                     ]
                     if self.hparams.include_states
                     else []

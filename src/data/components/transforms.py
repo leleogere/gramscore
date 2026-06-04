@@ -858,8 +858,11 @@ class AutomataStatesComputer(AbstractProcessor):
 
 
 class AutomataStatesVectorizer(AbstractProcessor):
+    def __init__(self, device=None):
+        self.device = device
+
     def process(self, states: list[TranscriptionState]) -> torch.Tensor:
-        return torch.stack([s.vectorize() for s in states], dim=0)
+        return torch.stack([s.vectorize(device=self.device) for s in states], dim=0)
 
     def _dict_process(self, sample: dict[str, Any]) -> dict[str, Any]:
         return {"automata_states_tensor": self.process(sample["automata_states"])}

@@ -189,7 +189,9 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 *(
                     [
                         t.AutomataStatesComputer(num_voices=self.hparams.num_voices),
-                        t.AutomataStatesVectorizer(),
+                        t.AutomataStatesVectorizer(
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        ),
                     ]
                     if self.hparams.include_states
                     else []
@@ -226,7 +228,9 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 *(
                     [
                         t.AutomataStatesComputer(num_voices=self.hparams.num_voices),
-                        t.AutomataStatesVectorizer(),
+                        t.AutomataStatesVectorizer(
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        ),
                     ]
                     if self.hparams.include_states
                     else []
@@ -260,7 +264,9 @@ class AsapTokensDataModule(BaseTokensDataModule):
                 *(
                     [
                         t.AutomataStatesComputer(num_voices=self.hparams.num_voices),
-                        t.AutomataStatesVectorizer(),
+                        t.AutomataStatesVectorizer(
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        ),
                     ]
                     if self.hparams.include_states
                     else []
