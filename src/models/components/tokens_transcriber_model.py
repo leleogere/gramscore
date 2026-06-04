@@ -340,7 +340,7 @@ class TokensTranscriberModel(nn.Module):
         batch_size, batch_length = performances_pitches.shape  # B, L
 
         # Timestamp where each transcription in the batch is currently at, all 0 at start
-        start_times = torch.zeros((batch_size, 1))  # B*1
+        start_times = torch.zeros((batch_size, 1), device=device)  # B*1
 
         # End of previous chunks used as context for next chunk, None at start
         # Note that it should LEFT-padded to avoid having pad tokens in the middle of the sequence
@@ -998,7 +998,7 @@ class TokensTranscriberModel(nn.Module):
                             batched_next_token.append(tk.EndOfScore())
                             if self.states_prediction:
                                 batched_next_state.append(
-                                    torch.zeros(TranscriptionState.compute_n_vec_dims(8))
+                                    torch.zeros(TranscriptionState.compute_n_vec_dims(8), device=device)
                                 )
                             continue
                         idx = next(current_index_per_token_type[next_type])
@@ -1036,7 +1036,7 @@ class TokensTranscriberModel(nn.Module):
                                 next_state = automaton.state.vectorize(device=device)
                         else:
                             if self.states_prediction:
-                                next_state = torch.zeros(TranscriptionState.compute_n_vec_dims(8))
+                                next_state = torch.zeros(TranscriptionState.compute_n_vec_dims(8), device=device)
                         batched_next_token.append(next_token)
                         if self.states_prediction:
                             batched_next_state.append(next_state)
