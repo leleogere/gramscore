@@ -998,7 +998,9 @@ class TokensTranscriberModel(nn.Module):
                             batched_next_token.append(tk.EndOfScore())
                             if self.states_prediction:
                                 batched_next_state.append(
-                                    torch.zeros(TranscriptionState.compute_n_vec_dims(8), device=device)
+                                    torch.zeros(
+                                        TranscriptionState.compute_n_vec_dims(8), device=device
+                                    )
                                 )
                             continue
                         idx = next(current_index_per_token_type[next_type])
@@ -1036,7 +1038,9 @@ class TokensTranscriberModel(nn.Module):
                                 next_state = automaton.state.vectorize(device=device)
                         else:
                             if self.states_prediction:
-                                next_state = torch.zeros(TranscriptionState.compute_n_vec_dims(8), device=device)
+                                next_state = torch.zeros(
+                                    TranscriptionState.compute_n_vec_dims(8), device=device
+                                )
                         batched_next_token.append(next_token)
                         if self.states_prediction:
                             batched_next_state.append(next_state)
