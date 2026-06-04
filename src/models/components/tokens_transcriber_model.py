@@ -1115,7 +1115,6 @@ class TokensTranscriberModel(nn.Module):
         else:
             return batched_tokens_tensor, batched_finished_flag
 
-
     @property
     def device(self):
         return next(self.parameters()).device

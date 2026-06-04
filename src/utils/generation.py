@@ -350,6 +350,7 @@ def mask_unallowed(
     tensor[..., ~mask] = mask_value
     return tensor
 
+
 def decode_next_token_constrained(
     token_type: type[tk.AnyToken],
     expert_outputs: dict[str, torch.Tensor],
@@ -403,18 +404,14 @@ def decode_next_token_constrained(
         allowed_voices = [
             i for i, v in enumerate(state.voices) if v.in_chord and v.chord.can_resolve
         ]
-        voice_idx = (
-            mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
-        )
+        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
         return tk.ChordEnd(voice_idx=voice_idx)
 
     # TupletEnd
     if token_type == tk.TupletEnd:
         # Find voices that are currently in a tuplet
         allowed_voices = [i for i, v in enumerate(state.voices) if v.in_tuplet]
-        voice_idx = (
-            mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
-        )
+        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
         return tk.TupletEnd(voice_idx=voice_idx)
 
     # Now, we deal with tokens with interactions between attributes (for example, we can't
@@ -601,78 +598,77 @@ def decode_next_token_constrained(
             for i, v in enumerate(state.voices)
             if v.in_tuplet and not v.in_chord and v.tuplet.completed
         ]
-        voice_idx = (
-            mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
-        )
+        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
         return tk.TupletEnd(voice_idx=voice_idx)
 
     raise ValueError(f"Unknown token type {token_type}")
+
 
 def _find_most_probable_combinations(
     distributions: list[list[float]],
     predicate: Callable[[tuple[int, ...]], bool],
     max_iterations: int | None = None,
 ) -> tuple[tuple[int, ...], float]:
-        # Validate distributions
-        for distribution in distributions:
-            if not isinstance(distribution, list):
-                raise ValueError(
-                    f"Expected distribution to be a list of floats, got {type(distribution)}"
-                )
-            if not all(0 <= p <= 1 for p in distribution):
-                raise ValueError(f"All probabilities must lay between 0 and 1: {distribution}")
+    # Validate distributions
+    for distribution in distributions:
+        if not isinstance(distribution, list):
+            raise ValueError(
+                f"Expected distribution to be a list of floats, got {type(distribution)}"
+            )
+        if not all(0 <= p <= 1 for p in distribution):
+            raise ValueError(f"All probabilities must lay between 0 and 1: {distribution}")
 
-        # Add indices to each distribution and sort them by decreasing probabilities
-        # (so that we first explore highly probable combinations)
-        sorted_idxs = [
-            sorted(range(len(dist)), key=lambda i: dist[i], reverse=True) for dist in distributions
-        ]
-        n = len(distributions)
+    # Add indices to each distribution and sort them by decreasing probabilities
+    # (so that we first explore highly probable combinations)
+    sorted_idxs = [
+        sorted(range(len(dist)), key=lambda i: dist[i], reverse=True) for dist in distributions
+    ]
+    n = len(distributions)
 
-        # Function to compute the probability of a combination
-        def proba_combination(indices: tuple[int, ...]) -> float:
-            p = 1.0
-            for dim, pos in enumerate(indices):
-                orig_idx = sorted_idxs[dim][pos]
-                p *= distributions[dim][orig_idx]
-            return p
+    # Function to compute the probability of a combination
+    def proba_combination(indices: tuple[int, ...]) -> float:
+        p = 1.0
+        for dim, pos in enumerate(indices):
+            orig_idx = sorted_idxs[dim][pos]
+            p *= distributions[dim][orig_idx]
+        return p
 
-        # Create the max-heap (min-heap with negative probabilities)
-        heap: list[tuple[float, tuple[int, ...]]] = []
+    # Create the max-heap (min-heap with negative probabilities)
+    heap: list[tuple[float, tuple[int, ...]]] = []
 
-        # Keep track of already visited combinations
-        visited = set()
+    # Keep track of already visited combinations
+    visited = set()
 
-        # We start the heap with the most probable item
-        # (index 0 in all sorted distributions)
-        init = tuple([0] * n)
-        init_prob = proba_combination(init)
-        heapq.heappush(heap, (-init_prob, init))
-        visited.add(init)
+    # We start the heap with the most probable item
+    # (index 0 in all sorted distributions)
+    init = tuple([0] * n)
+    init_prob = proba_combination(init)
+    heapq.heappush(heap, (-init_prob, init))
+    visited.add(init)
 
-        # While there are still items in the heap, yield them
-        i = -1
-        while heap:
-            i += 1
-            # Get most probable combination
-            neg_p, sorted_tuple = heapq.heappop(heap)
-            p = -neg_p
-            # Map sorted‐space positions to original indices
-            orig_tuple = tuple(sorted_idxs[dim][pos] for dim, pos in enumerate(sorted_tuple))
-            # If the predicate is true, return the combination
-            if predicate(orig_tuple):
-                return orig_tuple, p
-            # Generate neighbors by incrementing the position in each dimension
-            for dim in range(n):
-                if sorted_tuple[dim] + 1 < len(sorted_idxs[dim]):
-                    neighbor = list(sorted_tuple)
-                    neighbor[dim] += 1
-                    neighbor = tuple(neighbor)
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        heapq.heappush(heap, (-proba_combination(neighbor), neighbor))
+    # While there are still items in the heap, yield them
+    i = -1
+    while heap:
+        i += 1
+        # Get most probable combination
+        neg_p, sorted_tuple = heapq.heappop(heap)
+        p = -neg_p
+        # Map sorted‐space positions to original indices
+        orig_tuple = tuple(sorted_idxs[dim][pos] for dim, pos in enumerate(sorted_tuple))
+        # If the predicate is true, return the combination
+        if predicate(orig_tuple):
+            return orig_tuple, p
+        # Generate neighbors by incrementing the position in each dimension
+        for dim in range(n):
+            if sorted_tuple[dim] + 1 < len(sorted_idxs[dim]):
+                neighbor = list(sorted_tuple)
+                neighbor[dim] += 1
+                neighbor = tuple(neighbor)
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    heapq.heappush(heap, (-proba_combination(neighbor), neighbor))
 
-            if max_iterations is not None and i >= max_iterations:
-                raise StopIteration("max_iterations reached")
+        if max_iterations is not None and i >= max_iterations:
+            raise StopIteration("max_iterations reached")
 
-        raise StopIteration("No combination found")
+    raise StopIteration("No combination found")
