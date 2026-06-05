@@ -675,7 +675,7 @@ class TokensTranscriberModule(L.LightningModule):
                     performance_attention_mask=~batch["performance_padding_mask"],
                     prefix=None,
                     constraint=self.hparams.states_prediction,  # constraint when state prediction
-                    max_constraint_iterations=(10 if self.hparams.states_prediction else None),
+                    max_constraint_iterations=(50 if self.hparams.states_prediction else None),
                     max_generated_length=1500,
                     progress_bar=False,
                     return_logits_and_mask=False,

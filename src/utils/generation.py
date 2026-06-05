@@ -334,7 +334,7 @@ def get_last_aligned_downbeats(
     return token_idx_to_note_idx
 
 
-def mask_unallowed(
+def old_mask_unallowed(
     tensor: torch.Tensor,
     allowed_indices: list[int],
     mask_value: float = -torch.inf,
@@ -351,7 +351,7 @@ def mask_unallowed(
     return tensor
 
 
-def decode_next_token_constrained(
+def old_decode_next_token_constrained(
     token_type: type[tk.AnyToken],
     expert_outputs: dict[str, torch.Tensor],
     state: tk.TranscriptionState,
@@ -404,14 +404,18 @@ def decode_next_token_constrained(
         allowed_voices = [
             i for i, v in enumerate(state.voices) if v.in_chord and v.chord.can_resolve
         ]
-        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        voice_idx = (
+            old_mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        )
         return tk.ChordEnd(voice_idx=voice_idx)
 
     # TupletEnd
     if token_type == tk.TupletEnd:
         # Find voices that are currently in a tuplet
         allowed_voices = [i for i, v in enumerate(state.voices) if v.in_tuplet]
-        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        voice_idx = (
+            old_mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        )
         return tk.TupletEnd(voice_idx=voice_idx)
 
     # Now, we deal with tokens with interactions between attributes (for example, we can't
@@ -462,7 +466,7 @@ def decode_next_token_constrained(
                 **arts_and_orns,
             )
 
-        best_combination, proba = _find_most_probable_combinations(
+        best_combination, proba = old_find_most_probable_combinations(
             distributions=[dist.tolist() for dist in classification_distributions],
             predicate=lambda x: build_token(x).is_token_allowed(state),
             max_iterations=max_constraint_iterations,
@@ -505,7 +509,7 @@ def decode_next_token_constrained(
                 fermata=fermata,
             )
 
-        best_combination, proba = _find_most_probable_combinations(
+        best_combination, proba = old_find_most_probable_combinations(
             distributions=[dist.tolist() for dist in classification_distributions],
             predicate=lambda x: build_token(x).is_token_allowed(state),
             max_iterations=max_constraint_iterations,
@@ -537,7 +541,7 @@ def decode_next_token_constrained(
                 duration=tk.SymbolicDuration(type=duration_type, dots=duration_dots),
             )
 
-        best_combination, proba = _find_most_probable_combinations(
+        best_combination, proba = old_find_most_probable_combinations(
             distributions=[dist.tolist() for dist in classification_distributions],
             predicate=lambda x: build_token(x).is_token_allowed(state),
             max_iterations=max_constraint_iterations,
@@ -571,7 +575,10 @@ def decode_next_token_constrained(
             duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
             duration_dots = dim_to_index["duration_dots"]
             n_actual = round(clip(expert_outputs["tuplet_actual_notes"].item(), 1))
-            n_normal = round(clip(expert_outputs["tuplet_normal_notes"].item(), 1))
+            actual_to_normal_ratio = round(
+                clip(expert_outputs["tuplet_actual_to_normal_ratio"].item(), 1e-3)
+            )
+            n_normal = round(clip(n_actual / actual_to_normal_ratio, 1))
             return tk.TupletStart(
                 n_actual=n_actual,
                 n_normal=n_normal,
@@ -582,7 +589,7 @@ def decode_next_token_constrained(
                 voice_idx=voice,
             )
 
-        best_combination, proba = _find_most_probable_combinations(
+        best_combination, proba = old_find_most_probable_combinations(
             distributions=[dist.tolist() for dist in classification_distributions],
             predicate=lambda x: build_token(x).is_token_allowed(state),
             max_iterations=max_constraint_iterations,
@@ -598,13 +605,15 @@ def decode_next_token_constrained(
             for i, v in enumerate(state.voices)
             if v.in_tuplet and not v.in_chord and v.tuplet.completed
         ]
-        voice_idx = mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        voice_idx = (
+            old_mask_unallowed(voice_outputs, allowed_indices=allowed_voices).argmax().item()
+        )
         return tk.TupletEnd(voice_idx=voice_idx)
 
     raise ValueError(f"Unknown token type {token_type}")
 
 
-def _find_most_probable_combinations(
+def old_find_most_probable_combinations(
     distributions: list[list[float]],
     predicate: Callable[[tuple[int, ...]], bool],
     max_iterations: int | None = None,
@@ -672,3 +681,322 @@ def _find_most_probable_combinations(
             raise StopIteration("max_iterations reached")
 
     raise StopIteration("No combination found")
+
+
+def get_most_probable_paths(
+    router_distributions: torch.Tensor,  # B * K
+    expert_distributions: list[list[torch.Tensor]],  # K-list of Ni-list of B * Fij
+    num_paths_to_retrieve: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    params:
+        router_distributions: Router probabilities
+        expert_distributions: A list of length K. E[i] is a list of length N_i containing
+           tensors of shape (B, F_i_j) representing attribute probabilities
+        num_paths_to_retrieve: Number of top combinations to return
+    returns:
+        best_scores: (B, M) Probabilities of the top M tokens
+        best_types:  (B, M) The router type index (0 to K-1) for each top token
+        best_paths:  (B, M, max_N) The attribute indices chosen (padded with -1)
+    """
+    batch_size, num_ttypes = router_distributions.shape
+    device = router_distributions.device
+
+    # Avoid log(0)
+    log_router_distributions = torch.log(torch.clamp(router_distributions, min=1e-12))
+
+    all_type_scores = []
+    all_type_paths = []
+    all_type_indices = []
+
+    max_num_attributes = max(len(attrs) for attrs in expert_distributions)
+
+    for i in range(num_ttypes):
+        # Initial score: log(p_i)
+        beam_scores = log_router_distributions[:, i : i + 1]  # B * 1
+
+        # Initial empty paths
+        beam_paths = torch.empty((batch_size, 1, 0), dtype=torch.long, device=device)  # B * 1 * 0
+
+        num_attributes = len(expert_distributions[i])
+        for j in range(num_attributes):
+            # log(q_i_j) / N_i
+            attr_log_probs = (1.0 / num_attributes) * torch.log(
+                torch.clamp(expert_distributions[i][j], min=1e-12)
+            )  # B * F_ij
+            F_ij = attr_log_probs.size(-1)
+
+            # Combine paths
+            # beam_scores: (B, current_M, 1)
+            # attr_log_probs: (B, 1, F_ij)
+            # expanded_scores: (B, current_M, F_ij)
+            expanded_scores = beam_scores.unsqueeze(-1) + attr_log_probs.unsqueeze(1)
+
+            # Flatten to find top M among (current_M * F_ij) candidates
+            flat_scores = expanded_scores.view(batch_size, -1)
+            current_M = min(num_paths_to_retrieve, flat_scores.size(-1))
+
+            beam_scores, top_idx = torch.topk(flat_scores, current_M, dim=-1)
+
+            prefix_idx = top_idx // F_ij
+            attr_idx = top_idx % F_ij
+
+            # Gather historical paths
+            expanded_prefix = prefix_idx.unsqueeze(-1).expand(-1, -1, beam_paths.size(-1))
+            gathered_paths = torch.gather(beam_paths, dim=1, index=expanded_prefix)
+
+            # Concatenate new attribute
+            beam_paths = torch.cat([gathered_paths, attr_idx.unsqueeze(-1)], dim=-1)
+
+        # Pad paths up to max_N
+        if num_attributes < max_num_attributes:
+            padding = torch.full(
+                (batch_size, beam_paths.size(1), max_num_attributes - num_attributes),
+                -1,
+                dtype=torch.long,
+                device=device,
+            )
+            beam_paths = torch.cat([beam_paths, padding], dim=-1)
+
+        all_type_scores.append(beam_scores)
+        all_type_paths.append(beam_paths)
+        all_type_indices.append(torch.full_like(beam_scores, i, dtype=torch.long))
+
+    # Combine results from all K types
+    final_scores = torch.cat(all_type_scores, dim=-1)  # (B, K*M)
+    final_types = torch.cat(all_type_indices, dim=-1)  # (B, K*M)
+    final_paths = torch.cat(all_type_paths, dim=1)  # (B, K*M, max_N)
+
+    # Final top M reduction
+    final_M = min(num_paths_to_retrieve, final_scores.size(-1))
+    best_scores, best_idx = torch.topk(final_scores, final_M, dim=-1)
+
+    best_types = torch.gather(final_types, dim=-1, index=best_idx)
+
+    best_idx_expanded = best_idx.unsqueeze(-1).expand(-1, -1, max_num_attributes)
+    best_paths = torch.gather(final_paths, dim=1, index=best_idx_expanded)
+
+    return torch.exp(best_scores), best_types, best_paths
+
+
+def get_token_from_path_if_valid(
+    token_type: type[tk.AnyToken],
+    classification_dims_indices: torch.LongTensor,
+    regression_dims_values: dict[str, float],
+    state: tk.TranscriptionState,
+) -> tk.AnyToken | None:
+    classification_dims = [
+        dim
+        for dim in TokenTensor.TOKEN_TYPE_TO_DIMS[token_type]
+        if dim != "token_type" and TokenTensor.PROBLEM_TYPES[dim] == ProblemType.CLASSIFICATION
+    ]
+    assert (
+        len(classification_dims) == (classification_dims_indices != -1).sum().item()
+    ), f"Mismatching dimensions and paths: {len(classification_dims)} dimensions with path {classification_dims_indices}"
+    dim_to_index = dict(
+        zip(classification_dims, classification_dims_indices.tolist())
+    )  # no strict as path padded with -1
+
+    # StartOfScore
+    if token_type == tk.StartOfScore:
+        token = tk.StartOfScore()
+
+    # EndOfScore
+    elif token_type == tk.EndOfScore:
+        token = tk.EndOfScore()
+
+    # Bar
+    elif token_type == tk.Bar:
+        time_signature_idx = dim_to_index["bar_time_signature"]
+        numerator, denominator = TokenTensor.TS_INDEXER_INV[time_signature_idx]
+        is_nominal = dim_to_index["bar_is_nominal"] == 1
+        token = tk.Bar(numerator=numerator, denominator=denominator, is_nominal=is_nominal)
+
+    # KeySignature
+    elif token_type == tk.KeySignature:
+        fifths = dim_to_index["key_signature"] - 7
+        token = tk.KeySignature(accidentals=fifths)
+
+    # Clef
+    elif token_type == tk.Clef:
+        staff_idx = dim_to_index["staff_idx"]
+        clef_idx = dim_to_index["clef_type"]
+        clef_type = "G" if clef_idx == 0 else "F"
+        token = tk.Clef(clef=clef_type, staff_idx=staff_idx)
+
+    # ChordEnd
+    elif token_type == tk.ChordEnd:
+        voice_idx = dim_to_index["voice_idx"]
+        token = tk.ChordEnd(voice_idx=voice_idx)
+
+    # TupletEnd
+    elif token_type == tk.TupletEnd:
+        voice_idx = dim_to_index["voice_idx"]
+        token = tk.TupletEnd(voice_idx=voice_idx)
+
+    # Note
+    elif token_type == tk.Note:
+        voice_idx = dim_to_index["voice_idx"]
+        staff_idx = dim_to_index["staff_idx"]
+        duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
+        duration_dots = dim_to_index["duration_dots"]
+        duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
+        step = TokenTensor.NOTE_INDEXER_INV[dim_to_index["note_class"]]
+        octave = dim_to_index["note_octave"]
+        accidental = dim_to_index["note_accidental"] - 2
+        tied = dim_to_index["note_tied"] == 1
+        stem_direction = TokenTensor.STEM_INDEXER_INV[dim_to_index["note_stem_direction"]]
+        fermata = dim_to_index["fermata"] == 1
+        arts_and_orns = {
+            art_or_orn: dim_to_index[art_or_orn] == 1 for art_or_orn in ARTICULATIONS_AND_ORNAMENTS
+        }
+        token = tk.Note(
+            voice_idx=voice_idx,
+            staff_idx=staff_idx,
+            duration=duration,
+            note_class=step,
+            octave=octave,
+            accidental=accidental,
+            stem_direction=stem_direction,
+            tied=tied,
+            fermata=fermata,
+            **arts_and_orns,
+        )
+
+    # Rest
+    elif token_type == tk.Rest:
+        voice_idx = dim_to_index["voice_idx"]
+        staff_idx = dim_to_index["staff_idx"]
+        duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
+        duration_dots = dim_to_index["duration_dots"]
+        duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
+        measure_rest = dim_to_index["measure_rest"] == 1
+        fermata = dim_to_index["fermata"] == 1
+        token = tk.Rest(
+            voice_idx=voice_idx,
+            staff_idx=staff_idx,
+            duration=duration,
+            measure_rest=measure_rest,
+            fermata=fermata,
+        )
+
+    # ChordStart
+    elif token_type == tk.ChordStart:
+        voice_idx = dim_to_index["voice_idx"]
+        duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
+        duration_dots = dim_to_index["duration_dots"]
+        duration = tk.SymbolicDuration(type=duration_type, dots=duration_dots)
+        token = tk.ChordStart(voice_idx=voice_idx, duration=duration)
+
+    # TupletStart
+    elif token_type == tk.TupletStart:
+        voice_idx = dim_to_index["voice_idx"]
+        n_actual = round(clip(regression_dims_values["tuplet_actual_notes"], 1))
+        actual_to_normal_ratio = clip(regression_dims_values["tuplet_actual_to_normal_ratio"], 1e-3)
+        n_normal = round(clip(n_actual / actual_to_normal_ratio, 1))
+        unit_duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
+        unit_duration_dots = dim_to_index["duration_dots"]
+        unit_duration = tk.SymbolicDuration(type=unit_duration_type, dots=unit_duration_dots)
+        token = tk.TupletStart(
+            n_actual=n_actual,
+            n_normal=n_normal,
+            unit_duration=unit_duration,
+            voice_idx=voice_idx,
+        )
+
+    else:
+        raise ValueError(f"Unknown token type: {token_type}")
+
+    if token.is_token_allowed(state):
+        return token
+    else:
+        return None
+
+
+def get_most_probable_valid_tokens(
+    router_distributions: torch.Tensor,
+    expert_outputs: dict[str, dict[str, torch.Tensor]],
+    states: list[tk.TranscriptionState],
+    max_depth: int = 10,
+) -> tuple[list[tk.AnyToken | None], list[float | None]]:
+    """
+    Find the most probable valid token for a batch of predictions.
+    The probability computation is vectorized, but not the validity check.
+
+    params:
+        router_distribution: Router output probabilities, shape (B, K)
+        expert_outputs: Output of the expert heads, dict (head) of dict (attr) of tensors (B, Fij)
+        states: Transcription states, used to check whether a token is allowed
+        max_depth: The maximum number of tokens to check per element of the batch
+    returns:
+        best_tokens: List of the best token for each element of the batch (or None if exceed depth)
+        best_probas: Probability of each token in best_tokens (None if exceed depth)
+    """
+    B, K = router_distributions.shape
+
+    expert_classification_distributions_lists = [
+        [
+            expert_outputs[ttype.as_str()][attr].softmax(-1)
+            for attr in TokenTensor.TOKEN_TYPE_TO_DIMS[ttype]
+            if attr != "token_type"
+            and TokenTensor.PROBLEM_TYPES[attr] == ProblemType.CLASSIFICATION
+        ]
+        for ttype in tk.TOKEN_TYPES
+    ]
+
+    # We start by fetching exactly the top `max_depth` candidates
+    # It might be theorically faster to use a heap and check the validity as we build the paths,
+    # but it's not expensive to compute all top M paths anyway due to torch vectorization
+    scores, types, paths = get_most_probable_paths(
+        router_distributions=router_distributions,
+        expert_distributions=expert_classification_distributions_lists,
+        num_paths_to_retrieve=max_depth,
+    )
+
+    # Prepare output lists
+    best_tokens: list[tk.AnyToken | None] = [None] * B
+    best_probas: list[float | None] = [None] * B
+
+    # # Track successes
+    # resolved = torch.zeros(B, dtype=torch.bool, device=device)
+
+    # Move to CPU once to avoid doing it at each `.item()`
+    types_cpu = types.cpu()
+    paths_cpu = paths.cpu()
+    scores_cpu = scores.cpu()
+
+    # Iterate through batch elements
+    for b in range(B):
+        # Check candidates in descending order of probability
+        for m in range(max_depth):
+            t_val = TokenTensor.TOKEN_INDEXER_INV[types_cpu[b, m].item()]
+            p_val = paths_cpu[b, m]
+            s_val = scores_cpu[b, m].item()
+
+            # Check candidate's validity
+            valid_token = get_token_from_path_if_valid(
+                token_type=t_val,
+                classification_dims_indices=p_val,
+                regression_dims_values={
+                    attr: expert_outputs[t_val.as_str()][attr][b, 0].item()
+                    for attr in TokenTensor.TOKEN_TYPE_TO_DIMS[t_val]
+                    if attr != "token_type"
+                    and TokenTensor.PROBLEM_TYPES[attr] == ProblemType.REGRESSION
+                },
+                state=states[b],
+            )
+            # If valid, store it (along with its prob) and break
+            if valid_token is not None:
+                best_tokens[b] = valid_token
+                best_probas[b] = s_val
+                # resolved[b] = True
+                break
+
+    # # Inform about unsolved elements
+    # if not resolved.all():
+    #     failed_count = (~resolved).sum().item()
+    #     logger.warning(
+    #         f"{failed_count} elements failed to find a valid token within max_depth={max_depth}."
+    #     )
+
+    return best_tokens, best_probas

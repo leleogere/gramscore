@@ -1,6 +1,5 @@
 import copy
 import itertools
-from collections import defaultdict
 from collections.abc import Mapping
 from typing import MutableMapping
 
@@ -28,8 +27,7 @@ from utils.debug import write_compare_to_file
 from utils.generation import (
     GenerationState,
     get_last_aligned_downbeats,
-    decode_next_token_constrained,
-    mask_unallowed,
+    get_most_probable_valid_tokens,
 )
 
 
@@ -280,22 +278,31 @@ class TokensTranscriberModel(nn.Module):
     def forward_experts(
         self,
         decoder_outputs: torch.Tensor,  # B * T * E
-        token_type_masks: dict[str, torch.Tensor],  # B * T
+        token_type_masks: dict[str, torch.Tensor] | None,  # B * T
         convert_to_tokentensor: bool = False,
     ) -> dict[str, dict[str, torch.Tensor]] | TokenTensor:
         # Check that the shapes make sense
-        if not all(mask.shape == decoder_outputs.shape[:2] for mask in token_type_masks.values()):
+        if token_type_masks is not None and not all(
+            mask.shape == decoder_outputs.shape[:2] for mask in token_type_masks.values()
+        ):
             raise ValueError(
                 f"Dimensions mismatch: {decoder_outputs.shape[:2]=} != "
                 f"{[mask.shape for mask in token_type_masks.values()]}"
             )
+        elif token_type_masks is None and convert_to_tokentensor:
+            raise ValueError(
+                "convert_to_tokentensor=True but no token_type_masks provided. "
+                "Provide token_type_masks to convert to TokenTensor."
+            )
 
         # Split the decoder_outputs into experts
-        # TODO: change to dict comprehension
         expert_outputs: dict[str, dict[str, torch.Tensor]] = {}
         for token_type in self.expert_heads:
             expert: ExpertHead = self.expert_heads[token_type]
-            involved_decoder_outputs = decoder_outputs[token_type_masks[token_type]]
+            if token_type_masks is None:
+                involved_decoder_outputs = decoder_outputs
+            else:
+                involved_decoder_outputs = decoder_outputs[token_type_masks[token_type]]
             if self.latent_part_reserved_for_router is not None:
                 involved_decoder_outputs = involved_decoder_outputs[
                     ..., self.latent_part_reserved_for_router :
@@ -759,7 +766,7 @@ class TokensTranscriberModel(nn.Module):
         performance_attention_mask: torch.BoolTensor = None,  # 1 for attended, 0 for masked
         prefix: list[tk.AnyToken] | None = None,
         constraint: bool = False,
-        max_constraint_iterations: int = None,
+        max_constraint_iterations: int = 20,
         max_generated_length: int = 1024,
         use_cache: bool = True,
         progress_bar: bool = True,
@@ -820,13 +827,15 @@ class TokensTranscriberModel(nn.Module):
             batched_tokens_tensor = TokenTensor.from_tokens([[sos_token]], device=device).expand(
                 batch_size, -1, -1
             )
-            if self.states_prediction:
-                for a, states in zip(automata, batched_states_vectors):
+            if constraint:
+                for i, a in enumerate(automata):
                     a.transition(sos_token)
-                    states.append(a.state.vectorize(device=device))
-                batched_states_tensor = torch.stack(
-                    [torch.stack(states_vectors) for states_vectors in batched_states_vectors]
-                )
+                    if self.states_prediction:
+                        batched_states_vectors[i].append(a.state.vectorize(device=device))
+                if self.states_prediction:
+                    batched_states_tensor = torch.stack(
+                        [torch.stack(states_vectors) for states_vectors in batched_states_vectors]
+                    )
         else:
             # Left-pad prefixes and convert them to tensor
             prefix_tensor: TokenTensor = pad_sequence(
@@ -861,7 +870,6 @@ class TokensTranscriberModel(nn.Module):
 
         with torch.no_grad():
             # Pass performance streams through the encoder
-            # TODO tomorrow: debug both those two files side by side to spot any difference
             batched_encoder_output = self.forward_encoder(
                 input_streams=performance_streams,
                 onset_times=performance_onset_times,
@@ -879,6 +887,12 @@ class TokensTranscriberModel(nn.Module):
                     leave=progress_bar_leave,
                 )
             ):
+                unfinished_mask = batched_finished_flag[:, 0] == GenerationState.UNFINISHED.value
+                unfinished_idx_to_global_idx = {
+                    li: gi
+                    for li, gi in enumerate(unfinished_mask.nonzero(as_tuple=True)[0].tolist())
+                }
+
                 # Pass the last token if there is already cache, else the whole sequence
                 if past_key_values is None:
                     batched_input_tokens = batched_tokens_tensor
@@ -909,155 +923,68 @@ class TokensTranscriberModel(nn.Module):
                     past_key_values = batched_decoder_outputs.past_key_values
 
                 # Pass decoder outputs through the router
-                batched_token_type_logits = self.forward_router(last_hidden_state)
-                batched_token_type_logits = F.softmax(batched_token_type_logits, dim=-1)
-                batched_model_want_to_predict = torch.argmax(batched_token_type_logits, dim=-1)
+                batched_token_type_logits = self.forward_router(last_hidden_state)[:, -1]
+                batched_token_type_probas = F.softmax(batched_token_type_logits, dim=-1)
 
-                # Filter logits for the allowed token types
-                if constraint:
-                    batched_allowed_token_types = []
-                    batched_token_type_masked = []
-                    for sequence, automaton, flag in zip(
-                        batched_token_type_logits, automata, batched_finished_flag
-                    ):
-                        if flag[0] == GenerationState.UNFINISHED.value:
-                            allowed_token_types_idx = [
-                                TokenTensor.TOKEN_INDEXER[t]
-                                for t in automaton.allowed_tokens_types()
-                                if t is not tk.StartOfScore
-                            ]
-                        else:  # Finished or errored
-                            allowed_token_types_idx = [TokenTensor.TOKEN_INDEXER[tk.EndOfScore]]
-                        if not allowed_token_types_idx:
-                            raise RuntimeError("No token type allowed, this should not happen")
-                        batched_allowed_token_types.append(allowed_token_types_idx)
-                        batched_token_type_masked.append(
-                            mask_unallowed(
-                                sequence,
-                                allowed_indices=allowed_token_types_idx,
-                                mask_value=-1,
-                                inplace=False,
-                            )
+                # If non-constrained, simply pass though the most probable expert
+                if not constraint:
+                    batched_predicted_token_types_tensor = batched_token_type_probas.argmax(-1)
+                    batched_token_types_mask = {
+                        token_type.as_str(): (
+                            batched_predicted_token_types_tensor == token_type_idx
                         )
-                    batched_token_type_logits_masked = torch.stack(batched_token_type_masked)
-                else:
-                    batched_token_type_logits_masked = batched_token_type_logits
-
-                # if return_logits_and_mask:
-                #     # TODO: make this works with constrains
-                #     mask = torch.zeros(
-                #         batched_token_type_logits.shape[-1],
-                #         dtype=torch.bool,
-                #         device=batched_token_type_logits.device,
-                #     )
-                #     mask[allowed_token_types_idx] = True
-                #     logits_and_masks.append([batched_token_type_logits, mask])
-
-                # Get the predicted token types
-                batched_predicted_token_types_tensor = batched_token_type_logits_masked.argmax(
-                    dim=-1
-                )  # B*1
-                next_token_type = [
-                    TokenTensor.TOKEN_INDEXER_INV[item_prediction.item()]
-                    for item_prediction in batched_predicted_token_types_tensor.squeeze(1)
-                ]  # B
-
-                if constraint and not torch.equal(
-                    batched_model_want_to_predict, batched_model_want_to_predict
-                ):
-                    logger.warning(f"At least one prediction was refused by the automaton")
-
-                # Pass the decoder outputs through the correct expert head
-                # token_types_mask = {
-                #     next_token_type.as_str(): torch.ones(
-                #         1, 1, dtype=torch.bool, device=last_hidden_state.device
-                #     ),
-                #     **{
-                #         other_token.as_str(): torch.zeros(
-                #             1, 1, dtype=torch.bool, device=last_hidden_state.device
-                #         )
-                #         for other_token in TokenTensor.TOKEN_INDEXER_INV.values()
-                #         if other_token != next_token_type
-                #     },
-                # }
-                batched_token_types_mask = {
-                    token_type.as_str(): (batched_predicted_token_types_tensor == token_type_idx)
-                    for token_type, token_type_idx in TokenTensor.TOKEN_INDEXER.items()
-                }
-                if constraint:
-                    batched_expert_outputs = self.forward_experts(
-                        decoder_outputs=last_hidden_state,  # B * E
-                        token_type_masks=batched_token_types_mask,
-                        convert_to_tokentensor=False,
-                    )
-                    batched_next_token = []
-                    if self.states_prediction:
-                        batched_next_state = []
-                    current_index_per_token_type = defaultdict(itertools.count)
-                    for i, (next_type, automaton, flag) in enumerate(
-                        zip(next_token_type, automata, batched_finished_flag)
-                    ):
-                        if flag[0] != GenerationState.UNFINISHED.value:
-                            batched_next_token.append(tk.EndOfScore())
-                            if self.states_prediction:
-                                batched_next_state.append(
-                                    torch.zeros(
-                                        TranscriptionState.compute_n_vec_dims(8), device=device
-                                    )
-                                )
-                            continue
-                        idx = next(current_index_per_token_type[next_type])
-                        expert_outputs = {
-                            key: values[idx]
-                            for key, values in batched_expert_outputs.get(
-                                next_type.as_str(), {}
-                            ).items()
-                        }  # Default None?
-                        try:
-                            next_token = decode_next_token_constrained(
-                                token_type=next_type,
-                                expert_outputs=expert_outputs,
-                                state=automaton.state,
-                                max_constraint_iterations=max_constraint_iterations,
-                            )
-                            found = True
-                        except StopIteration as e:
-                            if e.args[0] == "max_iterations reached":
-                                batched_finished_flag[i, 0] = (
-                                    GenerationState.EXCEED_CONSTRAINED_ITERATIONS.value
-                                )
-                            elif e.args[0] == "No combination found":
-                                batched_finished_flag[i, 0] = (
-                                    GenerationState.NO_ALLOWED_TOKENS.value
-                                )
-                            else:
-                                raise ValueError(f"Unexpected error: {e}")
-                            batched_finished_flag[i, 1] = pos
-                            next_token = tk.EndOfScore()
-                            found = False
-                        if found:
-                            automaton.transition(next_token, inplace=True)
-                            if self.states_prediction:
-                                next_state = automaton.state.vectorize(device=device)
-                        else:
-                            if self.states_prediction:
-                                next_state = torch.zeros(
-                                    TranscriptionState.compute_n_vec_dims(8), device=device
-                                )
-                        batched_next_token.append(next_token)
-                        if self.states_prediction:
-                            batched_next_state.append(next_state)
-                    batched_next_token_tensor = TokenTensor.from_tokens(
-                        batched_next_token, device=device
-                    ).unsqueeze(1)
-                    if self.states_prediction:
-                        batched_next_state_tensor = torch.stack(batched_next_state).unsqueeze(1)
-                else:
+                        for token_type, token_type_idx in TokenTensor.TOKEN_INDEXER.items()
+                    }
                     batched_next_token_tensor = self.forward_experts(
-                        decoder_outputs=last_hidden_state,  # 1 * E
+                        decoder_outputs=last_hidden_state,  # B * E
                         token_type_masks=batched_token_types_mask,
                         convert_to_tokentensor=True,
                     ).quantize(inplace=True)
+                    # batched_next_token = batched_next_token_tensor.to_tokens()
+
+                # If constrainted, pass though all experts
+                # We only pass though the unfinished ones (unfinished_mask) to save computation
+                # (we could do that earlier but I don't want to mess with the KV cache for now)
+                else:
+                    batched_expert_outputs_uf: dict[str, dict[str, torch.Tensor]] = (
+                        self.forward_experts(
+                            decoder_outputs=last_hidden_state[unfinished_mask, 0],  # B * E
+                            token_type_masks=None,  # Pass through all the heads
+                            convert_to_tokentensor=False,
+                        )
+                    )
+                    best_valid_tokens_uf, _ = get_most_probable_valid_tokens(
+                        router_distributions=batched_token_type_probas[unfinished_mask],
+                        expert_outputs=batched_expert_outputs_uf,
+                        states=[a.state for uf, a in zip(unfinished_mask, automata) if uf],
+                        max_depth=max_constraint_iterations,
+                    )
+                    batched_next_token = [tk.EndOfScore() for _ in range(batch_size)]
+                    if self.states_prediction:
+                        batched_next_state_tensor = torch.zeros(
+                            (batch_size, TranscriptionState.compute_n_vec_dims(8)), device=device
+                        )
+                    for i, token in enumerate(best_valid_tokens_uf):
+                        if token is None:
+                            batched_finished_flag[unfinished_idx_to_global_idx[i]] = (
+                                torch.LongTensor(
+                                    [GenerationState.EXCEED_CONSTRAINED_ITERATIONS.value, pos]
+                                )
+                            )
+                        else:
+                            batched_next_token[unfinished_idx_to_global_idx[i]] = token
+                            automata[unfinished_idx_to_global_idx[i]].transition(
+                                token, inplace=True
+                            )
+                            if self.states_prediction:
+                                batched_next_state_tensor[unfinished_idx_to_global_idx[i]] = (
+                                    automata[unfinished_idx_to_global_idx[i]].state.vectorize(
+                                        device=device
+                                    )
+                                )
+                    batched_next_token_tensor = TokenTensor.from_tokens(
+                        batched_next_token, device=device
+                    ).unsqueeze(1)
 
                 # Mark EOS as finised
                 batched_finished_flag[

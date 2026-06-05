@@ -217,7 +217,7 @@ class TupletCompletionState(SegmentCompletionState):
             [
                 float(self.normal_duration),
                 float(self.actual_duration),
-                float(self.n_normal),
+                float(1 / self.duration_multiplier),  # Inverse for coherence with TokenTensor
                 float(self.n_actual),
                 float(self.unit_duration.quarter_length),
                 float(self.current_position),
@@ -264,7 +264,7 @@ class VoiceCompletionState(SegmentCompletionState):
 
     @property
     def started(self) -> bool:
-        return self.current_position > 0 or self.in_structure
+        return self.current_position > 0 or self.in_structure or self._manually_completed
 
     @property
     def segment_remaining_duration(self) -> Fraction:
@@ -451,19 +451,7 @@ class TranscriptionState:
 
 @dataclass(kw_only=True)
 class Token:
-    @classmethod
     @abstractmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        """Returns whether the token type is allowed in the current state, i.e. if
-        at least one combination of instantiation kwargs will result in the token
-        being allowed.
-        To check if a specific token instance is allowed, use the method `is_token_allowed`.
-
-        :param state: The current state of the automaton.
-        :return: Whether the token type is allowed in the current state.
-        """
-        raise NotImplementedError("A token must implement the method `is_token_type_allowed`.")
-
     def is_token_allowed(self, state: TranscriptionState) -> bool:
         """Returns whether this token instance is allowed in the current state.
         To check if the token type is allowed, rather than this specific instance,
@@ -472,47 +460,7 @@ class Token:
         :param state: The current state of the automaton.
         :return: Whether the token is allowed in the current state.
         """
-        return self.is_token_type_allowed(state) and self._is_token_instance_allowed(state)
-
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
-        """Returns whether this token instance is allowed in the current state.
-        This does NOT check for the token type, only the token instance, the type
-        is checked in the wrapper function `is_token_allowed`.
-
-        :param state: The current state of the automaton.
-        :return: Whether the token is allowed in the current state.
-        """
-        return True  # By default, all instances are allowed if the type is allowed
-
-    @classmethod
-    @abstractmethod
-    def _sample_valid_token(cls, state: TranscriptionState) -> Self:
-        """Sample a valid token given the current state. Note that this token type
-        must be allowed or this will raise an error.
-
-        :param state: The current state of the automaton.
-        :return: A valid token
-        """
-        raise NotImplementedError("A token must implement the method `_sample_valid_token`.")
-
-    @classmethod
-    def sample_valid_token(cls, state: TranscriptionState) -> Self:
-        """Returns instantiation kwargs that will result in the token being allowed.
-
-        :param state: The current state of the automaton.
-        :return: The instantiation kwargs that will result in the token being allowed:
-            {
-                "init_arg1": [value1, value2, ...],
-                "init_arg2": None,  # None means that any value is allowed
-                "init_arg3": [],  # Empty list means that no value is allowed
-                ...
-            }
-        """
-        if not cls.is_token_type_allowed(state):
-            raise ValueError(f"Token {cls} is not allowed in state {state}")
-        token = cls._sample_valid_token(state)
-        assert token.is_token_allowed(state), f"Token {token} is not allowed in state {state}"
-        return token
+        ...
 
     def transition_fn(self, state: TranscriptionState, in_place: bool = True) -> TranscriptionState:
         """Returns the new state after applying the token.
@@ -559,8 +507,7 @@ class Token:
 
 @dataclass(kw_only=True)
 class StartOfScore(Token):
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         return not state.started
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
@@ -573,11 +520,14 @@ class StartOfScore(Token):
 
 @dataclass(kw_only=True)
 class EndOfScore(Token):
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         return (
-            Bar.is_token_type_allowed(state)  # Same conditions as for a Bar...
-            and not state.tied_notes  # ...but without notes tied
+            state.started
+            and not state.tied_notes  # all tied notes resolved
+            and (
+                not state.first_bar_started  # Allow empty score
+                or state.are_started_voices_complete()  # Last measure complete
+            )
         )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
@@ -608,11 +558,14 @@ class Bar(Token):
         if self.numerator < 1 or self.denominator < 1:
             raise ValueError("All time signature attributes values must be positive integers.")
 
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return not state.finished and (
-            not state.first_bar_started  # Only for the first bar
-            or state.are_started_voices_complete()  # All started voices are complete
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
+        return (
+            state.started
+            and not state.finished
+            and (
+                not state.first_bar_started  # Only for the first bar
+                or state.are_started_voices_complete()  # All started voices are complete
+            )
         )
 
     def _transition_fn(self, state: TranscriptionState) -> TranscriptionState:
@@ -660,10 +613,10 @@ class KeySignature(Token):
         if abs(self.accidentals) > 7:
             raise ValueError("The number of accidentals must be between -7 and 7.")
 
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         return (
             state.first_bar_started  # Make sure not producing KS before first bar
+            and not state.finished
             and state.are_started_voices_synced_and_not_in_structure()  # All started voices synced
         )
 
@@ -717,10 +670,10 @@ class Clef(Token, HasStaffMixin):
     clef: Literal["G", "F"]
     # TODO: support for octaved clefs and other clefs?
 
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         return (
             state.first_bar_started  # Make sure not producing clef before first bar
+            and not state.finished
             and state.check_for_all_voices(lambda v: not v.in_chord)  # Not in chord
         )
 
@@ -749,53 +702,26 @@ class HasDurationMixin:
 
     duration: SymbolicDuration
 
-    # @classmethod
-    # def get_allowed_voices_and_duration(
-    #     cls,
-    #     state: TranscriptionState,
-    #     keep_empty: bool = False,
-    # ) -> dict[int, list[SymbolicDuration]]:
-    #     voices_and_durations = {
-    #         i: [
-    #             d
-    #             for type_ in SymbolicDurationType
-    #             for dots in range(4)
-    #             if (d := SymbolicDuration(type_, dots)).quarter_length
-    #             <= v.segment_remaining_duration
-    #             and not (d.type is SymbolicDurationType.N64TH and d.dots > 1)
-    #             and not (d.type is SymbolicDurationType.N128TH and d.dots > 1)
-    #             and not (d.type is SymbolicDurationType.N256TH and d.dots > 0)
-    #             # TODO: are the 3 conditions above replaceable by d.quarter_length.denominator > min_dur.denominator?
-    #         ]
-    #         for i, v in enumerate(state.voices)
-    #     }
-    #     if not keep_empty:
-    #         voices_and_durations = {k: v for k, v in voices_and_durations.items() if v}
-    #     return voices_and_durations
-
 
 @dataclass(kw_only=True)
 class Rest(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
     measure_rest: bool = False
     fermata: bool = False
 
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.first_bar_started and state.check_for_any_voices(
-            lambda v: (
-                v.segment_remaining_duration > 0  # Space left in the measure (or tuplet)
-                and not v.in_chord  # Not in chord
-            )
-        )
-
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
-        # print(self.voice_idx)
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         voice = state.voices[self.voice_idx]
         if self.measure_rest:
-            return voice.current_position == 0 and not voice.in_structure
+            return (
+                state.first_bar_started
+                and not state.finished
+                and voice.current_position == 0
+                and not voice.in_structure
+            )
         else:
             return (
-                self.duration.quarter_length <= voice.segment_remaining_duration  # Space left
+                state.first_bar_started
+                and not state.finished
+                and self.duration.quarter_length <= voice.segment_remaining_duration  # Space left
                 and not voice.in_chord  # Not in chord
             )
 
@@ -878,21 +804,15 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
             octave=self.octave,
         )
 
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return (
-            state.first_bar_started
-            and not state.finished
-            and state.check_for_any_voices(lambda v: (v.segment_remaining_duration > 0))
-        )
-
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         voice = state.voices[self.voice_idx]
         pitch_allowed = state.allowed_pitches is None or self.pitch in state.allowed_pitches
+        started_and_not_finished = state.first_bar_started and not state.finished
         # If not in chord
         if not voice.in_chord:
             return (
                 pitch_allowed
+                and started_and_not_finished
                 and (self.duration.quarter_length <= voice.segment_remaining_duration)
                 or (self.grace and voice.has_space_left)
             )
@@ -900,6 +820,7 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
         else:
             return (
                 pitch_allowed
+                and started_and_not_finished
                 and self.duration == voice.chord.duration  # SymbolicDuration matches chord duration
                 and not self.note_tuple in voice.chord.notes  # Note not already in chord
                 and not self.grace  # Not a grace note
@@ -948,23 +869,12 @@ class Note(Token, HasVoiceMixin, HasStaffMixin, HasDurationMixin):
 
 @dataclass(kw_only=True)
 class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
+        voice = state.voices[self.voice_idx]
         return (
             state.first_bar_started
             and not state.finished
-            and state.check_for_any_voices(
-                lambda v: (
-                    v.segment_remaining_duration > 0  # Space left in the measure (or tuplet)
-                    and not v.in_chord  # Not in chord
-                )
-            )
-        )
-
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
-        voice = state.voices[self.voice_idx]
-        return (
-            not voice.in_chord  # Not in chord
+            and not voice.in_chord  # Not in chord
             and self.duration.quarter_length <= voice.segment_remaining_duration  # Space available
         )
 
@@ -994,16 +904,7 @@ class ChordStart(Token, HasVoiceMixin, HasDurationMixin):
 
 @dataclass(kw_only=True)
 class ChordEnd(Token, HasVoiceMixin):
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.check_for_any_voices(
-            lambda v: (
-                v.in_chord  # In chord
-                and v.chord.can_resolve  # Chord can be resolved (at least 2 notes)
-            )
-        )
-
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         voice = state.voices[self.voice_idx]
         return (
             voice.in_chord  # In chord
@@ -1044,20 +945,23 @@ class TupletStart(Token, HasVoiceMixin):
     def normal_duration(self) -> Fraction:
         return self.n_normal * self.unit_duration.quarter_length
 
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        return state.first_bar_started and state.check_for_any_voices(
-            lambda v: (
-                v.segment_remaining_duration > 0  # Space left in the measure
-                and not v.in_chord  # Not in chord
-                and not v.in_tuplet  # Not already in tuplet
-                and SymbolicDurationType.min().quarter_length * 2
-                <= v.segment_remaining_duration  # At least 2 (min_dur)th notes left
-            )
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
+        voice = state.voices[self.voice_idx]
+        return (
+            state.first_bar_started
+            and not state.finished
+            and not voice.in_chord  # Not in chord
+            and not voice.in_tuplet  # Not already in tuplet
+            and self.normal_duration <= state.voices[self.voice_idx].segment_remaining_duration
         )
 
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
-        return self.normal_duration <= state.voices[self.voice_idx].segment_remaining_duration
+    @property
+    def actual_to_normal_ratio(self) -> Fraction:
+        return Fraction(self.n_actual, self.n_normal)
+
+    @property
+    def normal_to_actual_ratio(self) -> Fraction:
+        return Fraction(self.n_normal, self.n_actual)
 
     # @classmethod
     # def _sample_valid_token(cls, state: TranscriptionState) -> Self:
@@ -1109,26 +1013,11 @@ class TupletStart(Token, HasVoiceMixin):
 
 @dataclass(kw_only=True)
 class TupletEnd(Token, HasVoiceMixin):
-    @classmethod
-    def is_token_type_allowed(cls, state: TranscriptionState) -> bool:
-        # return (
-        #     state.tuplet.active  # In a tuplet
-        #     and not state.chord.active  # Not in chord
-        #     and state.tuplet.remaining_duration == 0  # Tuplet duration is over
-        # )
-        return state.check_for_any_voices(
-            lambda v: (
-                v.in_tuplet  # In a tuplet
-                and not v.in_chord  # Not in chord
-                and not v.tuplet.has_space_left  # Tuplet duration is over
-            )
-        )
-
-    def _is_token_instance_allowed(self, state: TranscriptionState) -> bool:
+    def is_token_allowed(self, state: TranscriptionState) -> bool:
         voice = state.voices[self.voice_idx]
         return (
-            not voice.in_chord  # Not in chord
-            and voice.in_tuplet  # In tuplet
+            voice.in_tuplet  # In tuplet
+            and not voice.in_chord  # Not in chord
             and voice.segment_remaining_duration == 0  # Tuplet finished
         )
 

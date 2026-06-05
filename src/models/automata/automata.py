@@ -25,9 +25,6 @@ class ConstrainedAutomata:
             raise ValueError(f"Cannot produce {token} in {self.state}")
         token.transition_fn(self.state, in_place=inplace)
 
-    def allowed_tokens_types(self) -> list[Token]:
-        return [token for token in TOKEN_TYPES if token.is_token_type_allowed(self.state)]
-
     def transition_sequence(self, tokens: list[Token]):
         for token in tokens:
             self.transition(token)
