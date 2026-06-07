@@ -1017,7 +1017,7 @@ class TokensTranscriberModel(nn.Module):
                 )
                 if self.states_prediction:
                     batched_states_tensor = torch.concat(
-                        [batched_states_tensor, batched_next_state_tensor], dim=1
+                        [batched_states_tensor, batched_next_state_tensor.unsqueeze(1)], dim=1
                     )
 
                 # print(next_token)
