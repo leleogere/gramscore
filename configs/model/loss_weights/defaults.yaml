@@ -57,7 +57,7 @@ TupletStart:
   duration_type: 0.01
   duration_dots: 0.01
   tuplet_actual_notes: 0.01
-  tuplet_normal_notes: 0.01
+  tuplet_actual_to_normal_ratio: 0.01
 
 TupletEnd:
   voice_idx: 0.01
