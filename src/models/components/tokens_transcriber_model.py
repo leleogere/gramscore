@@ -838,17 +838,22 @@ class TokensTranscriberModel(nn.Module):
                     )
         else:
             # Left-pad prefixes and convert them to tensor
-            prefix_tensor: TokenTensor = pad_sequence(
-                sequences=[TokenTensor.from_tokens(p) for p in prefix],
-                batch_first=True,
-                padding_value=PADDING_VALUE,
-                padding_side="left",
-            ).as_subclass(TokenTensor)
+            if isinstance(prefix, TokenTensor):
+                prefix_tensor = prefix.to(device)
+            else:
+                prefix_tensor: TokenTensor = pad_sequence(
+                    sequences=[TokenTensor.from_tokens(p[p != PADDING_VALUE]) for p in prefix],
+                    batch_first=True,
+                    padding_value=PADDING_VALUE,
+                    padding_side="left",
+                ).as_subclass(TokenTensor)
             batched_tokens_tensor: TokenTensor = prefix_tensor
             # Pass automata on prefixes
             if constraint:
                 for i, (sequence, automaton) in enumerate(zip(prefix, automata)):
                     for token in sequence:
+                        if isinstance(token, TokenTensor):
+                            token = token.to_tokens()
                         automaton.transition(token)
                         if self.states_prediction:
                             batched_states_vectors[i].append(
