@@ -155,7 +155,7 @@ class AsapTokensDataModule(BaseTokensDataModule):
                                 pt.score.Interval(
                                     number=int(inter[0]), quality=inter[1:], direction=direction
                                 )
-                                for inter in ["2M", "2m", "3M", "3m", "4P", "4A", "4d"]
+                                for inter in ["2m", "2M", "3m", "3M"]  # , "4d", "4P", "4A"]
                                 for direction in ["up", "down"]
                             ]
                             + [pt.score.Interval(1, "P", "up")]
