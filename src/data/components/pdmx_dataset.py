@@ -92,7 +92,10 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                 f"validation set between runs."
             )
             self.validation_pieces = self.generate_set_file(
-                df, self.validation_pieces_path, val_pieces
+                df,
+                self.validation_pieces_path,
+                val_pieces,
+                sample_only_pieces_without_duplicates=True,
             )
         else:
             with self.validation_pieces_path.open("r") as f:
@@ -112,7 +115,11 @@ class PdmxPianoDataset(ScorePerformanceDataset):
                     f"test sets between runs."
                 )
                 self.test_pieces = self.generate_set_file(
-                    df, self.test_pieces_path, test_pieces, to_avoid=self.validation_pieces
+                    df,
+                    self.test_pieces_path,
+                    test_pieces,
+                    to_avoid_mxl=self.validation_pieces,
+                    sample_only_pieces_without_duplicates=True,
                 )
             else:
                 with self.test_pieces_path.open("r") as f:
@@ -594,14 +601,30 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         df: pd.DataFrame,
         file_path: Path,
         n_pieces: int,
-        to_avoid: set[str] | None = None,
+        to_avoid_mxl: set[str] | None = None,
+        sample_only_pieces_without_duplicates: bool = False,
     ) -> set[str]:
-        mxl = df["mxl"]
         # Filter out pieces to avoid
-        if to_avoid is not None:
-            mxl = mxl[~mxl.isin(to_avoid)]
+        if to_avoid_mxl is not None:
+            df = df[~df["mxl"].isin(to_avoid_mxl)]
+
+        # Only sample through pieces without any duplicates to avoid complicated filtering
+        if sample_only_pieces_without_duplicates:
+            unique_pieces_counts = df.groupby("best_path").agg("size")
+            pieces_without_duplicates = unique_pieces_counts[unique_pieces_counts == 1].index
+            # Note: the above line does also include some pieces with is_best_path=False due to
+            #   filtering that happened before and that might have removed some duplicated pieces
+            #   (like the one with is_best_path=True), resulting in a single occurence of that
+            #   piece even if there were multiple in the original dataset
+            df = df[df["best_path"].isin(pieces_without_duplicates)]
+            if len(df) < n_pieces:
+                raise ValueError(
+                    f"Not enough unique pieces without duplicates ({len(df)} < {n_pieces})"
+                )
+
         # Randomly select n_pieces pieces
-        selected = mxl.sample(n=n_pieces, random_state=42).sort_values().tolist()
+        selected = df["mxl"].sample(n=n_pieces, random_state=42).sort_values().tolist()
+
         # Writing the output file
         with file_path.open("w") as f:
             f.write("\n".join(selected))
@@ -609,7 +632,7 @@ class PdmxPianoDataset(ScorePerformanceDataset):
 
 
 if __name__ == '__main__':
-    for split in ["train", "validation"]:
+    for split in ["train", "validation", "test"]:
         ds = PdmxPianoDataset(
             Path("~/Documents/datasets/pdmx").expanduser(),
             split=split,
@@ -621,7 +644,7 @@ if __name__ == '__main__':
                 "~/Documents/datasets/asap-dataset/test_pieces.txt"
             ).expanduser(),
             allowed_staffs=(1,),
-            validation_pieces_filename="validation_pieces_single_staff.txt",
-            test_pieces_filename="test_pieces_single_staff.txt",
+            validation_pieces_filename="validation_pieces_single_staff_unique.txt",
+            test_pieces_filename="test_pieces_single_staff_unique.txt",
         )
         print(f"Number of entries in {split} set: {len(ds.entries)}")
