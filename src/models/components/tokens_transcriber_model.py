@@ -851,10 +851,16 @@ class TokensTranscriberModel(nn.Module):
             # Pass automata on prefixes
             if constraint:
                 for i, (sequence, automaton) in enumerate(zip(prefix, automata)):
-                    for token in sequence:
-                        if isinstance(token, TokenTensor):
-                            token = token.to_tokens()
-                        automaton.transition(token)
+                    if isinstance(sequence, TokenTensor):
+                        sequence = sequence.to_tokens()
+                    for j, token in enumerate(sequence):
+                        if (
+                            j < len(sequence) - 1
+                            and token.__class__ == sequence[j + 1].__class__ == tk.StartOfScore
+                        ):
+                            continue  # Do not transition on left-padded SOS
+                        else:
+                            automaton.transition(token)
                         if self.states_prediction:
                             batched_states_vectors[i].append(
                                 automaton.state.vectorize(device=device)
