@@ -217,7 +217,7 @@ class TupletCompletionState(SegmentCompletionState):
             [
                 float(self.normal_duration),
                 float(self.actual_duration),
-                float(1 / self.duration_multiplier),  # Inverse for coherence with TokenTensor
+                float(self.n_normal),  # Inverse for coherence with TokenTensor
                 float(self.n_actual),
                 float(self.unit_duration.quarter_length),
                 float(self.current_position),

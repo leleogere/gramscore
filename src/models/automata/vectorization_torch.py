@@ -76,7 +76,7 @@ class TokenTensor(torch.Tensor):
         "fermata": (2, ProblemType.CLASSIFICATION),
         **{art: (2, ProblemType.CLASSIFICATION) for art in ARTICULATIONS_AND_ORNAMENTS},
         "tuplet_actual_notes": (1, ProblemType.REGRESSION),
-        "tuplet_actual_to_normal_ratio": (1, ProblemType.REGRESSION),
+        "tuplet_normal_notes": (1, ProblemType.REGRESSION),
     }
     DIMS = {k: v[0] for k, v in _DIMS_AND_PROBLEM_TYPE.items()}
     PROBLEM_TYPES = {k: v[1] for k, v in _DIMS_AND_PROBLEM_TYPE.items()}
@@ -120,7 +120,7 @@ class TokenTensor(torch.Tensor):
             "duration_type",
             "duration_dots",
             "tuplet_actual_notes",
-            "tuplet_actual_to_normal_ratio",
+            "tuplet_normal_notes",
         ],
         tk.TupletEnd: ["token_type", "voice_idx"],
     }
@@ -353,8 +353,7 @@ class TokenTensor(torch.Tensor):
         # TupletStart
         if token_type == tk.TupletStart:
             n_actual = round(clip(self["tuplet_actual_notes"][0].item(), 1))
-            actual_to_normal_ratio = clip(self["tuplet_actual_to_normal_ratio"][0].item(), 1e-3)
-            n_normal = round(clip(n_actual / actual_to_normal_ratio, 1))
+            n_normal = round(clip(self["tuplet_normal_notes"][0].item(), 1))
             return tk.TupletStart(
                 n_actual=n_actual,
                 n_normal=n_normal,
@@ -441,7 +440,7 @@ class TokenTensor(torch.Tensor):
 
     def __embed_tuplet_start_information(self, tuplet_start: tk.TupletStart) -> Self:
         self["tuplet_actual_notes"][0] = tuplet_start.n_actual
-        self["tuplet_actual_to_normal_ratio"][0] = float(tuplet_start.actual_to_normal_ratio)
+        self["tuplet_normal_notes"][0] = tuplet_start.n_normal
         self["duration_type"] = self._create_onehot(
             "duration_type",
             self.DURATION_INDEXER[tuplet_start.unit_duration.type.value],
@@ -609,13 +608,9 @@ class TokenTensor(torch.Tensor):
                                     self[*related_idx, token_sub_dimension],
                                     min=(
                                         1
-                                        if token_sub_dimension == "tuplet_actual_notes"
-                                        else (
-                                            1e-3
-                                            if token_sub_dimension
-                                            == "tuplet_actual_to_normal_ratio"
-                                            else None
-                                        )
+                                        if token_sub_dimension
+                                        in ("tuplet_actual_notes", "tuplet_normal_notes")
+                                        else None
                                     ),
                                 )
                             )

@@ -575,10 +575,7 @@ def old_decode_next_token_constrained(
             duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
             duration_dots = dim_to_index["duration_dots"]
             n_actual = round(clip(expert_outputs["tuplet_actual_notes"].item(), 1))
-            actual_to_normal_ratio = round(
-                clip(expert_outputs["tuplet_actual_to_normal_ratio"].item(), 1e-3)
-            )
-            n_normal = round(clip(n_actual / actual_to_normal_ratio, 1))
+            n_normal = round(clip(expert_outputs["tuplet_normal_notes"].item(), 1))
             return tk.TupletStart(
                 n_actual=n_actual,
                 n_normal=n_normal,
@@ -892,8 +889,7 @@ def get_token_from_path_if_valid(
     elif token_type == tk.TupletStart:
         voice_idx = dim_to_index["voice_idx"]
         n_actual = round(clip(regression_dims_values["tuplet_actual_notes"], 1))
-        actual_to_normal_ratio = clip(regression_dims_values["tuplet_actual_to_normal_ratio"], 1e-3)
-        n_normal = round(clip(n_actual / actual_to_normal_ratio, 1))
+        n_normal = round(clip(regression_dims_values["tuplet_normal_notes"], 1))
         unit_duration_type = TokenTensor.DURATION_INDEXER_INV[dim_to_index["duration_type"]]
         unit_duration_dots = dim_to_index["duration_dots"]
         unit_duration = tk.SymbolicDuration(type=unit_duration_type, dots=unit_duration_dots)
