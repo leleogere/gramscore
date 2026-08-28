@@ -935,11 +935,16 @@ class TokensTranscriberModel(nn.Module):
 
                 # Pass decoder outputs through the router
                 batched_token_type_logits = self.forward_router(last_hidden_state)[:, -1]
+                batched_token_type_logits[:, TokenTensor.TOKEN_INDEXER[tk.StartOfScore]] = (
+                    -torch.inf
+                )  # SOS forbidden
                 batched_token_type_probas = F.softmax(batched_token_type_logits, dim=-1)
 
                 # If non-constrained, simply pass though the most probable expert
                 if not constraint:
-                    batched_predicted_token_types_tensor = batched_token_type_probas.argmax(-1)
+                    batched_predicted_token_types_tensor = batched_token_type_probas.argmax(
+                        -1, keepdim=True
+                    )
                     batched_token_types_mask = {
                         token_type.as_str(): (
                             batched_predicted_token_types_tensor == token_type_idx
@@ -1028,7 +1033,7 @@ class TokensTranscriberModel(nn.Module):
                 )
                 if self.states_prediction:
                     batched_states_tensor = torch.concat(
-                        [batched_states_tensor, batched_next_state_tensor.unsqueeze(1)], dim=1
+                        [batched_states_tensor, batched_next_state_tensor], dim=1
                     )
 
                 # print(next_token)
