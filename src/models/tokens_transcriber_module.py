@@ -323,6 +323,9 @@ class TokensTranscriberModule(L.LightningModule):
         if self.hparams.states_prediction:
             automata_states_input = automata_states[:, :-1]
             automata_states_expected = automata_states[:, 1:]
+        else:
+            automata_states_input = None
+            automata_states_expected = None
 
         # Dropout some tokens when training
         if train:
