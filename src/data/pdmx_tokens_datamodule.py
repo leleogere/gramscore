@@ -73,8 +73,8 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 t.VoiceReorderer(),
                 t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
                 t.PerformanceReader(),
-                t.QuantizedMusicChunker(num_performed_notes=self.hparams.chunk_size, mode="random"),
-                t.RandomTransposer(),
+                t.QuantizedMusicChunker(num_performed_notes=self.hparams.chunk_size, mode=0),
+                # t.RandomTransposer(),
                 t.ScoreVectorizer(),
                 *(
                     [
