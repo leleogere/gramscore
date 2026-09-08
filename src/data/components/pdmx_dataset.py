@@ -77,58 +77,62 @@ class PdmxPianoDataset(ScorePerformanceDataset):
         df = self.read_metadata(self.additional_metadata_file)
         df = self.filter_metadata(df)
 
-        # Read validations pieces
-        self.validation_pieces_path = (
-            self.directory / validation_pieces_filename if validation_pieces_filename else None
-        )
-        if not self.validation_pieces_path:
-            raise ValueError(f"The validation set can't be None")
-        if not self.validation_pieces_path.exists():
-            val_pieces = 1000
-            logger.warning(
-                f"Validation pieces file not found: {self.validation_pieces_path}. If that's the "
-                f"first time with this data, that's normal and will be generated. If that's not, "
-                f"there is likely something wrong and you should check to get a consistent "
-                f"validation set between runs."
-            )
-            self.validation_pieces = self.generate_set_file(
-                df,
-                self.validation_pieces_path,
-                val_pieces,
-                sample_only_pieces_without_duplicates=True,
-            )
-        else:
-            with self.validation_pieces_path.open("r") as f:
-                self.validation_pieces = set(f.read().splitlines())
-
-        # Read test pieces
-        self.test_pieces_path = (
-            self.directory / test_pieces_filename if test_pieces_filename else None
-        )
-        if self.test_pieces_path:
-            if not self.test_pieces_path.exists():
-                test_pieces = 1000
-                logger.warning(
-                    f"Test pieces file not found: {self.test_pieces_path}. If that's the first "
-                    f"time with this data, that's normal and will be generated. If that's not, "
-                    f"there is likely something wrong and you should check to get a consistent "
-                    f"test sets between runs."
-                )
-                self.test_pieces = self.generate_set_file(
-                    df,
-                    self.test_pieces_path,
-                    test_pieces,
-                    to_avoid_mxl=self.validation_pieces,
-                    sample_only_pieces_without_duplicates=True,
-                )
-            else:
-                with self.test_pieces_path.open("r") as f:
-                    self.test_pieces = set(f.read().splitlines())
-        else:
-            self.test_pieces = set()
+        # # Read validations pieces
+        # self.validation_pieces_path = (
+        #     self.directory / validation_pieces_filename if validation_pieces_filename else None
+        # )
+        # if not self.validation_pieces_path:
+        #     raise ValueError(f"The validation set can't be None")
+        # if not self.validation_pieces_path.exists():
+        #     val_pieces = 1000
+        #     logger.warning(
+        #         f"Validation pieces file not found: {self.validation_pieces_path}. If that's the "
+        #         f"first time with this data, that's normal and will be generated. If that's not, "
+        #         f"there is likely something wrong and you should check to get a consistent "
+        #         f"validation set between runs."
+        #     )
+        #     self.validation_pieces = self.generate_set_file(
+        #         df,
+        #         self.validation_pieces_path,
+        #         val_pieces,
+        #         sample_only_pieces_without_duplicates=True,
+        #     )
+        # else:
+        #     with self.validation_pieces_path.open("r") as f:
+        #         self.validation_pieces = set(f.read().splitlines())
+        #
+        # # Read test pieces
+        # self.test_pieces_path = (
+        #     self.directory / test_pieces_filename if test_pieces_filename else None
+        # )
+        # if self.test_pieces_path:
+        #     if not self.test_pieces_path.exists():
+        #         test_pieces = 1000
+        #         logger.warning(
+        #             f"Test pieces file not found: {self.test_pieces_path}. If that's the first "
+        #             f"time with this data, that's normal and will be generated. If that's not, "
+        #             f"there is likely something wrong and you should check to get a consistent "
+        #             f"test sets between runs."
+        #         )
+        #         self.test_pieces = self.generate_set_file(
+        #             df,
+        #             self.test_pieces_path,
+        #             test_pieces,
+        #             to_avoid_mxl=self.validation_pieces,
+        #             sample_only_pieces_without_duplicates=True,
+        #         )
+        #     else:
+        #         with self.test_pieces_path.open("r") as f:
+        #             self.test_pieces = set(f.read().splitlines())
+        # else:
+        #     self.test_pieces = set()
 
         # Read entries
-        df = self.get_split(df)
+        # df = self.get_split(df)
+        df = df.head(1)  # Temporarily get a single-piece dataset to try overfitting setup
+        print(self.split)
+        for _, row in df.iterrows():
+            print(row["mxl"])
         entries = self.create_entries(df)
         super().__init__(entries, transforms)
 
