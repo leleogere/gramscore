@@ -74,7 +74,7 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 t.PreComputedAllowedTranspositionsReader(limit_semitones=4),
                 t.PerformanceReader(),
                 t.QuantizedMusicChunker(num_performed_notes=self.hparams.chunk_size, mode="random"),
-                t.RandomTransposer(),
+                # t.RandomTransposer(),
                 t.ScoreVectorizer(),
                 *(
                     [
@@ -86,16 +86,16 @@ class PdmxTokensDataModule(BaseTokensDataModule):
                 ),
                 t.PerformanceToPerformedNoteList(),
                 t.PerformedNoteListVectorizer(),
-                t.VectorizedPerformanceVariableSpeedAugmenter(
-                    min_global_factor=0.8,
-                    max_global_factor=1.2,
-                    min_relative_local_factor=-0.1,
-                    max_relative_local_factor=0.1,
-                    min_time_factor_change=40.0,
-                    max_time_factor_change=60.0,
-                ),
-                t.VectorizedPerformanceInterOnsetJitterer(std=0.05),
-                t.VectorizedPerformanceDurationJitterer(min_factor=0.95, max_factor=1.05),
+                # t.VectorizedPerformanceVariableSpeedAugmenter(
+                #     min_global_factor=0.8,
+                #     max_global_factor=1.2,
+                #     min_relative_local_factor=-0.1,
+                #     max_relative_local_factor=0.1,
+                #     min_time_factor_change=40.0,
+                #     max_time_factor_change=60.0,
+                # ),
+                # t.VectorizedPerformanceInterOnsetJitterer(std=0.05),
+                # t.VectorizedPerformanceDurationJitterer(min_factor=0.95, max_factor=1.05),
                 t.VectorizedPerformanceStreamsBucketizer(),
             ],
             "validation": [
