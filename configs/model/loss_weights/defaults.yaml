@@ -1,0 +1,63 @@
+Router:
+  token_type: 1.0
+
+Bar:
+  bar_time_signature: 0.01
+  bar_is_nominal: 0.01
+
+KeySignature:
+  key_signature: 0.01
+
+Clef:
+  clef_type: 0.01
+  staff_idx: 0.01
+
+Rest:
+  staff_idx: 0.01
+  voice_idx: 0.01
+  duration_type: 0.01
+  duration_dots: 0.01
+  measure_rest: 0.01
+  fermata: 0.01
+
+Note:
+  staff_idx: 0.01
+  voice_idx: 0.01
+  duration_type: 0.01
+  duration_dots: 0.01
+  note_class: 0.01
+  note_octave: 0.01
+  note_accidental: 0.01
+  note_grace: 0.01
+  note_tied: 0.01
+  note_stem_direction: 0.01
+  fermata: 0.01
+  accent: 0.01
+  strong_accent: 0.01
+  staccato: 0.01
+  staccatissimo: 0.01
+  tenuto: 0.01
+  detached_legato: 0.01
+  trill_mark: 0.01
+  turn: 0.01
+  mordent: 0.01
+  inverted_mordent: 0.01
+  tremolo: 0.01
+
+ChordStart:
+  voice_idx: 0.01
+  duration_type: 0.01
+  duration_dots: 0.01
+
+ChordEnd:
+  voice_idx: 0.01
+
+TupletStart:
+  voice_idx: 0.01
+  duration_type: 0.01
+  duration_dots: 0.01
+  tuplet_actual_notes: 0.01
+  tuplet_normal_notes: 0.01
+
+TupletEnd:
+  voice_idx: 0.01

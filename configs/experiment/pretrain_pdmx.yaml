@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    performance_dropout: 0.05
+    score_dropout: 0.75
+    expert_loss_weight: 0.01
+
+    optimizer:
+        weight_decay: 0.01
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 1_000_000

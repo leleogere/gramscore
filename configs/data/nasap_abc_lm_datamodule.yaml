@@ -1,0 +1,14 @@
+_target_: src.data.nasap_abc_lm_datamodule.AsapABCLanguageModelDataModule
+
+defaults:
+    - _self_
+    - chunking_config: null
+
+data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/nasap-dataset
+
+tokenizer: ${model.language_model.model.pretrained_model_name_or_path}
+batch_size: 2
+num_workers: 1

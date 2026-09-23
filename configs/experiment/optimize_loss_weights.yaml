@@ -1,0 +1,146 @@
+# @package _global_
+
+# Experiment configuration for Optuna loss weights optimization
+defaults:
+    - /data: pdmx_tokens_datamodule
+    - override /hydra/sweeper: optuna
+
+callbacks: null
+
+# Reduce training time for optimization trials
+data:
+    batch_size: 48
+    num_workers: 60
+    prefetch_factor: 3
+    chunk_size: 200
+    allowed_staffs: [2]
+    validation_pieces_filename: validation_pieces_double_staff.txt
+    test_pieces_filename: test_pieces_double_staff.txt
+
+trainer:
+    max_steps: -1
+    val_check_interval: null
+    max_epochs: 30
+    log_every_n_steps: 50
+    check_val_every_n_epoch: 1
+#    limit_train_batches: 0.2  # Only use 20% of training data per trial
+    limit_val_batches: 10  # Use 2 batches per validation step
+    num_sanity_val_steps: 0  # Disable sanity check
+
+model:
+    # Smaller model for faster optimization
+    num_hidden_layers: 3
+    num_attention_heads: 8
+    embedding_dim: 512
+    router_inner_dims: [256, 128]
+    experts_inner_dims:
+        _default: [256, 128]
+    # Disable expensive full evaluation during optimization
+    full_eval_every_n_val_steps: 6  # Will be manually enabled at training end
+    full_eval_max_batches: 5
+    log_logits_each_n_val_steps: null  # Disabled
+    optimizer:
+        lr: 0.0001
+    scheduler:
+        warmup_steps: 1000
+
+param_groups:
+    - model.loss_weights.Note.note_class:
+          - model.loss_weights.Note.note_octave
+          - model.loss_weights.Note.note_accidental
+    - model.loss_weights.Note.accent:
+          - model.loss_weights.Note.strong_accent
+          - model.loss_weights.Note.staccato
+          - model.loss_weights.Note.staccatissimo
+          - model.loss_weights.Note.tenuto
+          - model.loss_weights.Note.detached_legato
+          - model.loss_weights.Note.trill_mark
+          - model.loss_weights.Note.turn
+          - model.loss_weights.Note.mordent
+          - model.loss_weights.Note.inverted_mordent
+          - model.loss_weights.Note.tremolo
+
+optimized_metrics:
+    - "[V] Generation metrics/MUSTER/MeanER"
+    - "[V] Router specific metrics/Macro F1"
+
+# Hydra Optuna Sweeper configuration
+hydra:
+    mode: MULTIRUN
+    sweep:
+        dir: ${hydra.run.dir}_multirun
+    sweeper:
+        _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+
+        # Optimization setup
+        direction:
+            - minimize
+            - maximize
+        study_name: loss_weights_optimization
+#        storage: sqlite:////local/DEEPLEARNING/music/optuna.db
+        storage: sqlite:////local/homes/users/g/gerel/datasets/music/optuna.db
+        n_trials: 100
+        n_jobs: 1  # Set to number of GPUs available for parallel trials
+
+        # Sampler configuration
+        sampler:
+            _target_: optuna.samplers.TPESampler
+            seed: ${now:%-m%d%f}
+            n_startup_trials: 10  # Random trials before TPE kicks in
+
+        # Search space for grouped loss weights
+        # We group similar parameters to reduce dimensionality
+        params:
+            # Router weight is anchored at 1.0
+            # Bar
+            model.loss_weights.Bar.bar_time_signature: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Bar.bar_is_nominal: tag(log, interval(0.001, 10.0))
+
+            # Key signature
+            model.loss_weights.KeySignature.key_signature: tag(log, interval(0.001, 10.0))
+
+            # Clef
+            model.loss_weights.Clef.clef_type: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Clef.staff_idx: tag(log, interval(0.001, 10.0))
+
+            # Rest
+            model.loss_weights.Rest.staff_idx: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Rest.voice_idx: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Rest.duration_type: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Rest.duration_dots: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Rest.measure_rest: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Rest.fermata: tag(log, interval(0.001, 10.0))
+
+            # Note
+            model.loss_weights.Note.staff_idx: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.voice_idx: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.duration_type: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.duration_dots: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.note_class: tag(log, interval(0.001, 10.0))  # shared by all pitch-related parameters
+            model.loss_weights.Note.note_grace: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.note_tied: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.note_stem_direction: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.fermata: tag(log, interval(0.001, 10.0))
+            model.loss_weights.Note.accent: tag(log, interval(0.001, 10.0))  # shared by all articulation/ornament-related parameters
+
+            # ChordStart
+            model.loss_weights.ChordStart.voice_idx: tag(log, interval(0.001, 10.0))
+            model.loss_weights.ChordStart.duration_type: tag(log, interval(0.001, 10.0))
+            model.loss_weights.ChordStart.duration_dots: tag(log, interval(0.001, 10.0))
+
+            # ChordEnd
+            model.loss_weights.ChordEnd.voice_idx: tag(log, interval(0.001, 10.0))
+
+            # TupletStart
+            model.loss_weights.TupletStart.voice_idx: tag(log, interval(0.001, 10.0))
+            model.loss_weights.TupletStart.duration_type: tag(log, interval(0.001, 10.0))
+            model.loss_weights.TupletStart.duration_dots: tag(log, interval(0.001, 10.0))
+            model.loss_weights.TupletStart.tuplet_actual_notes: tag(log, interval(0.001, 10.0))
+            model.loss_weights.TupletStart.tuplet_normal_notes: tag(log, interval(0.001, 10.0))
+
+            # TupletEnd
+            model.loss_weights.TupletEnd.voice_idx: tag(log, interval(0.001, 10.0))
+
+
+
+tags: ["loss_weights_sweep"]

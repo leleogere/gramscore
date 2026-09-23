@@ -1,0 +1,5 @@
+_target_: src.models.components.positional_encoding.ContinuousPositionalEncoding1D
+
+d_model: ${eval:'${model.embedding_dim} // ${model.num_attention_heads}'}
+shortest_period: 0.1  # shorter than the original transformer paper (2*pi) to capture finer temporal resolution
+longest_period: 60_000.0  # close to the original transformer paper: 2*pi*10_000

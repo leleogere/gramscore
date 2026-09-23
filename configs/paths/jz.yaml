@@ -1,0 +1,8 @@
+defaults:
+  - default
+
+# Override data_directory for Jean-Zay
+data_dir: ${oc.env:SCRATCH}/datasets/music
+
+# Override output_directory for Jean-Zay
+output_dir: ${oc.env:SCRATCH}/outputs/${now:%Y-%m}/${now:%Y-%m-%d_%H-%M-%S.%f}

@@ -1,0 +1,33 @@
+_target_: src.data.asap_tokens_datamodule.AsapTokensDataModule
+_partial_: true
+
+defaults:
+    - _self_
+
+data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset
+
+batch_size: 1
+include_midi_scores: true
+include_states: false
+state_num_voices: 8
+#filter_fn: 'lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score"'
+#filter_fn: 'lambda e: e.composer == "Bach"'
+valid_tsv_file:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset/valid.tsv
+validation_pieces_filename: validation_pieces.txt
+test_pieces_filename: test_pieces.txt
+num_workers: 2
+prefetch_factor: 2
+persistent_workers: true
+pin_memory: false
+artificial_dataset_repetitions: 1000
+chunk_size: 500
+
+test_validation_mode: "all_wo_overlap"
+
+use_cache: True

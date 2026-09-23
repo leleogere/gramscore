@@ -1,0 +1,5 @@
+defaults:
+  - default
+
+# Override data_directory for Cnam servers
+data_dir: /local/DEEPLEARNING/music

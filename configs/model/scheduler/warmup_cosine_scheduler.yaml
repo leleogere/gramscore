@@ -1,0 +1,6 @@
+_target_: src.models.schedulers.warmup_cosine_scheduler.WarmupCosineScheduler
+_partial_: true
+warmup_steps: 3000
+total_steps: ${trainer.max_steps}
+cycles: 0  # 0.5 for annealing to zero, 0 for no decay
+last_epoch: -1

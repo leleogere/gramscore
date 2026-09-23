@@ -1,67 +1,123 @@
+import ast
 import csv
+import itertools
+import json
+import math
+import sys
+import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
-from typing import Self
+from typing import Literal
 
-import music21 as m21
+import joblib
+import lxml
+import pandas as pd
+import partitura as pt
+import partitura.score
+import pretty_midi as pm
 import symusic
+import torch
+from loguru import logger
+from lxml import etree
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizerBase
+from tqdm import tqdm
 
-from utils.abc_xml_conversion import conversion
+import data.components.transforms as t
+from data.components.check_tokenizable import check_full
+from models.automata.vectorization_torch import TokenTensor
+from utils.constants import SKIP
+from utils.constants import TEST_PIECE_IDS
+from utils.constants import TO_IGNORE_INDICES
+from utils.musicxml import read_musicxml
+
+tqdm.pandas()
+sys.setrecursionlimit(2**31 - 1)
 
 
 @dataclass
 class ScorePerformanceEntry:
     xml_score: Path
     midi_performance: Path
-    midi_score_annotations: Path = None
-    midi_score: Path = None
-    composer: str = None
-    title: str = None
+    midi_score_annotations: Path | None = None
+    midi_score: Path | None = None
+    folder: Path | None = None
+    base_path: Path | None = None
+    composer: str | None = None
+    title: str | None = None
+    split: str | None = None
+    allowed_transpositions: list[pt.score.Interval] | None = None
+    extra: dict[str, Any] | None = None
 
-    def get_score_as_musicxml(self) -> str:
-        """
-        Return the MusicXML file as a string.
-        """
-        with open(self.xml_score, "r") as f:
-            return f.read()
+    def _get_relative_path(self, absolute_path: Path) -> Path:
+        if self.base_path is None:
+            raise ValueError("The attribute `base_path` must be set to get a relative path")
+        return absolute_path.relative_to(self.base_path)
 
-    def get_score_as_abc(self):
-        """
-        Return the MusicXML file converted into ABC format.
-        """
-        xml = self.get_score_as_musicxml()
-        abc = conversion.xml2abc(xml)
-        return abc
+    @property
+    def xml_score_relative(self) -> Path:
+        return self._get_relative_path(self.xml_score)
 
-    def get_score_as_music21(self):
-        """
-        Return the MusicXML file as a music21 score.
-        """
-        score = m21.converter.parse(self.xml_score)
-        return score
+    @property
+    def midi_performance_relative(self) -> Path:
+        return self._get_relative_path(self.midi_performance)
 
-    def get_midi_performance_as_symusic(self, ttype: str = "second"):
-        """
-        Return the MIDI performance as a symusic object.
+    @property
+    def midi_score_annotations_relative(self) -> Path:
+        return self._get_relative_path(self.midi_score_annotations)
 
-        :param ttype: The time type to use. Can be "tick", "quarter" or "second".
+    @property
+    def midi_score_relative(self) -> Path:
+        return self._get_relative_path(self.midi_score)
+
+    @property
+    def folder_relative(self) -> Path:
+        return self._get_relative_path(self.folder)
+
+    @property
+    def id(self) -> tuple[str, str]:
         """
-        midi = symusic.Score(self.midi_performance, ttype=ttype)
-        return midi
+        Returns a unique piece id, as a tuple (composer, title), used to split correctly into
+        train/val/test sets without any piece overlap.
+        """
+        return (self.composer, self.title)
+
+    @property
+    def debug_path(self) -> Path:
+        if self.base_path is not None:
+            return (
+                self.midi_performance_relative
+                if self.midi_performance is not None
+                else self.xml_score_relative
+            )
+        else:
+            return self.midi_performance if self.midi_performance is not None else self.xml_score
 
 
 class ScorePerformanceDataset(Dataset):
     """Dataset for a dataset of pairs of MusicXML scores and MIDI performances."""
 
-    def __init__(self, entries: list[ScorePerformanceEntry]) -> None:
+    def __init__(
+        self,
+        entries: list[ScorePerformanceEntry],
+        transforms: Callable | list[Callable] = None,
+        exception_on_transform_error: bool = False,
+    ) -> None:
         """Initialize a dataset of pairs of MusicXML scores and MIDI performances.
 
         :param entries: A list of ScorePerformanceEntry objects.
+        :param transforms: A transform or list of transforms to apply to the entries.
+        :param exception_on_transform_error: Whether to raise an exception if an error occurs
+            during a transform. If false, will early return the sample with the t.ERROR_KEY key
+            set to the error message.
         """
         self.entries = entries
+        self.transforms = transforms
+        if self.transforms is not None and not isinstance(transforms, list):
+            self.transforms = [self.transforms]
+        self.exception_on_transform_error = exception_on_transform_error
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -70,60 +126,44 @@ class ScorePerformanceDataset(Dataset):
         """
         return len(self.entries)
 
-    def __getitem__(self, idx: int) -> ScorePerformanceEntry:
+    # @line_profiler.profile
+    def __getitem__(self, idx: int) -> ScorePerformanceEntry | Any:
         """Return a sample from the dataset.
 
         :param idx: The index of the sample to return.
         :return: The sample at the given index.
         """
-        return self.entries[idx]
+        entry = self.entries[idx]
+        # worker = torch.utils.data.get_worker_info()
+        # logger.trace(
+        #     f"{worker.id+1}/{worker.num_workers}: Loading {entry.xml_score_relative} and {entry.midi_performance.name}"
+        # )
+        if self.transforms:
+            entry = self.apply_transforms(entry, self.transforms)
+        return entry
 
-
-class ScorePerformanceAsTextDataset(ScorePerformanceDataset):
-    def __init__(
-        self, entries: list[ScorePerformanceEntry], tokenizer: PreTrainedTokenizerBase
-    ) -> None:
-        """Initialize a dataset of pairs of MusicXML scores and MIDI performances, but in a textual
-        representation suited for language models.
-
-        :param entries: A list of ScorePerformanceEntry objects.
-        :param tokenizer: The tokenizer to use.
-        """
-        super().__init__(entries)
-        self.tokenizer = tokenizer
-
-    def __getitem__(self, idx: int) -> Any:
-        """Return a sample from the dataset.
-
-        :param idx: The index of the sample to return.
-        :return: A dictionary with the following keys:
-            - `midi_performance_as_text`: The MIDI performance as text (for debugging purposes).
-            - `abc_score_as_text`: The ABC score as text (for debugging purposes).
-            - `tokenized_conversation`: The tokenized conversation between the user and the assistant.
-            - `assistant_mask`: As mask indicating the assistant tokens in the tokenized conversation (1's).
-        """
-        entry = super().__getitem__(idx)
-        midi_as_text = "\n".join(
-            [
-                f"Note(pitch={note.pitch}, start={round(note.start, 3)}, duration={round(note.duration, 3)})"  # Velocity unused for now
-                for note in entry.get_midi_performance_as_symusic(ttype="second").tracks[0].notes
-            ]
-        )
-        score_as_text = entry.get_score_as_abc()
-        conversation = [
-            dict(role="user", content=midi_as_text),
-            dict(role="assistant", content=score_as_text),
-        ]
-        tokenized_conversation = self.tokenizer.apply_chat_template(
-            conversation,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_assistant_tokens_mask=True,  # currently broken (see https://github.com/huggingface/transformers/issues/33091), see PR (https://github.com/huggingface/tokenizers/pull/1640)
-        )
-
-        return {
-            "midi_performance_as_text": midi_as_text,
-            "abc_score_as_text": entry.get_score_as_abc(),
-            "tokenized_conversation": tokenized_conversation["input_ids"],
-            "assistant_mask": tokenized_conversation["assistant_masks"],
-        }
+    def apply_transforms(self, sample: Any, transforms: list[Callable]) -> Any:
+        for i, transform in enumerate(transforms):
+            if isinstance(sample, dict) and t.ERROR_KEY in sample:
+                # We should probably test i>0 for completude but it should not happen
+                # as the ToDict transform must not cause any error
+                last_transform_name = transforms[i - 1].__class__.__name__
+                msg = (
+                    f"{sample['entry'].debug_path}: error encountered after applying transform "
+                    f"{last_transform_name}: {sample[t.ERROR_KEY]}"
+                )
+                if self.exception_on_transform_error:
+                    raise ValueError(msg)
+                else:
+                    if not isinstance(transform, t.Cache):  # avoid relogging errors
+                        logger.error(msg)
+                    return sample
+            try:
+                sample = transform(sample)
+            except Exception as e:
+                sample[t.ERROR_KEY] = str(e)
+            if isinstance(sample, list):
+                # If the transform returns a list, apply the transforms to each element
+                sample = [self.apply_transforms(s, transforms[i + 1 :]) for s in sample]
+                break
+        return sample

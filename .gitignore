@@ -148,7 +148,22 @@ dmypy.json
 configs/local/default.yaml
 /data/
 /logs/
+/outputs/
+/src/outputs/
 .env
+/notebooks/wandb/
 
 # Aim logging
 .aim
+
+# Wandb logging
+wandb/
+
+# Other
+tests/scores
+*.bak*
+/models/
+scores/
+_ignored*
+profile_output*
+.mscbackup

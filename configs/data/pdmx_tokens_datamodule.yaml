@@ -1,0 +1,45 @@
+_target_: src.data.pdmx_tokens_datamodule.PdmxTokensDataModule
+
+defaults:
+    - _self_
+
+data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/pdmx
+
+asap_validation_pieces_path:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset/validation_pieces.txt
+
+asap_test_pieces_path:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset/test_pieces.txt
+
+include_states: false
+state_num_voices: 8
+
+rating_oversampler_config: null
+#    _target_: src.data.pdmx_tokens_datamodule.RatingOversamplerConfig
+#    min_rating_to_consider_good: 4.0
+#    min_n_ratings_to_consider_good: 3
+#    objective_percentage: 0.5
+
+validation_pieces_filename: validation_pieces.txt
+test_pieces_filename: null
+
+allowed_staffs: [1, 2]
+
+chunk_size: 500
+
+batch_size: 2
+num_workers: 2
+prefetch_factor: 2
+persistent_workers: true
+pin_memory: false
+
+test_validation_mode: first_chunk
+
+use_cache: False

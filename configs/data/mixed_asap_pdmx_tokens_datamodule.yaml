@@ -1,0 +1,42 @@
+_target_: src.data.mixed_asap_pdmx_tokens_datamodule.MixedAsapPdmxTokensDataModule
+_partial_: true
+
+defaults:
+    - _self_
+
+proportion_asap: 0.5
+
+batch_size: 1
+num_workers: 2
+prefetch_factor: 2
+persistent_workers: true
+pin_memory: false
+use_cache: true  # Only relevant for ASAP
+test_validation_mode: "all_wo_overlap"  # Only relevant for ASAP
+
+# ASAP config
+asap_data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset
+asap_include_midi_scores: true
+#filter_fn: 'lambda e: e.composer == "Bach" and e.midi_performance.stem == "midi_score"'
+#filter_fn: 'lambda e: e.composer == "Bach"'
+asap_valid_tsv_file:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/asap-dataset/valid.tsv
+asap_validation_pieces_filename: validation_pieces.txt
+asap_test_pieces_filename: test_pieces.txt
+asap_artificial_dataset_repetitions: 1000
+
+# PDMX config
+pdmx_data_dir:
+    _target_: pathlib.Path
+    _args_:
+        - ${paths.data_dir}/pdmx
+pdmx_rating_oversampler_config: null
+pdmx_validation_pieces_filename: validation_pieces.txt
+pdmx_test_pieces_filename: null
+pdmx_allowed_staffs: [1, 2]
+pdmx_test_validation_mode: first_chunk

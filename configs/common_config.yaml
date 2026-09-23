@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - hydra: default
+  - logger: wandb
+  - paths: default
+  - trainer: cpu
+  - model: tokens_transcriber_module
+  - callbacks:
+      - model_checkpoint
+      - model_summary
+      - rich_progress_bar
+
+resume_training: false
+log_level: INFO
+tags: []
