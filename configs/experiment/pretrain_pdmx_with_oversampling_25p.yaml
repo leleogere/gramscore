@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+    rating_oversampler_config:
+        _target_: src.data.pdmx_tokens_datamodule.RatingOversamplerConfig
+        min_rating_to_consider_good: 4.0
+        min_n_ratings_to_consider_good: 3
+        objective_percentage: 0.25
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 1_000_000

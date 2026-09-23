@@ -1,0 +1,77 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    positional_encoder:
+        shortest_period: 0.1
+    time_based_cross_attention: false
+    tokens_positions_scaling_factor: 1.0
+    full_eval_every_n_val_steps: 20
+    full_eval_max_batches: 10
+
+    loss_weights:
+        Bar:
+            bar_is_nominal: 0.14935265980814114
+            bar_time_signature: 0.02816144579582749
+        ChordEnd:
+            voice_idx: 0.5834309841368883
+        ChordStart:
+            duration_dots: 0.3974920104120856
+            duration_type: 0.023527182376746027
+            voice_idx: 0.04475976197175737
+        Clef:
+            clef_type: 0.009182184382392568
+            staff_idx: 0.2391573684020467
+        KeySignature:
+            key_signature: 0.08388680490062435
+        Note:
+            accent: 0.16152686388515916
+            detached_legato: 0.16152686388515916
+            duration_dots: 0.008422880230548501
+            duration_type: 0.004347913728597921
+            fermata: 0.13665425394245334
+            inverted_mordent: 0.16152686388515916
+            mordent: 0.16152686388515916
+            note_accidental: 2.895167335935728
+            note_class: 0.3353360089896639
+            note_grace: 0.6696583574921787
+            note_octave: 0.7258797636094995
+            note_stem_direction: 0.0012758873496483247
+            note_tied: 0.003980465738327154
+            staccatissimo: 0.16152686388515916
+            staccato: 0.16152686388515916
+            staff_idx: 0.06405088883935134
+            strong_accent: 0.16152686388515916
+            tenuto: 0.16152686388515916
+            tremolo: 0.16152686388515916
+            trill_mark: 0.16152686388515916
+            turn: 0.16152686388515916
+            voice_idx: 2.184585648750557
+        Rest:
+            duration_dots: 1.815322617230975
+            duration_type: 0.0017659821439163957
+            fermata: 0.0036848599405617556
+            measure_rest: 0.2991419795925183
+            staff_idx: 0.23466986202354687
+            voice_idx: 0.4091904573721659
+        Router:
+            token_type: 1
+        TupletEnd:
+            voice_idx: 0.0022783924338034595
+        TupletStart:
+            duration_dots: 0.8676381773212554
+            duration_type: 0.005625329839383652
+            tuplet_actual_notes: 0.010248415419926521
+            tuplet_normal_notes: 0.0317495755048059
+            voice_idx: 0.0059675166776875285
+
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 1_000_000

@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+data:
+    batch_size: 24
+    num_workers: 20
+
+model:
+    embedding_dim: 1024
+    router_inner_dims: [256, 128]
+    positional_encoder:
+        shortest_period: 0.1
+    time_based_cross_attention: false
+    tokens_positions_scaling_factor: 1.0
+    full_eval_every_n_val_steps: 10
+    full_eval_max_batches: 10
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 1_000_000
+    accumulate_grad_batches: 2

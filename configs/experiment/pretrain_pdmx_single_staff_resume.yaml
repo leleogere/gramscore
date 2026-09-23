@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+model:
+    load_from_checkpoint: /lustre/fsn1/projects/rech/cce/ujt89sd/outputs/2026-03/2026-03-09_17-50-54.515952/checkpoints/last.ckpt
+resume_training: true
+
+data:
+    batch_size: 48
+    num_workers: 20
+    allowed_staffs: [1]
+    validation_pieces_filename: validation_pieces_single_staff.txt
+    test_pieces_filename: test_pieces_single_staff.txt
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 1_000_000

@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    load_from_checkpoint: /lustre/fsn1/projects/rech/cce/ujt89sd/outputs/2026-02/2026-02-20_11-47-13_serene-water-337/checkpoints/last.ckpt
+
+    optimizer:
+        weight_decay: 0.01
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 2_000_000
+
+resume_training: true

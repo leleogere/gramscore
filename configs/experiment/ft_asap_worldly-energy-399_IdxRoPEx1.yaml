@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+    - /data: asap_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    load_from_checkpoint: /lustre/fsn1/projects/rech/cce/ujt89sd/outputs/2026-04/2026-04-10_10-22-43.482544_worldly-energy-399/checkpoints/last.ckpt
+
+    positional_encoder:
+        shortest_period: 0.1
+    time_based_cross_attention: false
+    tokens_positions_scaling_factor: 1.0
+    full_eval_every_n_val_steps: 10
+    full_eval_max_batches: null
+
+    chunk_size_scheduler: null
+    optimizer:
+        lr: 1e-5
+        weight_decay: 0.0
+    scheduler:
+        warmup_steps: 1000
+
+
+trainer:
+    max_steps: 30_000
+    log_every_n_steps: 200
+    val_check_interval: 200

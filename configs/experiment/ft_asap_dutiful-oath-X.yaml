@@ -1,0 +1,86 @@
+# @package _global_
+defaults:
+    - /data: asap_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    load_from_checkpoint: /lustre/fsn1/projects/rech/cce/ujt89sd/outputs/2026-05/2026-05-05_12-22-41.544825_dutiful-oath-X/checkpoints/last.ckpt
+
+    positional_encoder:
+        shortest_period: 0.1
+    time_based_cross_attention: false
+    tokens_positions_scaling_factor: 1.0
+    full_eval_every_n_val_steps: 10
+    full_eval_max_batches: null
+
+    loss_weights:
+        Bar:
+            bar_is_nominal: 0.0015283436473989978
+            bar_time_signature: 0.023444027658946726
+        ChordEnd:
+            voice_idx: 0.23698955324768345
+        ChordStart:
+            duration_dots: 0.03125723481447587
+            duration_type: 1.6570235894065595
+            voice_idx: 0.009338945990131567
+        Clef:
+            clef_type: 0.005435142247474077
+            staff_idx: 0.034765480178095914
+        KeySignature:
+            key_signature: 0.021121170890632007
+        Note:
+            accent: 1.223475601277954
+            detached_legato: 1.223475601277954
+            duration_dots: 5.427083655594391
+            duration_type: 1.8840146231882766
+            fermata: 0.009500870595668493
+            inverted_mordent: 1.223475601277954
+            mordent: 1.223475601277954
+            note_accidental: 7.376568535328615
+            note_class: 7.376568535328615
+            note_grace: 0.008113776511389394
+            note_octave: 7.376568535328615
+            note_stem_direction: 0.007516792568092999
+            note_tied: 0.19496033908150834
+            staccatissimo: 1.223475601277954
+            staccato: 1.223475601277954
+            staff_idx: 0.0030615646114440804
+            strong_accent: 1.223475601277954
+            tenuto: 1.223475601277954
+            tremolo: 1.223475601277954
+            trill_mark: 1.223475601277954
+            turn: 1.223475601277954
+            voice_idx: 0.848422233895275
+        Rest:
+            duration_dots: 2.3860247744726584
+            duration_type: 0.009885228589993982
+            fermata: 0.06814591752106065
+            measure_rest: 5.808009558977814
+            staff_idx: 0.4784513278322888
+            voice_idx: 0.043612464504297295
+        Router:
+            token_type: 1
+        TupletEnd:
+            voice_idx: 0.2740934357864401
+        TupletStart:
+            duration_dots: 9.892466007885869
+            duration_type: 0.008359428708637805
+            tuplet_actual_notes: 0.00681372983419218
+            tuplet_normal_notes: 0.16726930000096688
+            voice_idx: 0.0056054250346621055
+
+    chunk_size_scheduler: null
+    optimizer:
+        lr: 1e-5
+        weight_decay: 0.0
+    scheduler:
+        warmup_steps: 1000
+
+
+trainer:
+    max_steps: 30_000
+    log_every_n_steps: 200
+    val_check_interval: 200

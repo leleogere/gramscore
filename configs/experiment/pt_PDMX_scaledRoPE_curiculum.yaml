@@ -1,0 +1,98 @@
+# @package _global_
+defaults:
+    - /data: pdmx_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    tokens_positions_scaling_factor: 17.0
+    #full_eval_every_n_val_steps: 100000000  # Disable for now as crashing on GPU
+    #full_eval_max_batches: 3
+    chunk_size_scheduler:  # How to specify that directly with the config file?
+        _target_: src.models.generic_scheduler.linear_ramp.LinearRamp
+        coefficient: 0.005  # Should reach 500 by 100k steps
+        clamp_min: 50
+        clamp_max: 500
+        cast_type: int
+
+trainer:
+    val_check_interval: 1000
+    log_every_n_steps: 200
+    max_steps: 1_000_000
+    reload_dataloaders_every_n_epochs: 1
+
+
+#Traceback (most recent call last):
+  #File "/linkhome/rech/genfri01/ujt89sd/gramscore/src/train.py", line 169, in <module>
+    #train()
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/main.py", line 94, in decorated_main
+    #_run_hydra(
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    #_run_app(
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    #run_and_report(
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    #raise ex
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    #return func()
+           #^^^^^^
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    #lambda: hydra.run(
+            #^^^^^^^^^^
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/_internal/hydra.py", line 132, in run
+    #_ = ret.return_value
+        #^^^^^^^^^^^^^^^^
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/core/utils.py", line 260, in return_value
+    #raise self._return_value
+  #File "/lustre/fshomisc/sup/pub/miniforge/24.11.3/envs/pytorch-gpu-2.8.0+py3.12.11/lib/python3.12/site-packages/hydra/core/utils.py", line 186, in run_job
+    #ret.return_value = task_function(task_cfg)
+                       #^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/gramscore/src/train.py", line 157, in train
+    #trainer.fit(
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 584, in fit
+    #call._call_and_handle_interrupt(
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py", line 49, in _call_and_handle_interrupt
+    #return trainer_fn(*args, **kwargs)
+           #^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 630, in _fit_impl
+    #self._run(model, ckpt_path=ckpt_path, weights_only=weights_only)
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1079, in _run
+    #results = self._run_stage()
+              #^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1121, in _run_stage
+    #self._run_sanity_check()
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1150, in _run_sanity_check
+    #val_loop.run()
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/loops/utilities.py", line 179, in _decorator
+    #return loop_run(self, *args, **kwargs)
+           #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/loops/evaluation_loop.py", line 146, in run
+    #self._evaluation_step(batch, batch_idx, dataloader_idx, dataloader_iter)
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/loops/evaluation_loop.py", line 441, in _evaluation_step
+    #output = call._call_strategy_hook(trainer, hook_name, *step_args)
+             #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py", line 329, in _call_strategy_hook
+    #output = fn(*args, **kwargs)
+             #^^^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/.local/lib/python3.12/site-packages/lightning/pytorch/strategies/strategy.py", line 412, in validation_step
+    #return self.lightning_module.validation_step(*args, **kwargs)
+           #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/linkhome/rech/genfri01/ujt89sd/gramscore/src/models/tokens_transcriber_module.py", line 506, in validation_step
+    #transcribed_token_tensor, flags_and_positions = self.transcriber_model.generate(
+                                                    #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/lustre/fshomisc/home/rech/genfri01/ujt89sd/gramscore/src/models/components/tokens_transcriber_model.py", line 435, in generate
+    #batched_next_token_tensor = self.forward_experts(
+                                #^^^^^^^^^^^^^^^^^^^^^
+  #File "/lustre/fshomisc/home/rech/genfri01/ujt89sd/gramscore/src/models/components/tokens_transcriber_model.py", line 177, in forward_experts
+    #return TokenTensor.build_from_dict(
+           #^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/lustre/fshomisc/home/rech/genfri01/ujt89sd/gramscore/src/models/automata/vectorization_torch.py", line 560, in build_from_dict
+    #tensor = TokenTensor(torch.zeros((*initial_shape, TokenTensor.TOTAL_DIMENSIONS)), device=device)
+             #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #File "/lustre/fshomisc/home/rech/genfri01/ujt89sd/gramscore/src/models/automata/vectorization_torch.py", line 130, in __new__
+    #tensor = super().__new__(*args, **kwargs)
+             #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#RuntimeError: Legacy tensor constructor of the form torch.Tensor(tensor, device=device) is not supported.  Use torch.tensor(...) or torch.as_tensor(...) instead.
+#srun: error: jzxh014: task 0: Exited with exit code 1

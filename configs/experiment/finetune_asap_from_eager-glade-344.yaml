@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+    - /data: asap_tokens_datamodule
+
+data:
+    batch_size: 48
+    num_workers: 20
+
+model:
+    load_from_checkpoint: /lustre/fsn1/projects/rech/cce/ujt89sd/outputs/2026-02/2026-02-25_12-20-44.108065_eager-glade-344/checkpoints/last.ckpt
+
+    performance_dropout: 0.05
+    score_dropout: 0.75
+
+    optimizer:
+        lr: 1e-5
+        weight_decay: 0.01
+    scheduler:
+        warmup_steps: 1000
+
+trainer:
+    max_steps: 30_000
+    log_every_n_steps: 200
+    val_check_interval: 200
