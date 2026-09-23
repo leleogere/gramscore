@@ -1,32 +1,74 @@
 # @package _global_
 trainer:
-    max_steps: 10
-    val_check_interval: 1
-    log_every_n_steps: 1
+  max_steps: 30_000
+  check_val_every_n_epoch: 50  # nothing
+  val_check_interval: null  # 20
+  log_every_n_steps: 1
+  overfit_batches: 1
+#    reload_dataloaders_every_n_epochs: 1
 
 # Pretrain PDMX
-#data:
-#    allowed_staffs: [2]
-#    validation_pieces_filename: validation_pieces_double_staff.txt
-#    test_pieces_filename: test_pieces_double_staff.txt
-#    batch_size: 5
+data:
+  allowed_staffs: [ 1 ]
+  validation_pieces_filename: validation_pieces_single_staff_unique.txt
+  test_pieces_filename: test_pieces_single_staff_unique.txt
+  batch_size: 1
+  test_validation_mode: "first_chunk"
+  include_states: true
+  state_num_voices: 8
 
 # Finetune ASAP
 #data:
 #    validation_pieces_filename: validation_pieces.txt
 #    test_pieces_filename: test_pieces.txt
-#    batch_size: 5
+#    batch_size: 4
+#    num_workers: 8
+#    chunk_size: 500
+#    test_validation_mode: "first_chunk"
+#    include_states: true
+#    state_num_voices: 8
+
 #model:
 #    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore2/outputs/server/2026-02-25_12-20-44.108065_eager-glade-344/checkpoints/last.ckpt
+#    score_dropout: 0.5
 
 # Train mixed
-data:
-    batch_size: 5
+#data:
+#    batch_size: 5
+
+model:
+  #    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore2/outputs/server/2026-04-10_10-22-43.482544_worldly-energy-399/checkpoints/last.ckpt
+  tokens_positions_scaling_factor: 1.0
+  #    num_hidden_layers: 2
+  scheduler:
+    warmup_steps: 1
+  experts_inner_dims:
+    _default: [ 256, 128 ]
+  #    chunk_size_scheduler@cfg.model.generic_scheduler: linear_ramp  # How to make this work?
+  #    chunk_size_scheduler:
+  #        _target_: src.models.generic_scheduler.linear_ramp.LinearRamp
+  #        coefficient: 25  # Should reach 500 by 20 steps
+  #        clamp_min: 50
+  #        clamp_max: 500
+  #        cast_type: int
+  full_eval_every_n_val_steps: 1
+  full_eval_max_batches: 3
+  time_based_cross_attention: false
+  loss_weights:
+    Note:
+      note_class: 10.0
+      note_octave: 10.0
+      note_accidental: 10.0
+  states_prediction: true
+  states_prediction_mlp_dims: [ 128, 30, 30 ]
+  states_prediction_loss_weight: 1.0
+  state_num_voices: 8
+#    latent_part_reserved_for_router: 0.5
 
 callbacks:
-    model_checkpoint:
-        every_n_train_steps: 1
+  model_checkpoint:
+    every_n_train_steps: 1
 
-tags: ["debugging"]
+tags: [ "debugging" ]
 
 log_level: DEBUG

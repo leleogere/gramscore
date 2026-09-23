@@ -6,8 +6,8 @@ data:
     batch_size: 48
     num_workers: 20
 
-model:
-    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt
+#model:
+#    load_from_checkpoint: /home/gerel/Documents/transcription/gramscore_old/outputs/server/2025-12-09_13-57-48_sage-serenity-318/checkpoints/last.ckpt
 
 #    performance_dropout: 0.00
 #    score_dropout: 0.00

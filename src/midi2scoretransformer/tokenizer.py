@@ -44,50 +44,52 @@ PARAMS = {
 
 
 class MultistreamTokenizer:
-    # @staticmethod
-    # def midi_to_list(midi_path: str) -> List[pretty_midi.Note]:
-    #     """Converts a MIDI file to a list of notes.
-    #     Used during preprocessing.
-    #
-    #     Parameters
-    #     ----------
-    #     midi_path : str
-    #         Path to the midi file.
-    #
-    #     Returns
-    #     -------
-    #     List[pretty_midi.Note]
-    #     """
-    #     midi = pretty_midi.PrettyMIDI(midi_path)
-    #     return sorted(
-    #         [n for ins in midi.instruments for n in ins.notes],
-    #         key=lambda n: (n.start, n.pitch, n.end - n.start),
-    #     )
-    #
-    # @staticmethod
-    # def parse_midi(midi_path: str) -> Dict[str, torch.Tensor]:
-    #     """Converts a MIDI file to a list of tensors.
-    #     No quantization or bucketing is applied yet.
-    #     Used during preprocessing.
-    #
-    #     Parameters
-    #     ----------
-    #     midi_path : str
-    #         Path to the midi file.
-    #
-    #     Returns
-    #     -------
-    #     Dict[str, torch.Tensor]
-    #         returns a dict of tensors of shape (n_notes,) with keys
-    #         "onset", "duration", "pitch", "velocity"
-    #     """
-    #     midi_list = MultistreamTokenizer.midi_to_list(midi_path)
-    #     return {
-    #         "onset": torch.FloatTensor([n.start for n in midi_list]),
-    #         "duration": torch.FloatTensor([n.end - n.start for n in midi_list]),
-    #         "pitch": torch.LongTensor([n.pitch for n in midi_list]),
-    #         "velocity": torch.LongTensor([n.velocity for n in midi_list]),
-    #     }
+    @staticmethod
+    def midi_to_list(midi_path: str) -> List["pretty_midi.Note"]:
+        """Converts a MIDI file to a list of notes.
+        Used during preprocessing.
+
+        Parameters
+        ----------
+        midi_path : str
+            Path to the midi file.
+
+        Returns
+        -------
+        List[pretty_midi.Note]
+        """
+        import pretty_midi
+
+        midi = pretty_midi.PrettyMIDI(midi_path)
+        return sorted(
+            [n for ins in midi.instruments for n in ins.notes],
+            key=lambda n: (n.start, n.pitch, n.end - n.start),
+        )
+
+    @staticmethod
+    def parse_midi(midi_path: str) -> Dict[str, torch.Tensor]:
+        """Converts a MIDI file to a list of tensors.
+        No quantization or bucketing is applied yet.
+        Used during preprocessing.
+
+        Parameters
+        ----------
+        midi_path : str
+            Path to the midi file.
+
+        Returns
+        -------
+        Dict[str, torch.Tensor]
+            returns a dict of tensors of shape (n_notes,) with keys
+            "onset", "duration", "pitch", "velocity"
+        """
+        midi_list = MultistreamTokenizer.midi_to_list(midi_path)
+        return {
+            "onset": torch.FloatTensor([n.start for n in midi_list]),
+            "duration": torch.FloatTensor([n.end - n.start for n in midi_list]),
+            "pitch": torch.LongTensor([n.pitch for n in midi_list]),
+            "velocity": torch.LongTensor([n.velocity for n in midi_list]),
+        }
 
     @staticmethod
     def bucket_midi(midi_streams: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -107,7 +109,12 @@ class MultistreamTokenizer:
             "pitch", "velocity" and a padding tensor of shape (n_notes, ) w/ key "pad".
         """
         # one-hot
-        onset_stream = torch.diff(midi_streams["onset"], prepend=torch.Tensor([0.0]))
+        onset_stream = torch.diff(
+            midi_streams["onset"],
+            prepend=torch.zeros(
+                1 if midi_streams["onset"].ndim == 1 else (*midi_streams["onset"].shape[:-1], 1)
+            ),
+        )
         onset_stream = torch.log(4 * onset_stream + 1) * 4 / math.log(4 * 8.0 + 1)
         onset_stream = one_hot_bucketing(onset_stream, 0, 4, 200)
         # Squash durations logarithmically such that 0 -> 0 and 16 -> 4
@@ -123,25 +130,26 @@ class MultistreamTokenizer:
             "duration": duration_stream.float(),
             "pitch": pitch_stream.float(),
             "velocity": velocity_stream.float(),
-            "pad": torch.ones((onset_stream.shape[0],), dtype=torch.long),
+            "pad": torch.ones(onset_stream.shape[:-1], dtype=torch.long),
         }
 
-    # @staticmethod
-    # def tokenize_midi(midi_path) -> Dict[str, torch.Tensor]:
-    #     """Converts a MIDI file to list of tensors.
-    #
-    #     Parameters
-    #     ----------
-    #     midi_path : str
-    #         Path to the midi file.
-    #
-    #     Returns
-    #     -------
-    #     Dict[str, torch.Tensor]
-    #         A dict of tensors that represent token streams.
-    #     """
-    #     midi_streams = MultistreamTokenizer.parse_midi(midi_path)
-    #     return MultistreamTokenizer.bucket_midi(midi_streams)
+    @staticmethod
+    def tokenize_midi(midi_path) -> Dict[str, torch.Tensor]:
+        """Converts a MIDI file to list of tensors.
+
+        Parameters
+        ----------
+        midi_path : str
+            Path to the midi file.
+
+        Returns
+        -------
+        Dict[str, torch.Tensor]
+            A dict of tensors that represent token streams.
+        """
+        midi_streams = MultistreamTokenizer.parse_midi(midi_path)
+        return MultistreamTokenizer.bucket_midi(midi_streams)
+
     #
     # @staticmethod
     # def mxl_to_list(mxl_path: str) -> tuple[List[note.Note], stream.Score]:
