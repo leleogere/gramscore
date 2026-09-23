@@ -33,7 +33,7 @@ To run the training without slurm, adapt the script to use `uv run` rather than 
 
 ## Evaluation and analyze
 
-All evaluation and analyze script that I had to write at some point are in the folders `scripts` and `scratches`.
-While `scratches` are supposed to be one-off small script to explore something, there are also some old such scripts in the `scripts` folder due to `scratches` being created way later.
+All evaluation and analyze scripts that I had to write during my explorations are in the folders `scripts` and `scratches`.
+While `scratches` are supposed to be one-off scripts to try something, there are also some old such scripts in the `scripts` folder due to `scratches` being created way later.
 
 The most important one is `scripts/full_transcribe_asap_test_and_evaluate.py`, that transcribes the ASAP dataset, and run the evaluation on the transcribed dataset.
