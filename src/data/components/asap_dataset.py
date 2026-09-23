@@ -251,10 +251,13 @@ class AsapDataset(ScorePerformanceDataset):
 
 
 if __name__ == '__main__':
-    for split in ["train", "validation", "test"]:
+    for split in ["train", "validation", "test", "all"]:
+        print(f"Split: {split}")
         ds = AsapDataset(
             directory=Path("~/Documents/datasets/asap-dataset").expanduser(),
             split=split,
-            include_midi_scores=True,
+            include_midi_scores=False,
+            valid_tsv_file=Path("~/Documents/datasets/asap-dataset/valid.tsv").expanduser(),
         )
-        print(f"Number of entries in {split} set: {len(ds)}")
+        print(f"  - Number of performances: {len(ds)}")
+        print(f"  - Number of scores: {len(set(e.id for e in ds.entries))}")

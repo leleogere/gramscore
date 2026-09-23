@@ -18,13 +18,16 @@ from transformers.modeling_outputs import (
 import data.components.transforms as t
 from data.components.score_performance_dataset import ScorePerformanceEntry, ScorePerformanceDataset
 from models.automata.io import token_sequence_to_partitura_permissive
-from models.components.tokens_transcriber_model import GenerationState
+from utils.generation import GenerationState
 from models.tokens_transcriber_module import TokensTranscriberModule
 import models.automata.tokens as tk
 from utils.constants import PADDING_VALUE
 
 # fmt: off
-model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_15-49-56.653967_dulcet-dew-374/checkpoints/last.ckpt")
+# model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_15-49-56.653967_dulcet-dew-374/checkpoints/last.ckpt")
+# model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-04-01_00-32-12.791876_whole-oath-391/checkpoints/last.ckpt")
+# model_path = Path("~/Documents/transcription/gramscore2/outputs/2026-04/2026-04-08_11-20-19.491437/checkpoints/last.ckpt")
+model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-04-08_09-09-02.955002_solar-sound-393/checkpoints/last.ckpt")
 
 pdmx_path = Path("~/Documents/datasets/pdmx").expanduser()
 asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
@@ -34,7 +37,7 @@ performance_path = (
     # pdmx_path / "mid/13/29/QmVKam2PcfGjsMF1QtwWEwSgG5bqFyiBRGiF5btFQX6vmV.mid"  # Test grace notes
     # pdmx_path / "mid/0/0/Qma1a2YHEJ8j9gxLCxgALAfjYaiYJQogh1bgyFSwNSRPCs.mid"  # Polyphonic, long
     # pdmx_path / "mid/1/11/Qmbbh58jD1ZLT1vevNsnyEZkexnx2USTFz6FSHX3KUiAzC.mid"  # Monophonic
-    # pdmx_path / "mid/15/12/QmXB8B4F9cbHUrnrP4mRGyL3vyhTkyDjuVEbM3VdFu2EY9.mid"  # Polyphonic, chords
+    # pdmx_path / "mid/15/12/QmXB8B4F9cbHUrnrP4mRGyL3vyhTkyDattentionjuVEbM3VdFu2EY9.mid"  # Polyphonic, chords
     # pdmx_path / "mid/1/32/QmbMQQPWGZpGiTV5gngSwmjTbqd7XosW8yyPwkSHnXbhY2.mid"  # Polyphonic, chords
     # Path("/home/gerel/Documents/Perso/Compositions/La Quête d'Ewilan/La Quête d'Ewilan.mid")
     # Path("/home/gerel/Téléchargements/2026-02-25_21-01-14_729n_67s_STARRED.mid")
@@ -53,9 +56,11 @@ print(f"Reference score path: {reference_score_path}")
 print(f"Performance path: {performance_path}")
 
 
-NOTES_PER_CHUNK = 100
-TOKENS_LIMIT_PER_CHUNK = 500
+NOTES_PER_CHUNK = 500
+TOKENS_LIMIT_PER_CHUNK = 1500
 GENERATE_INSTEAD_OF_GT = True
+# Show only small figures, else close
+SHOW_FIGS = NOTES_PER_CHUNK * TOKENS_LIMIT_PER_CHUNK < 50_000
 
 output_dir = Path(
     f"/tmp/attentions/{performance_path.stem}/GENERATED={GENERATE_INSTEAD_OF_GT}_n={NOTES_PER_CHUNK}/"
@@ -230,6 +235,7 @@ plot_attentions(
     average_over_heads=True,
     tokens_names=[f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])],
     output_path=output_dir / f"avg_self_attention.pdf",
+    show=SHOW_FIGS,
 )
 plot_attentions(
     decoder_outputs,
@@ -237,6 +243,14 @@ plot_attentions(
     average_over_heads=True,
     tokens_names=[f"{t.short_name()} {i}" for i, t in enumerate(input_tokens_decoded[1:])],
     output_path=output_dir / f"avg_cross_attention.pdf",
+    show=SHOW_FIGS,
+)
+plot_attentions(
+    encoder_pre_norm_outputs,
+    cross=False,
+    average_over_heads=True,
+    output_path=output_dir / f"avg_encoder_self_attention.pdf",
+    show=SHOW_FIGS,
 )
 
 

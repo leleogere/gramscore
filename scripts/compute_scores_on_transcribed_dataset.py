@@ -169,6 +169,9 @@ t3_row_ours = (
 )
 print("Table 3")
 print(tabulate([t3_row_m2st, t3_row_m2st2, t3_row_ours], headers=t3_headers, floatfmt=".2f"))
+# Also print to CSV
+for l in [t3_headers, t3_row_m2st, t3_row_m2st2, t3_row_ours]:
+    print("\t".join([str(x).replace(".", ",") for x in l]))
 
 # ----- Table 4 -----
 t4_headers = [

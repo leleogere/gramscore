@@ -193,6 +193,8 @@ def main(
     annotations = pd.read_json(asap_path / "asap_annotations.json", orient="index")
 
     score_folders = sorted(map(lambda p: p, metadata["folder"].unique()))
+
+    # score_folders = ["Chopin/Ballades/1"]
     # score_folders = ['Beethoven/Piano_Sonatas/24-2']
     print(f"Found {len(score_folders)} scores in {asap_path}")
 

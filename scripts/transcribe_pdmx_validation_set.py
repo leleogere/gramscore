@@ -17,7 +17,7 @@ from data.components.transforms import PerformanceReader
 from data.components.transforms import PerformanceVectorizer
 from data.pdmx_tokens_datamodule import PdmxTokensDataModule
 from models.automata.io import token_sequence_to_partitura, token_sequence_to_partitura_permissive
-from models.components.tokens_transcriber_model import GenerationState
+from utils.generation import GenerationState
 from models.tokens_transcriber_module import TokensTranscriberModule
 from utils.debug import as_pycharm_link
 
