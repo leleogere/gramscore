@@ -59,6 +59,7 @@ dependencies = [
     "sqlalchemy<2.0.0",
     "hydra-joblib-launcher>=1.2.0",
     "optuna-dashboard>=0.14.0",
+    "click>=8.3.1",
 ]
 
 [project.optional-dependencies]
