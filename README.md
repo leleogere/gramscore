@@ -1,11 +1,12 @@
 # Transcription
 
-This repo contains all the code I developped to support the chapter 5 of my manuscript thesis (to be published soon, contact me to get access sooner if needed).
+This repo contains all the code I developed to support the chapter 5 of my thesis about automatic performance-MIDI-to-score piano transcription under generation constraints.
+More details about this approach are presented in my thesis (to be published soon, contact me to get access sooner if needed).
 
 ## Disclaimer
 
-As those experiements did not end up giving satisfactory results, the repository has not really been cleaned up.
-The code contains the different attempts and research directions I explored, and should be refered to as reference to try other approaches, rather than as a basis to build upon.
+As those experiments did not end up giving satisfactory results, the repository has not really been cleaned up.
+The code contains the different attempts and research directions I explored, and should be referred to as reference to try other approaches, rather than as a basis to build upon.
 
 ## Install
 
@@ -28,7 +29,7 @@ export CUDA_VISIBLE_DEVICES=0  # or any other GPU you want to use, multi-GPU doe
 
 ### Download and setup
 
-Experiements were run with the ASAP dataset, on the develop branch as I fixed some malformed scores I came across during my experiements.
+Experiments were run with the ASAP dataset, on the develop branch as I fixed some malformed scores I came across during my experiments.
 The validation and test sets are available in the folder `asap-splits` of this project.
 
 ```bash
@@ -63,14 +64,14 @@ uv run python "./scripts/transcribe.py" --model "path/to/weights.ckpt" --output 
 
 ## Reproduce manuscript results table
 
-The following command should reproduce the results presented in the chapter 5 of my thesis manuscipt.
+The following command should reproduce the results presented in the chapter 5 of my thesis manuscript.
 The evaluation is done using my [amt-evaluation-metrics](https://github.com/leleogere/amt-evaluation-metrics) repository, cleaner than the metrics implementations in this repository.
 
-First, adap the `scripts/full_transcribe_asap_test_and_evaluate.py` file with the correct paths for the model weights, the ASAP dataset and the output transcription directory.
+First, adapt the `scripts/full_transcribe_asap_test_and_evaluate.py` file with the correct paths for the model weights, the ASAP dataset and the output transcription directory.
 Make sure you also have copied the `test_pieces.txt` file in the ASAP dataset folder (see above).
 
 ```bash
-# Transcribe ASAP test set (evaluation is volutarily disabled in the script due to some implementation changes)
+# Transcribe ASAP test set (evaluation is voluntarily disabled in the script due to some implementation changes)
 uv run python "./scripts/full_transcribe_asap_test_and_evaluate.py"
 # Evaluate with the amt-evaluation-metrics repository
 cd "/path/to/amt-evaluation-metrics"
