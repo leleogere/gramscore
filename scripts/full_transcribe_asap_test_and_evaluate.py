@@ -158,7 +158,7 @@ def evaluate(transcription_directory: Path):
     print(transcription_directory.as_posix())
     print(f"Number of fully transcribed scores: {len(transcribed_scores)}")
     ground_truth_scores = [
-        t_score.with_name(f"xml_score_clipped.musicxml") for t_score in transcribed_scores
+        t_score.with_name(f"xml_score.musicxml") for t_score in transcribed_scores
     ]
 
     NUM_PRED = None
@@ -435,62 +435,17 @@ if __name__ == '__main__':
     FORCE_TRANSCRIPTION = False
 
     # fmt: off
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-10_16-03-09_comic-cherry-323/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-16_16-41-28_spring-sunset-330/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-16_16-41-28_spring-sunset-330/checkpoints/epoch_000.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-19_12-05-10_fallen-wind-334/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-19_12-05-10_fallen-wind-334/checkpoints/epoch_004.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-19_12-05-10_fallen-wind-334/checkpoints/step=8500.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-24_19-23-04/checkpoints/last-v2_cerulean-pine-341.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-24_19-23-04/checkpoints/last-v2_cerulean-pine-341.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-24_19-23-04/checkpoints/last-v1_worldly-hill-340.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-24_19-23-04/checkpoints/last_electric-fire-339.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-10_17-00-21.057562_raccoon-bowser-368/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-02-24_19-23-04/checkpoints/last-v2_cerulean-pine-341.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-10_17-00-21.057562_raccoon-bowser-368/checkpoints/e=001_s=001500.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_12-20-19.551783_zesty-resonance-371/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_12-21-05.750663_light-feather-372/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_15-49-56.653967_dulcet-dew-374/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_15-49-56.666726_helpful-wood-375/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_20-02-39.939096_sage-water-376/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-16_20-15-36.479036_cool-flower-377/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-18_11-31-57.255427_glad-pond-378/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-19_15-59-45.400818_lilac-eon-380/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-23_12-45-56.444839_fragrant-hill-383/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-23_12-45-57.852815_stoic-lion-384/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-24_10-28-18.964079_helpful-durian-386/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-24_10-28-18.963913_charmed-wave-388/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-24_10-28-18.964317_legendary-paper-387/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-24_10-29-18.822090_still-snowflake-389/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-03-25_16-08-01.644560_rural-mountain-389/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-04-01_00-32-12.791876_whole-oath-391/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-04-08_09-09-02.955002_solar-sound-393/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-04-14_15-25-48.752849_smart-puddle-403/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-04-14_15-25-48.746806_wandering-smoke-404/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-11_09-27-21.456443_morning-snowball-1170/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-11_09-31-53.414935_serene-jazz-1171/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-12_11-46-36.002881_morning-snowball-1170_2/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-13_12-18-46.946766_morning-snowball-1170_3/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-14_12-04-36.203562_genial-bush-1269/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-16_19-10-35.601209_legendary-totem-1401/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-19_18-02-40.669697_legendary-totem-1401_2/checkpoints/last.ckpt").expanduser()
-    # model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-21_08-52-49.465600_legendary-totem-1401_3/checkpoints/last.ckpt").expanduser()
-    model_path = Path("~/Documents/transcription/gramscore2/outputs/server/2026-05-27_09-17-04.791128_ethereal-plasma-1405/checkpoints/last.ckpt").expanduser()
-
-    # base_path = Path("~/Documents/datasets/asap-dataset").expanduser()
-    # performance_path = base_path / "Bach/Prelude/bwv_860/YoungS01M.mid"
-    # performance_path = base_path / "Bach/Prelude/bwv_860/midi_score.mid"
-    # performance_path = base_path / "Bach/Prelude/bwv_883/LuM01M.mid"
-    # performance_path = base_path / "Bach/Prelude/bwv_883/midi_score.mid"
+    model_path = Path("/home/leo/Documents/Thèse/gramscore/weights/2026-05-27_09-17-04.791128_ethereal-plasma-1405/checkpoints/last.ckpt").expanduser()
     # fmt: on
 
     CHUNK_SIZE = 500
     MAX_TOKENS_PER_CHUNK = 3000
     MAX_CHUNKS = 100
-    CONSTRAINT = True
+    CONSTRAINT = False
     CONSTRAINT_ITERATIONS = 10000
+    EVALUATE=False
 
-    asap_path = Path("~/Documents/datasets/asap-dataset").expanduser()
+    asap_path = Path("~/Documents/Thèse/datasets/asap-dataset").expanduser()
     transcription_directory = (
         asap_path.parent
         / "transcriptions"
@@ -583,6 +538,7 @@ if __name__ == '__main__':
             use_cache=True,
         )
         print("Transcription finished!")
-    print("Starting evaluation...")
-    evaluate(transcription_directory)
-    print("Evaluation finished!")
+    if EVALUATE:
+        print("Starting evaluation...")
+        evaluate(transcription_directory)
+        print("Evaluation finished!")
