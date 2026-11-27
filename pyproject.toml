@@ -50,7 +50,7 @@ dependencies = [
     "sqlalchemy<2.0.0",
     "lxml==6.0.2",
     "more-itertools==10.8.0",
-#    "muster@git+https://github.com/TimFelixBeyer/amtevaluation.github.io.git",  # git@github.com:TimFelixBeyer/amtevaluation.github.io.git
+   "muster@git+https://github.com/TimFelixBeyer/amtevaluation.github.io.git",  # git@github.com:TimFelixBeyer/amtevaluation.github.io.git
     #    "score-transformer",
     "music21@git+https://github.com/TimFelixBeyer/music21.git@0ed70bb38f2017dc04cb19aada24e88a141517e2",
     "optuna>=2.10.1",
@@ -92,7 +92,7 @@ minversion = "6.0"
 testpaths = "tests/"
 
 [tool.uv.sources]
-muster = { path = "../metrics/amtevaluation.github.io" }
-score-transformer = { path = "../metrics/ScoreTransformer" }
+# muster = { path = "../metrics/amtevaluation.github.io" }
+# score-transformer = { path = "../metrics/ScoreTransformer" }
 music21 = { git = "https://github.com/TimFelixBeyer/music21.git", rev = "0ed70bb38f2017dc04cb19aada24e88a141517e2" }
-partitura = { path = "../../../Applications/partitura" }
+# partitura = { path = "../../../Applications/partitura" }
