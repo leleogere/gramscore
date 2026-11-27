@@ -10,8 +10,6 @@
 #SBATCH --qos=qos_gpu_h100-t4       # QoS dev=2h / t3=20h / t4=100h
 #SBATCH --hint=nomultithread        # desactiver l’hyperthreading
 #SBATCH --account=cce@h100          # comptabilite V100
-#SBATCH --mail-user=a2btkjumgd@pomail.net
-#SBATCH --mail-type=ALL
 
 module purge      # nettoyer les modules herites par defaut
 #conda deactivate  # desactiver les environnements herites par defaut
